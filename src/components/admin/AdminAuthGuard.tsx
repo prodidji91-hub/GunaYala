@@ -9,6 +9,7 @@ interface AdminAuthGuardProps {
 
 export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite }) => {
   const [session, setSession] = useState<any>(null);
+  const sessionRef = useRef<any>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(false);
   const [isCheckingAdmin, setIsCheckingAdmin] = useState<boolean>(false);
@@ -37,6 +38,11 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
   const [isSendingReset, setIsSendingReset] = useState<boolean>(false);
   const [forgotSuccess, setForgotSuccess] = useState<boolean>(false);
   const [forgotError, setForgotError] = useState<string | null>(null);
+
+  const updateSessionState = (newSession: any) => {
+    setSession(newSession);
+    sessionRef.current = newSession;
+  };
 
   const verifyAdminStatus = async (user: any) => {
     if (!user || !user.id || !supabase) {
@@ -80,6 +86,9 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       return;
     }
 
+    const client = supabase;
+    let isMounted = true;
+
     // Inspect URL for tokens, authorization code, or error states
     const searchParams = new URLSearchParams(window.location.search);
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
@@ -94,12 +103,14 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     const isInviteOrRecovery = authType === 'invite' || authType === 'recovery';
     const authCode = searchParams.get('code');
 
-    // Handle invalid or expired links
+    // Handle invalid or expired link errors reported in URL
     if (errorParam) {
       const decoded = decodeURIComponent(errorParam.replace(/\+/g, ' '));
-      setLinkErrorMsg(decoded);
+      if (isMounted) {
+        setLinkErrorMsg(decoded);
+        setIsLoadingAuth(false);
+      }
       window.history.replaceState({}, document.title, window.location.pathname);
-      setIsLoadingAuth(false);
       return;
     }
 
@@ -107,71 +118,31 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     if (isInviteOrRecovery) {
       isPasswordSetupModeRef.current = true;
       setIsSettingPassword(true);
+      setIsLoadingAuth(true);
     }
 
-    // Process PKCE authorization code if present
-    if (authCode) {
-      supabase.auth.exchangeCodeForSession(authCode)
-        .then(async ({ data, error }) => {
-          window.history.replaceState({}, document.title, window.location.pathname);
-          if (error) {
-            setLinkErrorMsg(error.message || 'Authentication link is invalid or has expired.');
-            setIsLoadingAuth(false);
-          } else if (data.session?.user) {
-            setSession(data.session);
-            if (isInviteOrRecovery || isPasswordSetupModeRef.current) {
-              isPasswordSetupModeRef.current = true;
-              setIsSettingPassword(true);
-              setIsLoadingAuth(false);
-            } else {
-              await verifyAdminStatus(data.session.user);
-            }
-          }
-        })
-        .catch((err) => {
-          setLinkErrorMsg(err?.message || 'Failed to exchange authorization code.');
-          setIsLoadingAuth(false);
-        });
-      return;
-    }
+    // 1. Register onAuthStateChange listener FIRST so no events are missed
+    const { data: { subscription } } = client.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted) return;
 
-    // Check existing session
-    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
-      setSession(existingSession);
-      if (existingSession?.user) {
-        if (isInviteOrRecovery || isPasswordSetupModeRef.current) {
-          isPasswordSetupModeRef.current = true;
-          setIsSettingPassword(true);
-          setIsLoadingAuth(false);
-        } else {
-          verifyAdminStatus(existingSession.user);
-        }
-      } else {
-        if (!isInviteOrRecovery && !isPasswordSetupModeRef.current) {
-          setIsLoadingAuth(false);
-        }
+      if (newSession) {
+        updateSessionState(newSession);
       }
-    });
-
-    // Listen for auth state changes (crucial for PASSWORD_RECOVERY event)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      setSession(newSession);
 
       if (event === 'PASSWORD_RECOVERY') {
         isPasswordSetupModeRef.current = true;
         setIsSettingPassword(true);
         setIsLoadingAuth(false);
-        // Clean tokens from URL bar without losing session state
-        window.history.replaceState({}, document.title, window.location.pathname);
       } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
         if (newSession?.user) {
-          // If in password setup / recovery flow, do not auto-navigate to dashboard yet
           if (!isPasswordSetupModeRef.current && !isInviteOrRecovery) {
             await verifyAdminStatus(newSession.user);
+          } else {
+            setIsLoadingAuth(false);
           }
         }
       } else if (event === 'SIGNED_OUT') {
-        setSession(null);
+        updateSessionState(null);
         isPasswordSetupModeRef.current = false;
         setIsAdminAuthorized(false);
         setIsSettingPassword(false);
@@ -179,7 +150,85 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       }
     });
 
+    // 2. Initialize session: coordinate with Supabase URL detection and avoid duplicate PKCE exchange
+    const initSession = async () => {
+      try {
+        // getSession() automatically awaits initializePromise (which handles detectSessionInUrl)
+        const { data: { session: existingSession }, error: getSessionErr } = await client.auth.getSession();
+
+        if (getSessionErr) {
+          console.warn('getSession error during initialization:', getSessionErr);
+        }
+
+        let resolvedSession = existingSession;
+
+        // If no session returned by auto-detection and authCode is in URL, try single manual exchange
+        if (!resolvedSession && authCode) {
+          try {
+            const { data: exchangeData, error: exchangeErr } = await client.auth.exchangeCodeForSession(authCode);
+            if (!exchangeErr && exchangeData.session) {
+              resolvedSession = exchangeData.session;
+            } else if (exchangeErr) {
+              console.warn('Manual exchangeCodeForSession error:', exchangeErr);
+              // Only report error if we did not already get a session from onAuthStateChange
+              if (!sessionRef.current && isMounted) {
+                setLinkErrorMsg(exchangeErr.message || 'Authentication link is invalid or has expired.');
+                setIsLoadingAuth(false);
+                return;
+              }
+            }
+          } catch (codeErr: any) {
+            console.warn('PKCE exchange exception:', codeErr);
+          }
+        }
+
+        if (!isMounted) return;
+
+        const active = resolvedSession || sessionRef.current;
+
+        if (active?.user) {
+          updateSessionState(active);
+
+          if (isInviteOrRecovery || isPasswordSetupModeRef.current) {
+            isPasswordSetupModeRef.current = true;
+            setIsSettingPassword(true);
+            setIsLoadingAuth(false);
+          } else {
+            await verifyAdminStatus(active.user);
+          }
+        } else {
+          if (isInviteOrRecovery) {
+            // Give asynchronous event / token exchange a brief moment to finish before failing
+            setTimeout(async () => {
+              if (!isMounted) return;
+              const { data: retryData } = await client.auth.getSession();
+              const latestSession = retryData?.session || sessionRef.current;
+              if (latestSession?.user) {
+                updateSessionState(latestSession);
+                isPasswordSetupModeRef.current = true;
+                setIsSettingPassword(true);
+                setIsLoadingAuth(false);
+              } else {
+                setLinkErrorMsg('Your password recovery link is invalid or has expired. Please request a new recovery link.');
+                setIsLoadingAuth(false);
+              }
+            }, 600);
+          } else {
+            setIsLoadingAuth(false);
+          }
+        }
+      } catch (err: any) {
+        console.error('Error during auth initialization:', err);
+        if (isMounted) {
+          setIsLoadingAuth(false);
+        }
+      }
+    };
+
+    initSession();
+
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -203,6 +252,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       }
 
       if (data.session?.user) {
+        updateSessionState(data.session);
         await verifyAdminStatus(data.session.user);
       }
     } catch (err: any) {
@@ -238,7 +288,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
 
   const handlePasswordSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase || !session?.user) return;
+    if (!supabase) return;
 
     if (newPassword.length < 8) {
       setPasswordSetupError('Password must be at least 8 characters long.');
@@ -254,23 +304,60 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     setPasswordSetupError(null);
 
     try {
-      // Only authenticated recovery sessions can update the user's password
+      // 1. Verify current session in Supabase client before calling updateUser
+      const { data: sessionData } = await supabase.auth.getSession();
+      let activeSession = sessionData?.session || sessionRef.current || session;
+
+      // 2. If Supabase client session is missing but we have state/ref credentials, re-hydrate
+      if (!sessionData?.session && activeSession?.access_token && activeSession?.refresh_token) {
+        try {
+          const { data: restored, error: restoreError } = await supabase.auth.setSession({
+            access_token: activeSession.access_token,
+            refresh_token: activeSession.refresh_token,
+          });
+          if (!restoreError && restored.session) {
+            activeSession = restored.session;
+            updateSessionState(restored.session);
+          }
+        } catch (err) {
+          console.warn('Attempted to restore session before password update:', err);
+        }
+      }
+
+      if (!activeSession?.user) {
+        setPasswordSetupError(
+          'Your recovery session has expired or is missing. Please request a new recovery link below.'
+        );
+        setIsSubmittingPassword(false);
+        return;
+      }
+
+      // 3. Update the user's password
       const { data, error } = await supabase.auth.updateUser({
         password: newPassword,
       });
 
       if (error) {
-        setPasswordSetupError(error.message);
+        if (error.message?.includes('Auth session missing') || error.name === 'AuthSessionMissingError') {
+          setPasswordSetupError(
+            'Your recovery session has expired or is invalid. Please request a fresh password recovery link below.'
+          );
+        } else {
+          setPasswordSetupError(error.message);
+        }
         setIsSubmittingPassword(false);
         return;
       }
 
       setPasswordSetupSuccess(true);
-      window.history.replaceState({}, document.title, window.location.pathname);
+      // Clean tokens from URL bar only after successful password update
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
       isPasswordSetupModeRef.current = false;
 
       // Verify authorization in public.quotation_admins by UID
-      const activeUser = data.user || session?.user;
+      const activeUser = data.user || activeSession?.user;
       if (activeUser) {
         await verifyAdminStatus(activeUser);
       }
@@ -285,11 +372,12 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
   const handleLogout = async () => {
     if (!supabase) return;
     await supabase.auth.signOut();
-    setSession(null);
+    updateSessionState(null);
     isPasswordSetupModeRef.current = false;
     setIsAdminAuthorized(false);
     setIsSettingPassword(false);
     setLinkErrorMsg(null);
+    window.history.replaceState({}, document.title, '/admin');
   };
 
   // 1. Missing / Unconfigured Supabase state
@@ -324,7 +412,9 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       <div className="min-h-screen bg-[#faf8f5] flex flex-col items-center justify-center p-4">
         <div className="flex flex-col items-center space-y-3">
           <Loader2 className="w-8 h-8 animate-spin text-[#0e3b2f]" />
-          <span className="text-xs font-mono text-[#52606d] font-medium">Verifying administrator credentials...</span>
+          <span className="text-xs font-mono text-[#52606d] font-medium">
+            {isSettingPassword ? 'Authenticating recovery session...' : 'Verifying administrator credentials...'}
+          </span>
         </div>
       </div>
     );
