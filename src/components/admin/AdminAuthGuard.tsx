@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { AdminDashboard } from './AdminDashboard';
 import { Lock, Mail, Key, Loader2, AlertCircle, LogOut, ArrowLeft, CheckCircle2, ShieldCheck } from 'lucide-react';
@@ -16,8 +16,9 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
   // Link status / callback state
   const [linkErrorMsg, setLinkErrorMsg] = useState<string | null>(null);
   const [isSettingPassword, setIsSettingPassword] = useState<boolean>(false);
+  const isPasswordSetupModeRef = useRef<boolean>(false);
 
-  // Password setup state (for invitation acceptance / recovery)
+  // Password setup state (for invitation acceptance / password recovery)
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [passwordSetupError, setPasswordSetupError] = useState<string | null>(null);
@@ -29,6 +30,13 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
   const [password, setPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+
+  // Forgot password form state
+  const [isForgotPassword, setIsForgotPassword] = useState<boolean>(false);
+  const [forgotEmail, setForgotEmail] = useState<string>('');
+  const [isSendingReset, setIsSendingReset] = useState<boolean>(false);
+  const [forgotSuccess, setForgotSuccess] = useState<boolean>(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
 
   const verifyAdminStatus = async (user: any) => {
     if (!user || !user.id || !supabase) {
@@ -95,17 +103,24 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       return;
     }
 
+    // If invitation or recovery tokens are present in URL, activate password setup mode
+    if (isInviteOrRecovery) {
+      isPasswordSetupModeRef.current = true;
+      setIsSettingPassword(true);
+    }
+
     // Process PKCE authorization code if present
     if (authCode) {
       supabase.auth.exchangeCodeForSession(authCode)
         .then(async ({ data, error }) => {
           window.history.replaceState({}, document.title, window.location.pathname);
           if (error) {
-            setLinkErrorMsg(error.message || 'Invitation link is invalid or has expired.');
+            setLinkErrorMsg(error.message || 'Authentication link is invalid or has expired.');
             setIsLoadingAuth(false);
           } else if (data.session?.user) {
             setSession(data.session);
-            if (isInviteOrRecovery) {
+            if (isInviteOrRecovery || isPasswordSetupModeRef.current) {
+              isPasswordSetupModeRef.current = true;
               setIsSettingPassword(true);
               setIsLoadingAuth(false);
             } else {
@@ -120,41 +135,44 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       return;
     }
 
-    // If invitation hash is detected in URL, prepare password setup mode
-    if (isInviteOrRecovery) {
-      setIsSettingPassword(true);
-    }
-
     // Check existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        if (isInviteOrRecovery) {
+    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+      setSession(existingSession);
+      if (existingSession?.user) {
+        if (isInviteOrRecovery || isPasswordSetupModeRef.current) {
+          isPasswordSetupModeRef.current = true;
           setIsSettingPassword(true);
           setIsLoadingAuth(false);
         } else {
-          verifyAdminStatus(session.user);
+          verifyAdminStatus(existingSession.user);
         }
       } else {
-        setIsLoadingAuth(false);
+        if (!isInviteOrRecovery && !isPasswordSetupModeRef.current) {
+          setIsLoadingAuth(false);
+        }
       }
     });
 
-    // Listen for auth state changes
+    // Listen for auth state changes (crucial for PASSWORD_RECOVERY event)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       setSession(newSession);
 
       if (event === 'PASSWORD_RECOVERY') {
+        isPasswordSetupModeRef.current = true;
         setIsSettingPassword(true);
         setIsLoadingAuth(false);
+        // Clean tokens from URL bar without losing session state
+        window.history.replaceState({}, document.title, window.location.pathname);
       } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
         if (newSession?.user) {
-          if (!isSettingPassword) {
+          // If in password setup / recovery flow, do not auto-navigate to dashboard yet
+          if (!isPasswordSetupModeRef.current && !isInviteOrRecovery) {
             await verifyAdminStatus(newSession.user);
           }
         }
       } else if (event === 'SIGNED_OUT') {
         setSession(null);
+        isPasswordSetupModeRef.current = false;
         setIsAdminAuthorized(false);
         setIsSettingPassword(false);
         setIsLoadingAuth(false);
@@ -194,6 +212,30 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase || !forgotEmail) return;
+    setIsSendingReset(true);
+    setForgotError(null);
+    setForgotSuccess(false);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+        redirectTo: 'https://gunayala123.netlify.app/admin',
+      });
+
+      if (error) {
+        setForgotError(error.message);
+      } else {
+        setForgotSuccess(true);
+      }
+    } catch (err: any) {
+      setForgotError(err?.message || 'Failed to send password reset email.');
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
   const handlePasswordSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase || !session?.user) return;
@@ -212,6 +254,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     setPasswordSetupError(null);
 
     try {
+      // Only authenticated recovery sessions can update the user's password
       const { data, error } = await supabase.auth.updateUser({
         password: newPassword,
       });
@@ -223,14 +266,13 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       }
 
       setPasswordSetupSuccess(true);
-      // Clean up address bar
       window.history.replaceState({}, document.title, window.location.pathname);
+      isPasswordSetupModeRef.current = false;
 
       // Verify authorization in public.quotation_admins by UID
-      if (data.user) {
-        await verifyAdminStatus(data.user);
-      } else if (session?.user) {
-        await verifyAdminStatus(session.user);
+      const activeUser = data.user || session?.user;
+      if (activeUser) {
+        await verifyAdminStatus(activeUser);
       }
       setIsSettingPassword(false);
     } catch (err: any) {
@@ -244,6 +286,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     if (!supabase) return;
     await supabase.auth.signOut();
     setSession(null);
+    isPasswordSetupModeRef.current = false;
     setIsAdminAuthorized(false);
     setIsSettingPassword(false);
     setLinkErrorMsg(null);
@@ -275,7 +318,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     );
   }
 
-  // 2. Loading state during auth check
+  // 2. Loading state during initial auth check
   if (isLoadingAuth || isCheckingAdmin) {
     return (
       <div className="min-h-screen bg-[#faf8f5] flex flex-col items-center justify-center p-4">
@@ -287,7 +330,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     );
   }
 
-  // 3. Invalid or Expired Invitation Link State
+  // 3. Invalid or Expired Invitation / Recovery Link State
   if (linkErrorMsg) {
     return (
       <div className="min-h-screen bg-[#faf8f5] flex items-center justify-center p-4">
@@ -296,12 +339,12 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
             <AlertCircle className="w-7 h-7" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-xl font-serif font-bold text-red-900">Invitation Link Expired or Invalid</h2>
+            <h2 className="text-xl font-serif font-bold text-red-900">Recovery Link Expired or Invalid</h2>
             <p className="text-xs text-[#52606d] leading-relaxed">
               {linkErrorMsg}
             </p>
             <p className="text-[11px] text-[#687785] pt-1">
-              Please contact the system administrator or request a new invitation link.
+              Please request a fresh password recovery link below.
             </p>
           </div>
 
@@ -310,10 +353,11 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
               onClick={() => {
                 setLinkErrorMsg(null);
                 setIsSettingPassword(false);
+                setIsForgotPassword(true);
               }}
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
             >
-              <span>Go to Admin Sign In</span>
+              <span>Request New Recovery Link</span>
             </button>
             <button
               onClick={onBackToWebsite}
@@ -328,8 +372,19 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     );
   }
 
-  // 4. Invitation Acceptance & Password Setup Interface
-  if (isSettingPassword && session?.user) {
+  // 4. Invitation Acceptance & "Create New Password" Interface
+  if (isSettingPassword) {
+    if (!session?.user) {
+      return (
+        <div className="min-h-screen bg-[#faf8f5] flex flex-col items-center justify-center p-4">
+          <div className="flex flex-col items-center space-y-3">
+            <Loader2 className="w-8 h-8 animate-spin text-[#0e3b2f]" />
+            <span className="text-xs font-mono text-[#52606d] font-medium">Authenticating recovery session...</span>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-[#0e3b2f] flex flex-col items-center justify-center p-4 selection:bg-[#c9a96e] selection:text-[#0e3b2f]">
         <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl border border-[#c9a96e]/30 space-y-6">
@@ -338,10 +393,10 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
               <ShieldCheck className="w-6 h-6" />
             </div>
             <h1 className="text-xl font-serif font-bold text-[#0e3b2f] tracking-wide">
-              Complete Administrator Setup
+              Create New Password
             </h1>
             <p className="text-xs text-[#687785]">
-              Set a secure password for your administrator account.
+              Create a new secure password for your administrator account.
             </p>
           </div>
 
@@ -355,7 +410,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
           {passwordSetupSuccess && (
             <div className="bg-emerald-50 border-l-4 border-emerald-600 p-3 rounded text-xs text-emerald-900 flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <span>Password successfully established! Verifying authorization...</span>
+              <span>Password successfully updated! Verifying administrator permissions...</span>
             </div>
           )}
 
@@ -409,15 +464,15 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
             <button
               type="submit"
               disabled={isSubmittingPassword}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white font-medium rounded-lg transition-colors shadow-sm"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white font-medium rounded-lg transition-colors shadow-sm cursor-pointer"
             >
               {isSubmittingPassword ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-[#c9a96e]" />
-                  <span>Saving Password & Activating Account...</span>
+                  <span>Saving New Password...</span>
                 </>
               ) : (
-                <span>Activate Account & Enter CMS</span>
+                <span>Save New Password & Sign In</span>
               )}
             </button>
           </form>
@@ -441,7 +496,113 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     );
   }
 
-  // 5. Not logged in -> Show Regular Email/Password Login Interface
+  // 5. Forgot Password Interface
+  if (isForgotPassword) {
+    return (
+      <div className="min-h-screen bg-[#0e3b2f] flex flex-col items-center justify-center p-4 selection:bg-[#c9a96e] selection:text-[#0e3b2f]">
+        <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl border border-[#c9a96e]/30 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 bg-[#0e3b2f] text-[#c9a96e] rounded-lg flex items-center justify-center mx-auto shadow">
+              <Key className="w-6 h-6" />
+            </div>
+            <h1 className="text-xl font-serif font-bold text-[#0e3b2f] tracking-wide">
+              Reset Administrator Password
+            </h1>
+            <p className="text-xs text-[#687785]">
+              Enter your administrator email to receive a secure password reset email.
+            </p>
+          </div>
+
+          {forgotError && (
+            <div className="bg-red-50 border-l-4 border-red-600 p-3 rounded text-xs text-red-900 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+              <span>{forgotError}</span>
+            </div>
+          )}
+
+          {forgotSuccess ? (
+            <div className="space-y-4 text-xs">
+              <div className="bg-emerald-50 border-l-4 border-emerald-600 p-4 rounded text-emerald-950 space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-emerald-900">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Password Reset Request Submitted</span>
+                </div>
+                <p>
+                  If an administrator account exists for <strong>{forgotEmail}</strong>, password reset instructions have been sent. Please check your email inbox and click "Reset password" to create your new password.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsForgotPassword(false);
+                  setForgotSuccess(false);
+                }}
+                className="w-full py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
+              >
+                Return to Admin Sign In
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-[#0e3b2f] font-semibold mb-1">Administrator Email</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8a98a5]">
+                    <Mail className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="email"
+                    required
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="admin@gunayalatravel.com"
+                    className="w-full pl-9 pr-3 py-2.5 border border-[#cfc7b2] rounded-lg bg-[#faf8f5] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0e3b2f]"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSendingReset}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white font-medium rounded-lg transition-colors shadow-sm cursor-pointer"
+              >
+                {isSendingReset ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-[#c9a96e]" />
+                    <span>Sending Recovery Email...</span>
+                  </>
+                ) : (
+                  <span>Send Password Reset Email</span>
+                )}
+              </button>
+
+              <div className="pt-2 border-t border-[#f0eae0] flex justify-between items-center text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsForgotPassword(false);
+                    setForgotError(null);
+                  }}
+                  className="text-[#52606d] hover:text-[#0e3b2f] font-medium transition-colors"
+                >
+                  ← Back to Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={onBackToWebsite}
+                  className="text-[#52606d] hover:text-[#0e3b2f] font-medium transition-colors"
+                >
+                  Return to Website →
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 6. Not logged in -> Show Regular Email/Password Login Interface
   if (!session) {
     return (
       <div className="min-h-screen bg-[#0e3b2f] flex flex-col items-center justify-center p-4 selection:bg-[#c9a96e] selection:text-[#0e3b2f]">
@@ -503,7 +664,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white font-medium rounded-lg transition-colors shadow-sm"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white font-medium rounded-lg transition-colors shadow-sm cursor-pointer"
             >
               {isLoggingIn ? (
                 <>
@@ -515,6 +676,22 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
               )}
             </button>
           </form>
+
+          {/* Requirement 1: "Forgot password?" link below the existing administrator login form */}
+          <div className="text-center pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setForgotEmail(email);
+                setForgotError(null);
+                setForgotSuccess(false);
+                setIsForgotPassword(true);
+              }}
+              className="text-xs text-[#0e3b2f] hover:underline font-medium cursor-pointer"
+            >
+              Forgot password?
+            </button>
+          </div>
 
           <div className="pt-2 border-t border-[#f0eae0] text-center">
             <button
@@ -529,7 +706,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     );
   }
 
-  // 6. Logged in but NOT authorized in public.quotation_admins -> Unauthorized State
+  // 7. Logged in but NOT authorized in public.quotation_admins -> Unauthorized State
   if (!isAdminAuthorized) {
     return (
       <div className="min-h-screen bg-[#faf8f5] flex items-center justify-center p-4">
@@ -547,7 +724,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
           <div className="flex flex-col gap-2.5">
             <button
               onClick={handleLogout}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
               <span>Sign Out & Try Another Account</span>
@@ -565,7 +742,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     );
   }
 
-  // 7. Authorized Admin -> Render AdminDashboard with Logout button
+  // 8. Authorized Admin -> Render AdminDashboard with Logout button
   return (
     <div className="relative">
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
@@ -574,7 +751,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
         </span>
         <button
           onClick={handleLogout}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-red-50 text-red-700 hover:text-red-800 border border-red-200 rounded text-xs font-medium transition-colors shadow-xs"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-red-50 text-red-700 hover:text-red-800 border border-red-200 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer"
           title="Sign Out"
         >
           <LogOut className="w-3.5 h-3.5" />

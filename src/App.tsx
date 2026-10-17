@@ -16,6 +16,25 @@ import { FinalCta } from './components/FinalCta';
 import { Footer } from './components/Footer';
 import { AdminAuthGuard } from './components/admin/AdminAuthGuard';
 import { EXPERIENCES_DATA } from './data/experiences';
+import { supabase } from './lib/supabase';
+
+const isAuthCallbackUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  return (
+    hash.includes('type=recovery') ||
+    hash.includes('type=invite') ||
+    hash.includes('access_token=') ||
+    hash.includes('error=') ||
+    hash.includes('error_code=') ||
+    search.includes('code=') ||
+    search.includes('type=recovery') ||
+    search.includes('type=invite') ||
+    search.includes('error=') ||
+    search.includes('error_code=')
+  );
+};
 
 export default function App() {
   const [currentLang, setCurrentLang] = useState<Language>('en');
@@ -26,9 +45,20 @@ export default function App() {
   const [plannerModalCategory, setPlannerModalCategory] = useState<ExperienceCategory | undefined>(undefined);
   const [plannerPreSelectedCategory, setPlannerPreSelectedCategory] = useState<ExperienceCategory | ''>('');
 
-  // Routing State for /admin route
+  // Routing State for /admin route, including Supabase auth callback detection from root URL
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
-    return typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+    if (typeof window === 'undefined') return false;
+    if (window.location.pathname.startsWith('/admin')) return true;
+    if (isAuthCallbackUrl()) {
+      // Securely transfer URL to /admin preserving token/hash/code for AdminAuthGuard
+      window.history.replaceState(
+        {},
+        '',
+        '/admin' + window.location.search + window.location.hash
+      );
+      return true;
+    }
+    return false;
   });
 
   // Handle Shareable Experience Deep Links (?experience=id or ?exp=id)
@@ -48,7 +78,15 @@ export default function App() {
 
   useEffect(() => {
     const handleLocationChange = () => {
-      setIsAdminRoute(window.location.pathname.startsWith('/admin'));
+      const atAdmin = window.location.pathname.startsWith('/admin') || isAuthCallbackUrl();
+      if (atAdmin && !window.location.pathname.startsWith('/admin')) {
+        window.history.replaceState(
+          {},
+          '',
+          '/admin' + window.location.search + window.location.hash
+        );
+      }
+      setIsAdminRoute(atAdmin);
 
       // Sync experience parameter on back/forward or initial navigate
       const params = new URLSearchParams(window.location.search);
@@ -68,6 +106,24 @@ export default function App() {
 
     window.addEventListener('popstate', handleLocationChange);
     return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
+
+  // Listen for Supabase PASSWORD_RECOVERY events
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin')) {
+          window.history.replaceState(
+            {},
+            '',
+            '/admin' + window.location.search + window.location.hash
+          );
+        }
+        setIsAdminRoute(true);
+      }
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleNavigateToPublic = () => {
