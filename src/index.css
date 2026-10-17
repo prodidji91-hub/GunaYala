@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-brand: 'Bodoni Moda', 'Italiana', 'Cinzel', Georgia, serif;
+    --font-display: 'Cormorant Garamond', 'Fraunces', Georgia, serif;
+    --font-serif: 'Fraunces', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  .font-brand {
+    font-family: var(--font-brand);
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  h1, h2, h3, .font-serif {
+    font-family: var(--font-serif);
+  }
+}
+
+/* ========================================================
+   GUNA YALA REFINED CHAMPAGNE-GOLD WORDMARK ANIMATION SYSTEM
+   ======================================================== */
+
+/* 1. Imperceptible organic 3.5px vertical floating sensation (entire wordmark moves as one object) */
+@keyframes gunaYalaSubtleFloat {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-3.5px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+/* 2. Signature smooth light sweep traveling from left to right across letters, fading out, pausing, and repeating */
+@keyframes gunaYalaChampagneLightSweep {
+  0% {
+    background-position: 130% 50%;
+    opacity: 0;
+  }
+  3% {
+    opacity: 0.3;
+  }
+  8% {
+    opacity: 1;
+  }
+  42% {
+    background-position: -30% 50%;
+    opacity: 1;
+  }
+  48% {
+    background-position: -30% 50%;
+    opacity: 0;
+  }
+  /* Pause phase: 48% to 100% (~3.9s quiet pause where stable champagne-gold letters rest) */
+  100% {
+    background-position: 130% 50%;
+    opacity: 0;
+  }
+}
+
+/* 3. Understated champagne-gold reflection beneath the wordmark */
+@keyframes gunaYalaReflectionBreathe {
+  0% {
+    transform: scaleY(-0.55) translateY(0px);
+    opacity: 0.2;
+  }
+  50% {
+    transform: scaleY(-0.6) translateY(-2px);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scaleY(-0.55) translateY(0px);
+    opacity: 0.2;
+  }
+}
+
+/* 4. Subtle warm champagne aura glow behind the letters */
+@keyframes gunaYalaGoldGlow {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(1.03);
+  }
+  100% {
+    opacity: 0.35;
+    transform: scale(0.97);
+  }
+}
+
+.guna-yala-floating-mark {
+  animation: gunaYalaSubtleFloat 7.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Base refined champagne-gold metallic typography treatment */
+.guna-yala-champagne-text {
+  background: linear-gradient(
+    180deg,
+    #FAF5E8 0%,
+    #E4D19A 26%,
+    #D6C08A 62%,
+    #C9A96E 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: #E4D19A;
+  filter: drop-shadow(0 2px 12px rgba(6, 18, 30, 0.95)) drop-shadow(0 4px 26px rgba(6, 18, 30, 0.85));
+}
+
+/* Moving sunlight highlight across polished champagne-gold surface */
+.guna-yala-light-sweep {
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    transparent 38%,
+    rgba(255, 255, 255, 0.04) 43%,
+    rgba(255, 253, 245, 0.45) 47%,
+    rgba(255, 255, 255, 0.92) 50%,
+    rgba(255, 250, 230, 0.65) 52%,
+    rgba(228, 209, 154, 0.25) 55%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: 280% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  mix-blend-mode: plus-lighter;
+  animation: gunaYalaChampagneLightSweep 7.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: background-position, opacity;
+}
+
+.guna-yala-gold-glow {
+  animation: gunaYalaGoldGlow 7.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.guna-yala-reflection {
+  animation: gunaYalaReflectionBreathe 7.5s ease-in-out infinite;
+  will-change: transform, opacity;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0) 75%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0) 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guna-yala-floating-mark,
+  .guna-yala-light-sweep,
+  .guna-yala-gold-glow,
+  .guna-yala-reflection {
+    animation: none !important;
+  }
+  .guna-yala-light-sweep {
+    display: none !important;
+  }
+}
+
+.text-balance {
+  text-wrap: balance;
+}

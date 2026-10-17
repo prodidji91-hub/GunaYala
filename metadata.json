@@ -1,0 +1,7 @@
+{
+  "name": "Guna Yala Panama Travel",
+  "description": "Guna-owned travel company specializing in authentic experiences in Guna Yala / San Blas, Panama. 5.0 Google rating.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

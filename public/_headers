@@ -1,0 +1,6 @@
+/videos/*
+  Accept-Ranges: bytes
+  Cache-Control: public, max-age=31536000, immutable
+
+/pictures/*
+  Cache-Control: public, max-age=31536000, immutable
