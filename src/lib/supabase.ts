@@ -1,7 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+const cleanEnvVar = (val: string, prefix: string): string => {
+  if (!val) return '';
+  let cleaned = val.trim();
+  if (cleaned.startsWith(`${prefix}=`)) {
+    cleaned = cleaned.slice(prefix.length + 1).trim();
+  }
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+};
+
+const rawUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const rawKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+
+const supabaseUrl = cleanEnvVar(rawUrl, 'VITE_SUPABASE_URL');
+const supabaseAnonKey = cleanEnvVar(rawKey, 'VITE_SUPABASE_PUBLISHABLE_KEY');
 
 const isValidUrl = (url: string) => {
   try {
@@ -21,5 +39,11 @@ export const isSupabaseConfigured = Boolean(
 );
 
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      },
+    })
   : null;
