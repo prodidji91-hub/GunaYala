@@ -72,18 +72,19 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
             />
           )}
           
-          {/* Base Solid Editorial Wordmark: Refined champagne-gold metallic finish */}
+          {/* Base Solid Editorial Wordmark: Refined luxury champagne-gold (#D6BA80) metallic finish */}
           <h1
             className={`font-brand uppercase leading-none tracking-[0.40em] guna-yala-champagne-text select-none`}
             style={{
               letterSpacing: '0.40em',
               paddingLeft: '0.40em', // Mathematically balances trailing letter-spacing
               fontSize: titleFontSize,
-              fontWeight: 'normal',
-              fontFamily: "'Bodoni Moda', serif",
+              fontWeight: 500,
+              fontFamily: "'Bodoni Moda', 'Cormorant Garamond', Georgia, serif",
               fontStyle: 'normal',
-              WebkitTextStroke: '0.35px rgba(228, 209, 154, 0.7)',
-              fontVariationSettings: "'opsz' 14, 'wght' 400",
+              color: '#D6BA80',
+              WebkitTextStroke: '0.35px rgba(214, 186, 128, 0.7)',
+              fontVariationSettings: "'opsz' 14, 'wght' 500",
             }}
           >
             GUNA YALA
@@ -101,11 +102,12 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
                   letterSpacing: '0.40em',
                   paddingLeft: '0.40em',
                   fontSize: titleFontSize,
-                  fontWeight: 'normal',
-                  fontFamily: "'Bodoni Moda', serif",
+                  fontWeight: 500,
+                  fontFamily: "'Bodoni Moda', 'Cormorant Garamond', Georgia, serif",
                   fontStyle: 'normal',
+                  color: '#D6BA80',
                   WebkitTextStroke: '0.35px rgba(255, 255, 255, 0.5)',
-                  fontVariationSettings: "'opsz' 14, 'wght' 400",
+                  fontVariationSettings: "'opsz' 14, 'wght' 500",
                 }}
               >
                 GUNA YALA
@@ -120,16 +122,17 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
               className="guna-yala-reflection pointer-events-none select-none absolute top-full left-0 right-0 -mt-1 origin-top overflow-hidden"
             >
               <span
-                className={`font-brand uppercase leading-none tracking-[0.40em] block text-[#D6C08A]/25 filter blur-[1.2px]`}
+                className={`font-brand uppercase leading-none tracking-[0.40em] block text-[#D6BA80]/25 filter blur-[1.2px]`}
                 style={{
                   letterSpacing: '0.40em',
                   paddingLeft: '0.40em',
                   fontSize: titleFontSize,
-                  fontWeight: 'normal',
-                  fontFamily: "'Bodoni Moda', serif",
+                  fontWeight: 500,
+                  fontFamily: "'Bodoni Moda', 'Cormorant Garamond', Georgia, serif",
                   fontStyle: 'normal',
-                  WebkitTextStroke: '0.35px rgba(214, 192, 138, 0.3)',
-                  fontVariationSettings: "'opsz' 14, 'wght' 400",
+                  color: '#D6BA80',
+                  WebkitTextStroke: '0.35px rgba(214, 186, 128, 0.3)',
+                  fontVariationSettings: "'opsz' 14, 'wght' 500",
                 }}
               >
                 GUNA YALA

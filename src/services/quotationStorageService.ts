@@ -9,6 +9,7 @@ import {
 } from '../types/quotation';
 import { PACKAGE_TEMPLATES } from '../data/packageTemplates';
 import { SAMPLE_DESTINATION_PHOTOS } from '../data/samplePhotos';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const LOCAL_STORAGE_KEY = 'guna_yala_prototype_quotations_v2';
 const PENDING_CONFIRMATION = 'Pending Petra’s confirmation.';
@@ -86,7 +87,60 @@ export function calculateLineQuantity(
   }
 }
 
+export function extractRootReference(reference: string): string {
+  if (!reference) return 'REF-001';
+  const match = reference.trim().match(/^(.*?)(?:-([A-Z]))?$/i);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return reference;
+}
+
+export function extractRevisionLetter(reference: string): string {
+  if (!reference) return '';
+  const match = reference.trim().match(/^(?:.*?)-([A-Z])$/i);
+  return match ? match[1].toUpperCase() : '';
+}
+
+export function generateNextRevisionReference(
+  baseQuote: Partial<Quotation>,
+  existingQuotes: Quotation[]
+): { nextReference: string; nextLetter: string; rootReference: string } {
+  const rawRef = baseQuote.reference || 'REF-001';
+  const rootReference = baseQuote.rootReference || extractRootReference(rawRef);
+
+  const family = existingQuotes.filter((q) => {
+    const qRoot = q.rootReference || extractRootReference(q.reference);
+    return qRoot.toUpperCase() === rootReference.toUpperCase();
+  });
+
+  const usedLetters = new Set<string>();
+  family.forEach((q) => {
+    const letter = q.revisionLetter || extractRevisionLetter(q.reference);
+    if (letter) usedLetters.add(letter.toUpperCase());
+  });
+
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let nextLetter = 'A';
+  for (let i = 0; i < alphabet.length; i++) {
+    const char = alphabet[i];
+    if (!usedLetters.has(char)) {
+      nextLetter = char;
+      break;
+    }
+  }
+
+  const nextReference = `${rootReference}-${nextLetter}`;
+  return { nextReference, nextLetter, rootReference };
+}
+
 export function normalizeQuotation(q: any): Quotation {
+  const rawRef = q.reference || 'REF-001';
+  const rootReference = q.rootReference || extractRootReference(rawRef);
+  const revisionLetter = q.revisionLetter !== undefined ? q.revisionLetter : extractRevisionLetter(rawRef);
+  const parentQuotationId = q.parentQuotationId || undefined;
+  const revisionNote = q.revisionNote || '';
+
   // 1. Nights calculation
   let nights = q.nights;
   if (!nights || isNaN(nights)) {
@@ -205,6 +259,11 @@ export function normalizeQuotation(q: any): Quotation {
 
   return {
     ...q,
+    reference: rawRef,
+    rootReference,
+    revisionLetter,
+    parentQuotationId,
+    revisionNote,
     nights,
     travelers,
     cabinsCount: q.cabinsCount || 1,
@@ -411,46 +470,123 @@ class QuotationStorageService {
     return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
   }
 
+  private mapDbRowToQuotation(row: any): Quotation {
+    let raw: any = row.data;
+    if (!raw || typeof raw !== 'object') {
+      raw = {
+        id: row.id,
+        reference: row.reference,
+        status: row.status,
+        customerName: row.customer_name,
+        total: Number(row.total) || 0,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    } else {
+      raw = {
+        ...raw,
+        id: row.id || raw.id,
+        reference: row.reference || raw.reference,
+        status: row.status || raw.status,
+        customerName: row.customer_name ?? raw.customerName,
+        total: row.total !== undefined ? Number(row.total) : raw.total,
+        createdAt: row.created_at || raw.createdAt,
+        updatedAt: row.updated_at || raw.updatedAt,
+      };
+    }
+    return normalizeQuotation(raw);
+  }
+
+  private mapQuotationToDbRow(quotation: Quotation) {
+    return {
+      id: quotation.id,
+      reference: quotation.reference || 'REF-001',
+      data: quotation,
+      status: quotation.status || 'Draft',
+      customer_name: quotation.customerName || '',
+      total: typeof quotation.total === 'number' ? quotation.total : 0,
+      updated_at: quotation.updatedAt || new Date().toISOString(),
+    };
+  }
+
   public async getQuotations(): Promise<Quotation[]> {
-    const initialNormalized = INITIAL_DEMO_QUOTATIONS_RAW.map(normalizeQuotation);
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('quotations')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (!this.isBrowserAvailable()) {
-      return initialNormalized;
+      if (error) {
+        console.error('Error fetching quotations from Supabase:', error.message);
+        throw new Error(`Database error: Unable to load quotations from Supabase (${error.message}).`);
+      }
+
+      if (!data || data.length === 0) {
+        // Show an empty dashboard when zero records exist in Supabase.
+        // NEVER auto-migrate or upload local or demo quotations!
+        return [];
+      }
+
+      return data.map((row) => this.mapDbRowToQuotation(row));
     }
 
-    try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (!stored) {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialNormalized));
-        return initialNormalized;
+    // Standalone local mode fallback when Supabase is NOT configured
+    let localQuotes: Quotation[] = [];
+    if (this.isBrowserAvailable()) {
+      try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localQuotes = parsed.map(normalizeQuotation);
+          }
+        }
+      } catch (err) {
+        console.warn('LocalStorage read error:', err);
       }
-      const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialNormalized));
-        return initialNormalized;
-      }
-      return parsed.map(normalizeQuotation);
-    } catch (err) {
-      console.warn('Failed to parse quotations from localStorage, resetting to demo data:', err);
-      return initialNormalized;
     }
+
+    if (localQuotes.length === 0) {
+      localQuotes = INITIAL_DEMO_QUOTATIONS_RAW.map(normalizeQuotation);
+      if (this.isBrowserAvailable()) {
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localQuotes));
+        } catch (err) {
+          console.warn('LocalStorage write error:', err);
+        }
+      }
+    }
+
+    return localQuotes;
   }
 
   public async getQuotationById(id: string): Promise<Quotation | null> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('quotations')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) {
+        console.error(`Error fetching quotation ${id} from Supabase:`, error.message);
+        throw new Error(`Database error: Unable to fetch quotation (${error.message}).`);
+      }
+
+      if (!data) return null;
+      return this.mapDbRowToQuotation(data);
+    }
+
     const list = await this.getQuotations();
     return list.find((q) => q.id === id) || null;
   }
 
   public async saveQuotation(quotation: Quotation): Promise<Quotation> {
-    // Enforcement rule: Prevent saving status 'Ready for review' if termsStatus is 'Draft'
     if (quotation.status === 'Ready for review' && quotation.termsStatus === 'Draft') {
       throw new Error(
         'Cannot mark quotation as "Ready for review" while terms status is still "Draft". Please approve terms or save as Draft.'
       );
     }
-
-    const list = await this.getQuotations();
-    const existingIndex = list.findIndex((q) => q.id === quotation.id);
 
     const now = new Date().toISOString();
     const normalizedToSave = normalizeQuotation({
@@ -458,14 +594,34 @@ class QuotationStorageService {
       updatedAt: now,
     });
 
-    let updatedList: Quotation[];
-    if (existingIndex >= 0) {
-      updatedList = [...list];
-      updatedList[existingIndex] = normalizedToSave;
-    } else {
-      updatedList = [normalizedToSave, ...list];
+    if (isSupabaseConfigured && supabase) {
+      const dbRow = this.mapQuotationToDbRow(normalizedToSave);
+      const { error } = await supabase.from('quotations').upsert(dbRow, { onConflict: 'id' });
+      if (error) {
+        console.error('Failed to save quotation to Supabase:', error.message);
+        throw new Error(`Database error: Unable to save quotation to Supabase (${error.message}).`);
+      }
+      return normalizedToSave;
     }
 
+    // Local storage persistence only when Supabase is not configured
+    let currentList: Quotation[] = [];
+    if (this.isBrowserAvailable()) {
+      try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) currentList = JSON.parse(stored);
+      } catch (e) {
+        console.warn('Error reading local storage during save:', e);
+      }
+    }
+    const existingIndex = currentList.findIndex((q) => q.id === normalizedToSave.id);
+    let updatedList: Quotation[];
+    if (existingIndex >= 0) {
+      updatedList = [...currentList];
+      updatedList[existingIndex] = normalizedToSave;
+    } else {
+      updatedList = [normalizedToSave, ...currentList];
+    }
     if (this.isBrowserAvailable()) {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
     }
@@ -482,51 +638,106 @@ class QuotationStorageService {
 
     const nextIndex = list.length + 1;
     const refNumber = String(nextIndex).padStart(3, '0');
-    const newRef = `DEMO-${refNumber}`;
+    const newRef = `REF-${refNumber}`;
     const now = new Date().toISOString().split('T')[0];
 
     const copy: Quotation = normalizeQuotation({
       ...JSON.parse(JSON.stringify(original)),
-      id: `demo-quote-${Date.now()}`,
+      id: `quote-${Date.now()}`,
       reference: newRef,
-      customerName: `${original.customerName} (Copy)`,
+      customerName: original.customerName ? `${original.customerName} (Copy)` : 'Copy',
       status: 'Draft',
-      termsStatus: 'Draft', // Reset terms approval on duplicate
+      termsStatus: 'Draft',
       quotationDate: now,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
-    const updatedList = [copy, ...list];
-    if (this.isBrowserAvailable()) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
+    return await this.saveQuotation(copy);
+  }
+
+  public async createRevision(id: string, revisionNote?: string): Promise<Quotation> {
+    let original = await this.getQuotationById(id);
+    if (!original) {
+      const list = await this.getQuotations();
+      original = list.find((q) => q.id === id || q.reference === id) || null;
+    }
+    if (!original) {
+      throw new Error(`Quotation record "${id}" not found.`);
     }
 
-    return copy;
+    const latestList = await this.getQuotations();
+    const { nextReference, nextLetter, rootReference } = generateNextRevisionReference(original, latestList);
+    const now = new Date().toISOString();
+    const todayStr = now.split('T')[0];
+
+    const uniqueId = `quote-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+    const revision: Quotation = normalizeQuotation({
+      ...JSON.parse(JSON.stringify(original)),
+      id: uniqueId,
+      reference: nextReference,
+      rootReference,
+      revisionLetter: nextLetter,
+      parentQuotationId: original.id,
+      revisionNote: revisionNote !== undefined ? revisionNote : original.revisionNote || '',
+      status: 'Draft',
+      termsStatus: 'Draft',
+      quotationDate: todayStr,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      return await this.saveQuotation(revision);
+    } catch (err: any) {
+      console.error('Failed to save revision to database:', err);
+      throw new Error(`Unable to save revision ${nextReference}: ${err?.message || 'Database error'}`);
+    }
   }
 
   public async deleteQuotation(id: string): Promise<boolean> {
-    const list = await this.getQuotations();
-    const filtered = list.filter((q) => q.id !== id);
-
-    if (this.isBrowserAvailable()) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('quotations').delete().eq('id', id);
+      if (error) {
+        console.error('Failed to delete quotation from Supabase:', error.message);
+        throw new Error(`Database error: Unable to delete quotation from Supabase (${error.message}).`);
+      }
+      return true;
     }
 
-    return filtered.length < list.length;
+    if (this.isBrowserAvailable()) {
+      try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const filtered = parsed.filter((q: any) => q.id !== id);
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
+        }
+      } catch (err) {
+        console.warn('Error deleting from local storage:', err);
+      }
+    }
+
+    return true;
   }
 
   public async resetToDemoData(): Promise<Quotation[]> {
+    if (isSupabaseConfigured && supabase) {
+      throw new Error('Resetting demo data is disabled when connected to Supabase database.');
+    }
+
     const initialNormalized = INITIAL_DEMO_QUOTATIONS_RAW.map(normalizeQuotation);
     if (this.isBrowserAvailable()) {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialNormalized));
     }
+
     return initialNormalized;
   }
 
   public generateNewReference(existingCount: number): string {
     const num = existingCount + 1;
-    return `DEMO-${String(num).padStart(3, '0')}`;
+    return `REF-${String(num).padStart(3, '0')}`;
   }
 
   public createBlankQuotation(referenceNumber: string): Quotation {
@@ -552,7 +763,7 @@ class QuotationStorageService {
     );
 
     return normalizeQuotation({
-      id: `demo-quote-${Date.now()}`,
+      id: `quote-${Date.now()}`,
       reference: referenceNumber,
       customerName: '',
       customerEmail: '',

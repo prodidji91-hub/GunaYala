@@ -526,6 +526,9 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
           <View style={styles.metaBox}>
             <Text style={styles.metaHeader}>Official Quotation</Text>
             <Text style={styles.metaRow}>Reference: <Text style={styles.metaVal}>{quotation.reference}</Text></Text>
+            {quotation.revisionLetter && (
+              <Text style={styles.metaRow}>Revision: <Text style={styles.metaVal}>Rev {quotation.revisionLetter}</Text></Text>
+            )}
             <Text style={styles.metaRow}>Date: <Text style={styles.metaVal}>{formatDate(quotation.quotationDate)}</Text></Text>
             <Text style={styles.metaRow}>Valid Through: <Text style={styles.metaVal}>{formatDate(quotation.expiryDate)}</Text></Text>
             <Text style={[styles.metaRow, { color: '#802424', fontSize: 7, marginTop: 4 }]}>Availability is subject to confirmation.</Text>

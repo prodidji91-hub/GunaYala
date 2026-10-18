@@ -34,7 +34,9 @@ import {
   HelpCircle,
   RotateCcw,
   Loader2,
+  GitBranch,
 } from 'lucide-react';
+import { extractRootReference, generateNextRevisionReference } from '../../services/quotationStorageService';
 
 const INTERNATIONAL_COUNTRY_CODES = [
   { code: '+507', label: 'Panama (+507)' },
@@ -90,8 +92,11 @@ const parseCustomerPhone = (fullPhone: string) => {
 
 interface QuotationEditorProps {
   initialQuotation: Quotation;
+  allQuotations?: Quotation[];
   onSave: (updatedQuotation: Quotation) => Promise<Quotation | void> | void;
   onPreview: (quotation: Quotation) => void;
+  onCreateRevision?: (quotation: Quotation, revisionNote?: string) => void;
+  onSelectQuotation?: (quotation: Quotation) => void;
   onCancel: () => void;
 }
 
@@ -172,24 +177,90 @@ const NumericInput: React.FC<NumericInputProps> = ({
   );
 };
 
+const DRAFT_STORAGE_KEY = 'guna_yala_active_quotation_draft';
+
 export const QuotationEditor: React.FC<QuotationEditorProps> = ({
   initialQuotation,
+  allQuotations,
   onSave,
   onPreview,
+  onCreateRevision,
+  onSelectQuotation,
   onCancel,
 }) => {
-  const [formData, setFormData] = useState<Quotation>(initialQuotation);
+  // Initialize formData from draft if present and matching initialQuotation, else initialQuotation
+  const [formData, setFormData] = useState<Quotation>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const rawDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+        if (rawDraft) {
+          const parsed = JSON.parse(rawDraft);
+          if (
+            parsed &&
+            (parsed.id === initialQuotation.id ||
+             parsed.reference === initialQuotation.reference ||
+             (!initialQuotation.id && parsed.reference === initialQuotation.reference))
+          ) {
+            return parsed;
+          }
+        }
+      }
+    } catch (e) {}
+    return initialQuotation;
+  });
+
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'trip' | 'package' | 'pricing' | 'conditions' | 'photos'>('trip');
   const [photoIslandFilter, setPhotoIslandFilter] = useState<string>('All');
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [isRevisionModalOpen, setIsRevisionModalOpen] = useState<boolean>(false);
+  const [revisionNoteInput, setRevisionNoteInput] = useState<string>('');
+  const [isSubmittingRevision, setIsSubmittingRevision] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  const initialParsedPhone = parseCustomerPhone(initialQuotation.customerPhone);
+  const initialParsedPhone = parseCustomerPhone(formData.customerPhone || initialQuotation.customerPhone);
   const [countryCode, setCountryCode] = useState<string>(initialParsedPhone.code);
   const [phoneNumber, setPhoneNumber] = useState<string>(initialParsedPhone.number);
   const [countrySearch, setCountrySearch] = useState<string>('');
+
+  // Auto-save form state to local draft in real-time
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && formData) {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
+        sessionStorage.setItem('guna_yala_admin_active_view', 'editor');
+        if (formData.id || formData.reference) {
+          sessionStorage.setItem('guna_yala_admin_selected_id', formData.id || formData.reference);
+        }
+      }
+    } catch (e) {
+      console.warn('Error auto-saving quotation draft:', e);
+    }
+  }, [formData]);
+
+  // Flush form state on tab switch (visibilitychange) or window unload
+  useEffect(() => {
+    const handleFlushDraft = () => {
+      try {
+        if (typeof window !== 'undefined' && formData) {
+          localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
+          sessionStorage.setItem('guna_yala_admin_active_view', 'editor');
+          if (formData.id || formData.reference) {
+            sessionStorage.setItem('guna_yala_admin_selected_id', formData.id || formData.reference);
+          }
+        }
+      } catch (e) {}
+    };
+
+    document.addEventListener('visibilitychange', handleFlushDraft);
+    window.addEventListener('beforeunload', handleFlushDraft);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleFlushDraft);
+      window.removeEventListener('beforeunload', handleFlushDraft);
+    };
+  }, [formData]);
 
   const handlePhoneChange = (newCode: string, newNumber: string) => {
     setCountryCode(newCode);
@@ -618,6 +689,16 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
       if (saved) {
         setFormData(saved);
       }
+
+      // Draft successfully persisted to database, clear local draft key
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(DRAFT_STORAGE_KEY);
+          sessionStorage.removeItem('guna_yala_admin_active_view');
+          sessionStorage.removeItem('guna_yala_admin_selected_id');
+        }
+      } catch (e) {}
+
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const statusLabel = newStatus === 'Draft' ? 'Draft saved successfully' : 'Quotation saved as Ready for review';
       setSaveSuccessMsg(`${statusLabel} at ${timeStr}`);
@@ -628,6 +709,17 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCancelAction = () => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        sessionStorage.removeItem('guna_yala_admin_active_view');
+        sessionStorage.removeItem('guna_yala_admin_selected_id');
+      }
+    } catch (e) {}
+    onCancel();
   };
 
   // Helper text for pricing basis
@@ -649,13 +741,87 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
     }
   };
 
+  const rootRef = formData.rootReference || extractRootReference(formData.reference);
+  const familyQuotes = (allQuotations || []).filter((q) => {
+    const qRoot = q.rootReference || extractRootReference(q.reference);
+    return qRoot.toUpperCase() === rootRef.toUpperCase();
+  }).sort((a, b) => a.reference.localeCompare(b.reference));
+
+  const nextRevRef = generateNextRevisionReference(formData, allQuotations || []).nextReference;
+
   return (
     <div className="space-y-6 pb-16">
+      {/* Revision Status & History Bar */}
+      <div className="bg-[#f7f4ed] border border-[#e0d6c1] rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-xs">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="inline-flex items-center gap-1 font-mono font-bold text-[#0e3b2f] bg-[#0e3b2f] text-white px-2 py-0.5 rounded">
+            <GitBranch className="w-3 h-3 text-[#c9a96e]" />
+            {formData.reference}
+          </span>
+          {formData.revisionLetter ? (
+            <span className="font-semibold text-[#0e3b2f]">
+              Proposal Revision {formData.revisionLetter}
+            </span>
+          ) : (
+            <span className="font-semibold text-[#52606d]">
+              Original Proposal Offer
+            </span>
+          )}
+          {formData.revisionNote && (
+            <span className="text-[#687785] italic border-l border-[#cfc7b2] pl-2 max-w-md truncate">
+              "{formData.revisionNote}"
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {familyQuotes.length > 0 && (
+            <div className="flex items-center gap-1 text-[11px] text-[#52606d]">
+              <span className="font-medium text-[#1c242c]">Revision Family ({familyQuotes.length}):</span>
+              <div className="flex items-center gap-1">
+                {familyQuotes.map((q) => {
+                  const isSelected = q.id === formData.id || q.reference === formData.reference;
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => onSelectQuotation && onSelectQuotation(q)}
+                      className={`px-2 py-0.5 font-mono text-[11px] rounded transition-colors ${
+                        isSelected
+                          ? 'bg-[#0e3b2f] text-[#f7f4ed] font-bold shadow-xs'
+                          : 'bg-white hover:bg-[#e6dece] text-[#1c242c] border border-[#cfc7b2]'
+                      }`}
+                      title={`${q.reference} - $${q.total.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${q.status})`}
+                    >
+                      {q.reference}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {onCreateRevision && (
+            <button
+              type="button"
+              onClick={() => {
+                setRevisionNoteInput(formData.revisionNote || '');
+                setIsRevisionModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#0e3b2f] hover:bg-[#155243] text-white rounded font-medium transition-colors shadow-xs cursor-pointer"
+            >
+              <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
+              <span>Create Revision {nextRevRef}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Top Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-white border border-[#e5dec9] rounded-lg shadow-sm">
         <div className="flex items-center gap-3">
           <button
-            onClick={onCancel}
+            onClick={handleCancelAction}
             className="p-2 text-[#52606d] hover:text-[#0e3b2f] hover:bg-[#f2ece0] rounded transition-colors"
             title="Return to Quotations List"
           >
@@ -714,7 +880,20 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
           </button>
 
           <button
-            onClick={() => onPreview(formData)}
+            onClick={() => {
+              try {
+                if (typeof window !== 'undefined' && formData) {
+                  localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
+                  sessionStorage.setItem('guna_yala_admin_active_view', 'preview');
+                  localStorage.setItem('guna_yala_admin_active_view', 'preview');
+                  if (formData.id || formData.reference) {
+                    sessionStorage.setItem('guna_yala_admin_selected_id', formData.id || formData.reference);
+                    localStorage.setItem('guna_yala_admin_selected_id', formData.id || formData.reference);
+                  }
+                }
+              } catch (e) {}
+              onPreview(formData);
+            }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-[#c9a96e] hover:bg-[#d8b87d] text-[#0e2720] font-semibold rounded transition-colors shadow-sm"
           >
             <Eye className="w-3.5 h-3.5" />
@@ -922,6 +1101,23 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                   className="w-full px-3 py-2 border border-[#e2dac6] rounded text-xs bg-[#f2edd8] text-[#52606d] font-medium cursor-not-allowed"
                 />
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-[#f0eae0]">
+              <label className="block text-[#0e3b2f] font-semibold mb-1 flex items-center gap-1.5">
+                <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
+                <span>Revision Note / Reason for Change</span>
+              </label>
+              <input
+                type="text"
+                value={formData.revisionNote || ''}
+                onChange={(e) => setFormData({ ...formData, revisionNote: e.target.value })}
+                placeholder="e.g. Switched to private 4x4, upgraded cabaña to beachfront, and added Cayos Limón excursion."
+                className="w-full px-3 py-2 border border-[#cfc7b2] rounded text-xs bg-[#faf8f5] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0e3b2f]"
+              />
+              <p className="text-[10px] text-[#687785] mt-1">
+                Internal administrator note explaining what was modified in this revision (e.g. 695-A vs 695).
+              </p>
             </div>
           </div>
 
@@ -1976,6 +2172,93 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                 className="px-3.5 py-1.5 text-xs font-medium text-white bg-amber-700 hover:bg-amber-800 rounded transition-colors shadow-sm"
               >
                 Confirm Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Revision Confirmation Modal */}
+      {isRevisionModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl border border-[#e5dec9] space-y-4 text-left">
+            <div className="flex items-center gap-3 text-[#0e3b2f]">
+              <GitBranch className="w-6 h-6 text-[#c9a96e] shrink-0" />
+              <div>
+                <h3 className="text-base font-semibold text-[#1c242c]">
+                  Create Proposal Revision
+                </h3>
+                <p className="text-xs text-[#52606d]">
+                  Generate a separate, persistent revision record for this proposal.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#faf8f5] p-3 rounded border border-[#e0d6c1] text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-[#687785]">Base Reference:</span>
+                <span className="font-mono font-semibold text-[#1c242c]">{formData.reference}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#687785]">New Revision Reference:</span>
+                <span className="font-mono font-bold text-[#0e3b2f] text-sm">{nextRevRef}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#687785]">Customer:</span>
+                <span className="font-semibold text-[#1c242c]">{formData.customerName || 'Unnamed Customer'}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#1c242c]">
+                Revision Note / Summary of Changes (Optional)
+              </label>
+              <textarea
+                value={revisionNoteInput}
+                onChange={(e) => setRevisionNoteInput(e.target.value)}
+                placeholder="e.g. Switched to private 4x4, upgraded cabaña to beachfront, and added Cayos Limón excursion."
+                rows={3}
+                className="w-full px-3 py-2 text-xs border border-[#cfc7b2] rounded focus:outline-none focus:ring-1 focus:ring-[#0e3b2f] focus:border-[#0e3b2f] bg-white text-[#1c242c]"
+              />
+            </div>
+
+            <p className="text-[11px] text-[#687785] leading-relaxed">
+              The original proposal (<strong className="font-mono">{formData.reference}</strong>) will remain completely unchanged in Supabase.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isSubmittingRevision}
+                onClick={() => setIsRevisionModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium text-[#52606d] hover:bg-[#f0eae0] rounded transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingRevision}
+                onClick={async () => {
+                  if (onCreateRevision) {
+                    setIsSubmittingRevision(true);
+                    try {
+                      await onCreateRevision(formData, revisionNoteInput.trim());
+                      setIsRevisionModalOpen(false);
+                    } catch (err: any) {
+                      console.error('Revision creation error:', err);
+                    } finally {
+                      setIsSubmittingRevision(false);
+                    }
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white rounded transition-colors shadow-sm cursor-pointer"
+              >
+                {isSubmittingRevision ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#c9a96e]" />
+                ) : (
+                  <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
+                )}
+                <span>{isSubmittingRevision ? 'Creating…' : `Confirm Create Revision ${nextRevRef}`}</span>
               </button>
             </div>
           </div>

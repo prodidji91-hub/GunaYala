@@ -107,24 +107,39 @@
   }
 }
 
+/* 5. Gentle continuous 3px vertical float for top-left logo */
+@keyframes logoGentleFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.animate-logo-float {
+  animation: logoGentleFloat 5s ease-in-out infinite;
+  will-change: transform;
+}
+
 .guna-yala-floating-mark {
   animation: gunaYalaSubtleFloat 7.5s ease-in-out infinite;
   will-change: transform;
 }
 
-/* Base refined champagne-gold metallic typography treatment */
+/* Base refined champagne-gold metallic typography treatment (#D6BA80) */
 .guna-yala-champagne-text {
   background: linear-gradient(
     180deg,
-    #FAF5E8 0%,
-    #E4D19A 26%,
-    #D6C08A 62%,
-    #C9A96E 100%
+    #FFFDF7 0%,
+    #EAD8A7 28%,
+    #D6BA80 65%,
+    #C5A76A 100%
   );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  color: #E4D19A;
+  color: #D6BA80;
   filter: drop-shadow(0 2px 12px rgba(6, 18, 30, 0.95)) drop-shadow(0 4px 26px rgba(6, 18, 30, 0.85));
 }
 
@@ -168,7 +183,8 @@
   .guna-yala-floating-mark,
   .guna-yala-light-sweep,
   .guna-yala-gold-glow,
-  .guna-yala-reflection {
+  .guna-yala-reflection,
+  .animate-logo-float {
     animation: none !important;
   }
   .guna-yala-light-sweep {

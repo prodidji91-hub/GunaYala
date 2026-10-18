@@ -21,12 +21,21 @@ import {
   Printer,
   RotateCcw,
   CheckCircle2,
+  GitBranch,
 } from 'lucide-react';
-import { quotationStorageService, getOutdatedFieldsInfo } from '../../services/quotationStorageService';
+import {
+  quotationStorageService,
+  getOutdatedFieldsInfo,
+  extractRootReference,
+  generateNextRevisionReference,
+} from '../../services/quotationStorageService';
 import { getPhotoBadgeInfo } from '../../data/samplePhotos';
 
 interface CustomerQuotationPreviewProps {
   quotation: Quotation;
+  allQuotations?: Quotation[];
+  onSelectQuotation?: (quotation: Quotation) => void;
+  onCreateRevision?: (quotation: Quotation, revisionNote?: string) => void;
   onBackToEdit: () => void;
   onBackToList: () => void;
 }
@@ -68,6 +77,9 @@ async function urlToBase64DataUrl(url: string): Promise<string> {
 
 export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> = ({
   quotation: initialQuotation,
+  allQuotations,
+  onSelectQuotation,
+  onCreateRevision,
   onBackToEdit,
   onBackToList,
 }) => {
@@ -76,6 +88,9 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [resetSuccessMsg, setResetSuccessMsg] = useState<string | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [isRevisionModalOpen, setIsRevisionModalOpen] = useState<boolean>(false);
+  const [revisionNoteInput, setRevisionNoteInput] = useState<string>('');
+  const [isSubmittingRevision, setIsSubmittingRevision] = useState<boolean>(false);
 
   const renderCondition = (text?: string): string => {
     if (!text || text.trim() === '') return PENDING_TEXT;
@@ -221,8 +236,56 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
       ? 'Booking Conditions & Seasonal Travel Terms'
       : 'Draft conditions — pending Petra’s approval';
 
+  const rootRef = quotation.rootReference || extractRootReference(quotation.reference);
+  const familyQuotes = (allQuotations || []).filter((q) => {
+    const qRoot = q.rootReference || extractRootReference(q.reference);
+    return qRoot.toUpperCase() === rootRef.toUpperCase();
+  }).sort((a, b) => a.reference.localeCompare(b.reference));
+
   return (
     <div className="space-y-6 pb-16">
+      {/* Revision Switcher Bar - Hidden during print */}
+      {familyQuotes.length > 0 && (
+        <div className="bg-[#f7f4ed] border border-[#e0d6c1] rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs print:hidden shadow-xs">
+          <div className="flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-[#c9a96e] shrink-0" />
+            <span className="font-semibold text-[#0e3b2f]">
+              Viewing Proposal Proposal {quotation.reference}
+            </span>
+            {quotation.revisionNote && (
+              <span className="text-[#687785] italic truncate max-w-sm">
+                "{quotation.revisionNote}"
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[11px] text-[#52606d] font-medium">Switch Proposal Revision:</span>
+            {familyQuotes.map((q) => {
+              const isSelected = q.id === quotation.id || q.reference === quotation.reference;
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => {
+                    setQuotation(q);
+                    if (onSelectQuotation) onSelectQuotation(q);
+                  }}
+                  className={`px-2.5 py-1 font-mono text-xs rounded transition-colors ${
+                    isSelected
+                      ? 'bg-[#0e3b2f] text-white font-bold shadow-xs'
+                      : 'bg-white hover:bg-[#e6dece] text-[#1c242c] border border-[#cfc7b2]'
+                  }`}
+                  title={`${q.reference} - $${q.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                >
+                  {q.reference}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Top Action Toolbar - Hidden during print */}
       <div className="bg-white border border-[#e5dec9] p-4 rounded-lg shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2">
@@ -257,6 +320,20 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
             <span>Reset Conditions to Pending</span>
           </button>
+
+          {onCreateRevision && (
+            <button
+              type="button"
+              onClick={() => {
+                setRevisionNoteInput(quotation.revisionNote || '');
+                setIsRevisionModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-[#0e3b2f] hover:bg-[#155243] text-white rounded transition-colors shadow-sm cursor-pointer"
+            >
+              <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
+              <span>Create Revision {generateNextRevisionReference(quotation, allQuotations || []).nextReference}</span>
+            </button>
+          )}
 
           <button
             onClick={handlePrintBrowser}
@@ -763,6 +840,99 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                 className="px-3.5 py-1.5 text-xs font-medium text-white bg-amber-700 hover:bg-amber-800 rounded transition-colors shadow-sm"
               >
                 Confirm Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Revision Confirmation Modal */}
+      {isRevisionModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl border border-[#e5dec9] space-y-4 text-left">
+            <div className="flex items-center gap-3 text-[#0e3b2f]">
+              <GitBranch className="w-6 h-6 text-[#c9a96e] shrink-0" />
+              <div>
+                <h3 className="text-base font-semibold text-[#1c242c]">
+                  Create Proposal Revision
+                </h3>
+                <p className="text-xs text-[#52606d]">
+                  Generate a separate, persistent revision record for this proposal.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#faf8f5] p-3 rounded border border-[#e0d6c1] text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-[#687785]">Base Reference:</span>
+                <span className="font-mono font-semibold text-[#1c242c]">{quotation.reference}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#687785]">New Revision Reference:</span>
+                <span className="font-mono font-bold text-[#0e3b2f] text-sm">
+                  {generateNextRevisionReference(quotation, allQuotations || []).nextReference}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#687785]">Customer:</span>
+                <span className="font-semibold text-[#1c242c]">{quotation.customerName || 'Unnamed Customer'}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#1c242c]">
+                Revision Note / Summary of Changes (Optional)
+              </label>
+              <textarea
+                value={revisionNoteInput}
+                onChange={(e) => setRevisionNoteInput(e.target.value)}
+                placeholder="e.g. Switched to private 4x4, upgraded cabaña to beachfront, and added Cayos Limón excursion."
+                rows={3}
+                className="w-full px-3 py-2 text-xs border border-[#cfc7b2] rounded focus:outline-none focus:ring-1 focus:ring-[#0e3b2f] focus:border-[#0e3b2f] bg-white text-[#1c242c]"
+              />
+            </div>
+
+            <p className="text-[11px] text-[#687785] leading-relaxed">
+              The original proposal (<strong className="font-mono">{quotation.reference}</strong>) will remain completely unchanged in Supabase.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isSubmittingRevision}
+                onClick={() => setIsRevisionModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium text-[#52606d] hover:bg-[#f0eae0] rounded transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingRevision}
+                onClick={async () => {
+                  if (onCreateRevision) {
+                    setIsSubmittingRevision(true);
+                    try {
+                      await onCreateRevision(quotation, revisionNoteInput.trim());
+                      setIsRevisionModalOpen(false);
+                    } catch (err: any) {
+                      console.error('Revision creation error:', err);
+                    } finally {
+                      setIsSubmittingRevision(false);
+                    }
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-[#0e3b2f] hover:bg-[#155243] disabled:opacity-50 text-white rounded transition-colors shadow-sm cursor-pointer"
+              >
+                {isSubmittingRevision ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#c9a96e]" />
+                ) : (
+                  <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
+                )}
+                <span>
+                  {isSubmittingRevision
+                    ? 'Creating…'
+                    : `Confirm Create Revision ${generateNextRevisionReference(quotation, allQuotations || []).nextReference}`}
+                </span>
               </button>
             </div>
           </div>

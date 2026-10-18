@@ -118,6 +118,12 @@ export interface Quotation {
   hasOutdatedSampleTextFlag?: boolean;
   outdatedFieldsList?: string[];
 
+  // Revision Tracking
+  rootReference?: string; // e.g. "695" or "REF-001"
+  revisionLetter?: string; // e.g. "A", "B", "C"
+  parentQuotationId?: string; // ID of original quote or previous revision
+  revisionNote?: string; // Admin note describing revision changes
+
   // Status & Timestamps
   status: QuotationStatus;
   createdAt: string;

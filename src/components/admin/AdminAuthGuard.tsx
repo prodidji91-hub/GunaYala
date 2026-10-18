@@ -52,7 +52,10 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
       return;
     }
 
-    setIsCheckingAdmin(true);
+    // Only show full-screen auth loader if we are not already authorized
+    if (!isAdminAuthorized) {
+      setIsCheckingAdmin(true);
+    }
     setLoginError(null);
     try {
       // Query membership in public.quotation_admins by authenticated user's UID (user_id)
@@ -125,6 +128,7 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     const { data: { subscription } } = client.auth.onAuthStateChange(async (event, newSession) => {
       if (!isMounted) return;
 
+      const previousUser = sessionRef.current?.user;
       if (newSession) {
         updateSessionState(newSession);
       }
@@ -133,10 +137,13 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
         isPasswordSetupModeRef.current = true;
         setIsSettingPassword(true);
         setIsLoadingAuth(false);
-      } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+      } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         if (newSession?.user) {
           if (!isPasswordSetupModeRef.current && !isInviteOrRecovery) {
-            await verifyAdminStatus(newSession.user);
+            // Only re-verify admin status if user changed or if not currently authorized
+            if (!previousUser || previousUser.id !== newSession.user.id || !isAdminAuthorized) {
+              await verifyAdminStatus(newSession.user);
+            }
           } else {
             setIsLoadingAuth(false);
           }

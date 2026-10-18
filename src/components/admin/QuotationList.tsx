@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { Quotation, QuotationStatus } from '../../types/quotation';
-import { Search, Plus, Copy, Trash2, Edit3, Eye, Calendar, MapPin, AlertCircle, FileText } from 'lucide-react';
+import { Search, Plus, Copy, Trash2, Edit3, Eye, Calendar, MapPin, AlertCircle, FileText, GitBranch } from 'lucide-react';
+import { generateNextRevisionReference } from '../../services/quotationStorageService';
 
 interface QuotationListProps {
   quotations: Quotation[];
   onCreateNew: () => void;
   onEdit: (quotation: Quotation) => void;
   onDuplicate: (id: string) => void;
+  onCreateRevision: (quotation: Quotation, revisionNote?: string) => void;
   onDelete: (id: string) => void;
   onPreview: (quotation: Quotation) => void;
 }
@@ -16,6 +18,7 @@ export const QuotationList: React.FC<QuotationListProps> = ({
   onCreateNew,
   onEdit,
   onDuplicate,
+  onCreateRevision,
   onDelete,
   onPreview,
 }) => {
@@ -23,11 +26,17 @@ export const QuotationList: React.FC<QuotationListProps> = ({
   const [statusFilter, setStatusFilter] = useState<'All' | QuotationStatus>('All');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // State for Create Revision modal
+  const [revisionTarget, setRevisionTarget] = useState<Quotation | null>(null);
+  const [revisionNoteInput, setRevisionNoteInput] = useState('');
+
   // Filter logic
   const filteredQuotations = quotations.filter((q) => {
     const matchesSearch =
       q.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       q.reference.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (q.rootReference && q.rootReference.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (q.revisionNote && q.revisionNote.toLowerCase().includes(searchQuery.toLowerCase())) ||
       q.island.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus = statusFilter === 'All' || q.status === statusFilter;
@@ -39,6 +48,14 @@ export const QuotationList: React.FC<QuotationListProps> = ({
     if (deletingId) {
       onDelete(deletingId);
       setDeletingId(null);
+    }
+  };
+
+  const handleCreateRevisionSubmit = () => {
+    if (revisionTarget) {
+      onCreateRevision(revisionTarget, revisionNoteInput.trim());
+      setRevisionTarget(null);
+      setRevisionNoteInput('');
     }
   };
 
@@ -65,7 +82,7 @@ export const QuotationList: React.FC<QuotationListProps> = ({
             Quotation Administration
           </h1>
           <p className="text-xs text-[#52606d] mt-1">
-            Manage customer quotes, package templates, pricing calculations, and preview PDFs.
+            Manage customer quotes, revision history (e.g. 695, 695-A, 695-B), pricing, and PDFs.
           </p>
         </div>
 
@@ -87,7 +104,7 @@ export const QuotationList: React.FC<QuotationListProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by customer name or reference (e.g. DEMO-001)..."
+            placeholder="Search customer, reference (695, 695-A), or revision note..."
             className="w-full pl-9 pr-3 py-2 text-xs border border-[#cfc7b2] rounded focus:outline-none focus:ring-1 focus:ring-[#0e3b2f] focus:border-[#0e3b2f] bg-[#faf8f5]"
           />
         </div>
@@ -145,120 +162,219 @@ export const QuotationList: React.FC<QuotationListProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#eee7d8]">
-                {filteredQuotations.map((quote) => (
-                  <tr
-                    key={quote.id}
-                    className="hover:bg-[#faf7f0] transition-colors group"
-                  >
-                    {/* Reference */}
-                    <td className="py-3.5 px-4 font-mono font-semibold text-[#0e3b2f]">
-                      <div className="flex flex-col gap-1">
-                        <span>{quote.reference}</span>
-                        {quote.hasOutdatedSampleTextFlag && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded w-max">
-                            <AlertCircle className="w-3 h-3 text-amber-700" />
-                            Review text
+                {filteredQuotations.map((quote) => {
+                  const nextRevInfo = generateNextRevisionReference(quote, quotations);
+
+                  return (
+                    <tr
+                      key={quote.id}
+                      className="hover:bg-[#faf7f0] transition-colors group"
+                    >
+                      {/* Reference */}
+                      <td className="py-3.5 px-4 font-mono font-semibold text-[#0e3b2f]">
+                        <div className="flex flex-col gap-1 items-start">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">{quote.reference}</span>
+                            {quote.revisionLetter && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-[#0e3b2f] text-[#f7f4ed] px-1.5 py-0.5 rounded shadow-xs">
+                                <GitBranch className="w-2.5 h-2.5 text-[#c9a96e]" />
+                                Rev {quote.revisionLetter}
+                              </span>
+                            )}
+                          </div>
+
+                          {quote.revisionNote && (
+                            <span className="text-[10px] text-[#52606d] italic line-clamp-1 max-w-[180px]" title={quote.revisionNote}>
+                              "{quote.revisionNote}"
+                            </span>
+                          )}
+
+                          {quote.hasOutdatedSampleTextFlag && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded w-max">
+                              <AlertCircle className="w-3 h-3 text-amber-700" />
+                              Review text
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Customer */}
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-[#1c242c]">{quote.customerName || 'Unnamed Customer'}</div>
+                        <div className="text-[11px] text-[#687785]">{quote.customerEmail || 'No email entered'}</div>
+                      </td>
+
+                      {/* Island */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1 text-[#224438] font-medium">
+                          <MapPin className="w-3 h-3 text-[#c9a96e] shrink-0" />
+                          <span>{quote.island}</span>
+                        </div>
+                        <div className="text-[11px] text-[#687785] mt-0.5">
+                          {quote.cabinCategory} ({quote.nights} night{quote.nights !== 1 ? 's' : ''})
+                        </div>
+                      </td>
+
+                      {/* Travel Dates */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1 text-[#45525f]">
+                          <Calendar className="w-3 h-3 text-[#8a98a5] shrink-0" />
+                          <span>
+                            {formatDate(quote.arrivalDate)} – {formatDate(quote.departureDate)}
                           </span>
-                        )}
-                      </div>
-                    </td>
+                        </div>
+                        <div className="text-[11px] text-[#687785]">
+                          {quote.travelers} traveler{quote.travelers !== 1 ? 's' : ''}
+                        </div>
+                      </td>
 
-                    {/* Customer */}
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-[#1c242c]">{quote.customerName || 'Unnamed Customer'}</div>
-                      <div className="text-[11px] text-[#687785]">{quote.customerEmail || 'No email entered'}</div>
-                    </td>
+                      {/* Total USD */}
+                      <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] text-sm tabular-nums">
+                        ${quote.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
 
-                    {/* Island */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1 text-[#224438] font-medium">
-                        <MapPin className="w-3 h-3 text-[#c9a96e] shrink-0" />
-                        <span>{quote.island}</span>
-                      </div>
-                      <div className="text-[11px] text-[#687785] mt-0.5">
-                        {quote.cabinCategory} ({quote.nights} night{quote.nights !== 1 ? 's' : ''})
-                      </div>
-                    </td>
-
-                    {/* Travel Dates */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1 text-[#45525f]">
-                        <Calendar className="w-3 h-3 text-[#8a98a5] shrink-0" />
-                        <span>
-                          {formatDate(quote.arrivalDate)} – {formatDate(quote.departureDate)}
+                      {/* Status */}
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
+                            quote.status === 'Ready for review'
+                              ? 'bg-[#d8e8e2] text-[#0e3b2f] border border-[#a8cfc0]'
+                              : 'bg-[#f3ede0] text-[#705c30] border border-[#d8caac]'
+                          }`}
+                        >
+                          {quote.status}
                         </span>
-                      </div>
-                      <div className="text-[11px] text-[#687785]">
-                        {quote.travelers} traveler{quote.travelers !== 1 ? 's' : ''}
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Total USD */}
-                    <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] text-sm tabular-nums">
-                      ${quote.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
+                      {/* Last Updated */}
+                      <td className="py-3.5 px-4 text-[#687785] text-[11px] font-mono">
+                        {formatDate(quote.updatedAt)}
+                      </td>
 
-                    {/* Status */}
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
-                          quote.status === 'Ready for review'
-                            ? 'bg-[#d8e8e2] text-[#0e3b2f] border border-[#a8cfc0]'
-                            : 'bg-[#f3ede0] text-[#705c30] border border-[#d8caac]'
-                        }`}
-                      >
-                        {quote.status}
-                      </span>
-                    </td>
+                      {/* Actions */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => onPreview(quote)}
+                            className="p-1.5 text-[#2b4c40] hover:bg-[#e4ede8] rounded transition-colors"
+                            title="Preview Customer Quotation Document"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
 
-                    {/* Last Updated */}
-                    <td className="py-3.5 px-4 text-[#687785] text-[11px] font-mono">
-                      {formatDate(quote.updatedAt)}
-                    </td>
+                          <button
+                            onClick={() => onEdit(quote)}
+                            className="p-1.5 text-[#0e3b2f] hover:bg-[#e4ede8] rounded transition-colors"
+                            title="Edit Quotation"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
 
-                    {/* Actions */}
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => onPreview(quote)}
-                          className="p-1.5 text-[#2b4c40] hover:bg-[#e4ede8] rounded transition-colors"
-                          title="Preview Customer Quotation Document"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
+                          <button
+                            onClick={() => {
+                              setRevisionTarget(quote);
+                              setRevisionNoteInput('');
+                            }}
+                            className="p-1.5 text-[#0e3b2f] hover:bg-[#d8e8e2] rounded transition-colors flex items-center gap-1"
+                            title={`Create Revision ${nextRevInfo.nextReference}`}
+                          >
+                            <GitBranch className="w-4 h-4 text-[#c9a96e]" />
+                          </button>
 
-                        <button
-                          onClick={() => onEdit(quote)}
-                          className="p-1.5 text-[#0e3b2f] hover:bg-[#e4ede8] rounded transition-colors"
-                          title="Edit Quotation"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
+                          <button
+                            onClick={() => onDuplicate(quote.id)}
+                            className="p-1.5 text-[#52606d] hover:text-[#0e3b2f] hover:bg-[#f0eadd] rounded transition-colors"
+                            title="Duplicate Quotation"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
 
-                        <button
-                          onClick={() => onDuplicate(quote.id)}
-                          className="p-1.5 text-[#52606d] hover:text-[#0e3b2f] hover:bg-[#f0eadd] rounded transition-colors"
-                          title="Duplicate Quotation"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          onClick={() => setDeletingId(quote.id)}
-                          className="p-1.5 text-[#a84444] hover:text-[#802424] hover:bg-[#fcebeb] rounded transition-colors"
-                          title="Delete Quotation"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <button
+                            onClick={() => setDeletingId(quote.id)}
+                            className="p-1.5 text-[#a84444] hover:text-[#802424] hover:bg-[#fcebeb] rounded transition-colors"
+                            title="Delete Quotation"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* Create Revision Modal */}
+      {revisionTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl border border-[#e5dec9] space-y-4">
+            <div className="flex items-center gap-3 text-[#0e3b2f]">
+              <GitBranch className="w-6 h-6 text-[#c9a96e] shrink-0" />
+              <div>
+                <h3 className="text-base font-semibold text-[#1c242c]">
+                  Create Proposal Revision
+                </h3>
+                <p className="text-xs text-[#52606d]">
+                  Generate a separate, persistent revision record for this proposal.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#faf8f5] p-3 rounded border border-[#e0d6c1] text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-[#687785]">Base Reference:</span>
+                <span className="font-mono font-semibold text-[#1c242c]">{revisionTarget.reference}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#687785]">New Revision Reference:</span>
+                <span className="font-mono font-bold text-[#0e3b2f] text-sm">
+                  {generateNextRevisionReference(revisionTarget, quotations).nextReference}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#687785]">Customer:</span>
+                <span className="font-semibold text-[#1c242c]">{revisionTarget.customerName || 'Unnamed Customer'}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#1c242c]">
+                Revision Note / Summary of Changes (Optional)
+              </label>
+              <textarea
+                value={revisionNoteInput}
+                onChange={(e) => setRevisionNoteInput(e.target.value)}
+                placeholder="e.g. Switched to private 4x4, upgraded cabaña to beachfront, and added Cayos Limón excursion."
+                rows={3}
+                className="w-full px-3 py-2 text-xs border border-[#cfc7b2] rounded focus:outline-none focus:ring-1 focus:ring-[#0e3b2f] focus:border-[#0e3b2f] bg-white"
+              />
+            </div>
+
+            <p className="text-[11px] text-[#687785] leading-relaxed">
+              The original proposal (<strong className="font-mono">{revisionTarget.reference}</strong>) will remain completely unchanged in Supabase.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setRevisionTarget(null)}
+                className="px-4 py-2 text-xs font-medium text-[#52606d] hover:bg-[#f0eae0] rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateRevisionSubmit}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-[#0e3b2f] hover:bg-[#155243] text-white rounded transition-colors shadow-sm"
+              >
+                <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
+                <span>Create Revision {generateNextRevisionReference(revisionTarget, quotations).nextReference}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deletingId && (
