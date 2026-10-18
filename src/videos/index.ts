@@ -34,7 +34,7 @@ export const HERO_SCENES: HeroSceneConfig[] = [
       en: 'Experience the extraordinary beauty of Guna Yala through authentic journeys designed by local experts.',
       es: 'Viva la extraordinaria belleza de Guna Yala mediante travesías auténticas diseñadas por expertos locales.',
     },
-    videoUrl: '/videos/guna-yala-hero.mp4',
+    videoUrl: '/videos/Islands.mp4',
     posterUrl: '/pictures/hero/guna-yala-hero.jpg',
     coordinates: "9°33'N 78°50'W",
     location: 'Cayos Limón & Holandeses',

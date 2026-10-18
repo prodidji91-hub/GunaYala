@@ -79,11 +79,11 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
               letterSpacing: '0.40em',
               paddingLeft: '0.40em', // Mathematically balances trailing letter-spacing
               fontSize: titleFontSize,
-              fontWeight: 600,
-              fontFamily: '"Bodoni Moda", serif',
-              fontStyle: 'italic',
+              fontWeight: 'normal',
+              fontFamily: "'Bodoni Moda', serif",
+              fontStyle: 'normal',
               WebkitTextStroke: '0.35px rgba(228, 209, 154, 0.7)',
-              fontVariationSettings: "'opsz' 14, 'wght' 580",
+              fontVariationSettings: "'opsz' 14, 'wght' 400",
             }}
           >
             GUNA YALA
@@ -101,11 +101,11 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
                   letterSpacing: '0.40em',
                   paddingLeft: '0.40em',
                   fontSize: titleFontSize,
-                  fontWeight: 600,
-                  fontFamily: '"Bodoni Moda", serif',
-                  fontStyle: 'italic',
+                  fontWeight: 'normal',
+                  fontFamily: "'Bodoni Moda', serif",
+                  fontStyle: 'normal',
                   WebkitTextStroke: '0.35px rgba(255, 255, 255, 0.5)',
-                  fontVariationSettings: "'opsz' 14, 'wght' 580",
+                  fontVariationSettings: "'opsz' 14, 'wght' 400",
                 }}
               >
                 GUNA YALA
@@ -125,11 +125,11 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
                   letterSpacing: '0.40em',
                   paddingLeft: '0.40em',
                   fontSize: titleFontSize,
-                  fontWeight: 600,
-                  fontFamily: '"Bodoni Moda", serif',
-                  fontStyle: 'italic',
+                  fontWeight: 'normal',
+                  fontFamily: "'Bodoni Moda', serif",
+                  fontStyle: 'normal',
                   WebkitTextStroke: '0.35px rgba(214, 192, 138, 0.3)',
-                  fontVariationSettings: "'opsz' 14, 'wght' 580",
+                  fontVariationSettings: "'opsz' 14, 'wght' 400",
                 }}
               >
                 GUNA YALA

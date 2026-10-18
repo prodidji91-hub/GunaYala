@@ -90,7 +90,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 onError={() => setVideoError(true)}
                 className="w-full h-full object-cover object-center scale-105 group-hover:scale-110 transition-transform duration-1000 ease-out"
               >
-                <source src="/videos/guna-yala-hero.mp4" type="video/mp4" />
+                <source src="/videos/Islands.mp4" type="video/mp4" />
                 Your browser does not support video.
               </video>
             ) : (

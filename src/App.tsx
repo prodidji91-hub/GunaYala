@@ -4,6 +4,7 @@ import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { WhyUs } from './components/WhyUs';
 import { ExperienceMatcher } from './components/ExperienceMatcher';
+import { TheIslands } from './components/TheIslands';
 import { InteractiveTravelMap } from './components/InteractiveTravelMap';
 import { FloatingGallery } from './components/FloatingGallery';
 import { ExperienceDetailModal } from './components/ExperienceDetailModal';
@@ -210,6 +211,12 @@ export default function App() {
           currentLang={currentLang}
           onSelectExperience={(cat) => handleOpenPlanner(cat)}
           onViewExperienceDetails={handleViewExperienceDetailsById}
+        />
+
+        {/* 4. Interactive Island Discovery Section (The Islands of Guna Yala - 7 Islands) */}
+        <TheIslands
+          currentLang={currentLang}
+          onOpenPlanner={(cat, island) => handleOpenPlanner(cat as any)}
         />
 
         {/* Interactive Editorial Archipelago Travel Map Section */}

@@ -1,382 +1,991 @@
 import React, { useState } from 'react';
 import { Language } from '../types';
 import { TRANSLATIONS } from '../data/translations';
-import { ISLAND_MEDIA_REGISTRY } from '../videos';
-import { Compass, Waves, Play, ArrowRight, Eye, Sparkles } from 'lucide-react';
+import {
+  Compass,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Check,
+  X,
+  Clock,
+  Car,
+  Ship,
+  Utensils,
+  Sun,
+  ShieldAlert,
+  ArrowRight,
+  Info,
+  Layers,
+  MapPin,
+  Waves,
+  Anchor,
+} from 'lucide-react';
 
 interface TheIslandsProps {
   currentLang: Language;
-  onExploreExperience: (categoryId?: string) => void;
-  onOpenExperienceDetailsById?: (id: string) => void;
-  onWatchFilm?: (island: { id: string; name: string; gunaName?: string }) => void;
+  onOpenPlanner?: (category?: string, islandName?: string) => void;
 }
 
-export interface IslandData {
+export interface IslandPackageDetail {
   id: string;
   name: string;
-  gunaName: string;
-  group: string;
-  tagline: { en: string; es: string };
+  title: string;
+  subtitle: { en: string; es: string };
   description: { en: string; es: string };
-  waterVisibility: string;
+  accommodation: { en: string; es: string };
   highlights: { en: string[]; es: string[] };
-  bestFor: { en: string; es: string };
-  categoryLink: string;
-  experienceId: string;
-  posterImage: string;
-  hasVideo: boolean;
+  firstNightRate: { en: string; es: string };
+  additionalNightRate: { en: string; es: string };
+  isPriceOnRequest?: boolean;
+  image: string;
+  isVerifiedImage: boolean;
+  optionalActivity?: { en: string; es: string };
+  packageInclusions: {
+    included: { en: string[]; es: string[] };
+    excluded: { en: string[]; es: string[] };
+    transportation: { en: string; es: string };
+    meals: { en: string; es: string };
+    excursions: { en: string; es: string };
+  };
 }
 
-export const ISLANDS_LIST: IslandData[] = [
+export const ISLAND_PACKAGES: IslandPackageDetail[] = [
   {
-    id: 'cayos-limon',
-    name: 'Cayos Limón (Lemon Cays)',
-    gunaName: 'Garsudup Archipelago',
-    group: 'Central Archipelago',
-    tagline: {
-      en: 'The legendary turquoise natural swimming pool and starfish sandbars',
-      es: 'La legendaria piscina natural turquesa y bancos de estrellas marinas',
+    id: 'chichime-grande',
+    name: 'Chichime Grande',
+    title: 'CHICHIME ISLAND',
+    subtitle: {
+      en: 'Unwind. Explore. Recharge.',
+      es: 'Desconecta. Explora. Recarga.',
     },
     description: {
-      en: 'A cluster of picture-perfect coral cays surrounded by shallow, tranquil water as clear as glass. Home to the sunken sandbar where giant cushion sea stars rest peacefully in waist-deep water.',
-      es: 'Un grupo de cayos de coral rodeados de aguas someras y cristalinas como el vidrio. Hogar de la piscina natural donde habitan estrellas de mar gigantes en aguas que apenas cubren la cintura.',
+      en: 'Discover a peaceful Caribbean escape on one of Guna Yala’s larger islands, where white sand beaches, crystal-clear waters, and a relaxed atmosphere invite you to reconnect with nature.',
+      es: 'Descubre un pacífico refugio caribeño en una de las islas más grandes de Guna Yala, donde las playas de arena blanca, aguas cristalinas y un ambiente relajado te invitan a reconectarte con la naturaleza.',
     },
-    waterVisibility: '25m+ Exceptional',
+    accommodation: {
+      en: 'Private beach cabin with private bathroom.',
+      es: 'Cabaña privada de playa con baño privado.',
+    },
     highlights: {
-      en: ['Waist-deep natural swimming pool', 'Starfish sanctuary', 'Powder white sandbars'],
-      es: ['Piscina natural de poca profundidad', 'Santuario de estrellas de mar', 'Bancos de arena blanca'],
+      en: [
+        'Island Relaxation — White sand beaches and peaceful surroundings.',
+        'Swimming & Snorkeling — Enjoy the clear Caribbean waters.',
+        'Island Excursion — Shared boat excursion to a nearby island and the Natural Pool.',
+      ],
+      es: [
+        'Relajación Insular — Playas de arena blanca y entorno tranquilo.',
+        'Natación y Snorkel — Disfruta de las cristalinas aguas del Caribe.',
+        'Excursión Insular — Excursión compartida en bote a una isla cercana y la Piscina Natural.',
+      ],
     },
-    bestFor: {
-      en: 'Swimming, Photography, Day Trips & Families',
-      es: 'Natación, Fotografía, Pasadías y Familias',
+    firstNightRate: {
+      en: 'From USD 259 per person',
+      es: 'Desde USD 259 por persona',
     },
-    categoryLink: 'day-trip',
-    experienceId: 'day-trip-classic',
-    posterImage: '/pictures/piscinanat.jpg',
-    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['cayos-limon']?.videoUrl),
+    additionalNightRate: {
+      en: 'From USD 119 per person',
+      es: 'Desde USD 119 por persona',
+    },
+    image: '/pictures/10 Boat Day Tour.jpg',
+    isVerifiedImage: true,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Private beach cabin accommodation with private bathroom',
+          'Daily traditional meals (Breakfast, Lunch, Dinner)',
+          'Shared boat excursion to nearby island and Natural Pool',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Alojamiento en cabaña privada con baño privado',
+          'Comidas tradicionales diarias (Desayuno, Almuerzo, Cena)',
+          'Excursión en lancha a isla cercana y Piscina Natural',
+        ],
+      },
+      excluded: {
+        en: [
+          'Guna Yala Comarca entrance fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Cartí Port tax ($5 per person)',
+          'Drinks and personal expenses',
+        ],
+        es: [
+          'Impuesto de entrada a la Comarca ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa de Puerto Cartí ($5 por persona)',
+          'Bebidas adicionales y gastos personales',
+        ],
+      },
+      transportation: {
+        en: 'Pickup 5:00 AM in 4x4 SUV from hotel or residence in Panama City. 2.5-hour mountain drive to Cartí Port, followed by a 30-minute Guna boat ride.',
+        es: 'Recogida a las 5:00 AM en SUV 4x4 en hotel o residencia en Ciudad de Panamá. 2.5 horas de recorrido de montaña hasta Puerto Cartí y 30 minutos en lancha guna.',
+      },
+      meals: {
+        en: 'Fresh catch Caribbean meals (fresh fish, fried plantains, coconut rice, salad). Chicken or vegetarian options available upon advance request.',
+        es: 'Platos tradicionales del Caribe (pescado fresco del día, patacones, arroz con coco y ensalada). Opciones de pollo o vegetariano con aviso previo.',
+      },
+      excursions: {
+        en: 'Includes 1 afternoon boat excursion to a neighboring coral cay and the offshore Natural Pool with giant sea stars.',
+        es: 'Incluye 1 excursión por la tarde a un cayo de coral vecino y a la Piscina Natural con estrellas de mar.',
+      },
+    },
   },
   {
-    id: 'cayos-holandeses',
-    name: 'Cayos Holandeses (Dutch Cays)',
-    gunaName: 'Mauki & Morbedup Atolls',
-    group: 'Outer Barrier Reef',
-    tagline: {
-      en: 'The ultimate untouched Caribbean frontier and outer barrier reef',
-      es: 'La última frontera caribeña virgen y el arrecife de barrera exterior',
+    id: 'chichime-chico',
+    name: 'Chichime Chico',
+    title: 'CHICHIME CHICO',
+    subtitle: {
+      en: 'Simplicity. Nature. Guna Hospitality.',
+      es: 'Simplicidad. Naturaleza. Hospitalidad Guna.',
     },
     description: {
-      en: 'Located 1.5 hours offshore, Cayos Holandeses is the most remote and pristine part of San Blas. Surrounded by deep ocean waters on one side and a protected turquoise lagoon on the other, offering world-class snorkeling.',
-      es: 'Ubicados a hora y media mar adentro, Cayos Holandeses es la zona más remota y prístina de San Blas. Protegida por una barrera coralina con lagunas color esmeralda y una vida marina sin igual.',
+      en: 'Experience a small, peaceful island with five beachfront cabins, home-cooked meals, and welcoming local hospitality.',
+      es: 'Experimenta una isla pequeña y tranquila con cinco cabañas frente al mar, comidas caseras y una cálida hospitalidad local.',
     },
-    waterVisibility: '30m+ Virgin Clarity',
+    accommodation: {
+      en: 'Beachfront cabin with shared bathroom facilities.',
+      es: 'Cabaña frente a la playa con baño compartido.',
+    },
     highlights: {
-      en: ['Pristine living coral wall', 'Sea turtles & eagle rays', 'Absolute seclusion'],
-      es: ['Pared coralina viva inalterada', 'Tortugas marinas y rayas águila', 'Aislamiento absoluto'],
+      en: [
+        'Beachfront Accommodation — Intimate wood and thatch cabins.',
+        'Traditional Island Meals — Home-cooked island dishes.',
+        'Peaceful Island Experience — Quiet tropical surroundings.',
+      ],
+      es: [
+        'Alojamiento Frente al Mar — Cabañas íntimas de madera y paja.',
+        'Comidas Tradicionales — Gastronomía casera de la isla.',
+        'Experiencia Tranquila — Entorno tropical apacible.',
+      ],
     },
-    bestFor: {
-      en: 'Multi-Day Expeditions, Sailing & Underwater Snorkel',
-      es: 'Expediciones Multidía, Navegación y Snorkel Profundo',
+    firstNightRate: {
+      en: 'Price on request (Provisional)',
+      es: 'Precio bajo solicitud (Provisional)',
     },
-    categoryLink: 'multi-day',
-    experienceId: 'multi-day-exploration',
-    posterImage: '/pictures/cayouholandese.jpg',
-    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['cayos-holandeses']?.videoUrl),
+    additionalNightRate: {
+      en: 'Price on request (Provisional)',
+      es: 'Precio bajo solicitud (Provisional)',
+    },
+    isPriceOnRequest: true,
+    image: '/pictures/01 Boat Day Tour .jpg',
+    isVerifiedImage: false,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Beachfront cabin accommodation with shared bathrooms',
+          'Home-cooked traditional meals',
+          'Local Guna hospitality',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Alojamiento en cabaña frente a la playa con baños compartidos',
+          'Comidas tradicionales caseras',
+          'Cálida hospitalidad guna local',
+        ],
+      },
+      excluded: {
+        en: [
+          'Comarca entrance fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Cartí Port fee ($5 per person)',
+          'Personal beverages and snacks',
+        ],
+        es: [
+          'Entrada a la Comarca ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa del Puerto Cartí ($5 por persona)',
+          'Bebidas personales y snacks',
+        ],
+      },
+      transportation: {
+        en: '4x4 SUV pickup in Panama City at 5:00 AM to Cartí Port. Motorboat transfer to Chichime Chico.',
+        es: 'Recogida en SUV 4x4 en Ciudad de Panamá a las 5:00 AM hacia Puerto Cartí. Traslado en lancha a Chichime Chico.',
+      },
+      meals: {
+        en: 'Home-cooked traditional meals prepared by local Guna hosts.',
+        es: 'Comidas tradicionales caseras preparadas por anfitriones gunas.',
+      },
+      excursions: {
+        en: 'Island hopping excursions available upon request with local captain.',
+        es: 'Excursiones entre islas disponibles bajo solicitud con el capitán local.',
+      },
+    },
   },
   {
-    id: 'isla-perro-chico',
-    name: 'Isla Perro Chico (Dog Island)',
-    gunaName: 'Assudup Dummad',
-    group: 'Limón Sector',
-    tagline: {
-      en: 'World-famous coral-encrusted shipwreck and vibrant marine sanctuary',
-      es: 'El famoso pecio cubierto de corales y vibrante santuario marino',
+    id: 'guasirdub',
+    name: 'Guasirdub',
+    title: 'GUASIRDUB',
+    subtitle: {
+      en: 'Peace. Comfort. Tranquility.',
+      es: 'Paz. Confort. Tranquilidad.',
     },
     description: {
-      en: 'Just 15 meters off the powder-white beach rests a historic sunken cargo ship, now overgrown with brain corals, sea fans, and thousands of colorful reef fish. Accessible directly from shore by swimming.',
-      es: 'A solo 15 metros de la playa de arena blanca descansa un barco de carga histórico hundido, hoy cubierto de corales cerebro, abanicos marinos y cardúmenes de peces tropicales.',
+      en: 'Discover an intimate island retreat with just three spacious overwater cabins, surrounded by the turquoise waters of Guna Yala.',
+      es: 'Descubre un refugio insular íntimo con solo tres espaciosas cabañas sobre el agua, rodeadas por las aguas turquesas de Guna Yala.',
     },
-    waterVisibility: '20m+ Crystal Reef',
+    accommodation: {
+      en: 'Private overwater cabin with shared bathroom facilities.',
+      es: 'Cabaña privada sobre el agua con baño compartido.',
+    },
     highlights: {
-      en: ['Shore-accessible shipwreck', 'Snorkeling alongside sergeant majors', 'Coconut palm canopy'],
-      es: ['Pecio accesible nadando desde la playa', 'Snorkel entre peces de arrecife', 'Palmeras de coco'],
+      en: [
+        'Overwater Cabins — Intimate retreat with only three cabins.',
+        'Peaceful Island Escape — Uninterrupted ocean horizon views.',
+        'Shared Island Excursion — Visit nearby reefs and Natural Pool.',
+      ],
+      es: [
+        'Cabañas Sobre el Agua — Refugio íntimo de solo tres cabañas.',
+        'Escapada de Paz — Vistas ininterrumpidas del horizonte marino.',
+        'Excursión Compartida — Visita a arrecifes cercanos y Piscina Natural.',
+      ],
     },
-    bestFor: {
-      en: 'Shipwreck Snorkelers & Day Adventures',
-      es: 'Snorkel en Pecios y Excursiones de Día',
+    firstNightRate: {
+      en: 'From USD 249 per person',
+      es: 'Desde USD 249 por persona',
     },
-    categoryLink: 'day-trip',
-    experienceId: 'day-trip-classic',
-    posterImage: '/pictures/perrochico.jpg',
-    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['isla-perro-chico']?.videoUrl),
+    additionalNightRate: {
+      en: 'From USD 119 per person',
+      es: 'Desde USD 119 por persona',
+    },
+    image: '/pictures/04 Catamaran San Blas Island .jpg',
+    isVerifiedImage: false,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Private overwater cabin stay',
+          'Daily traditional meals (Breakfast, Lunch, Dinner)',
+          'Shared boat excursion to nearby island and Natural Pool',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Estadía en cabaña privada sobre el agua',
+          'Comidas tradicionales diarias (Desayuno, Almuerzo, Cena)',
+          'Excursión en lancha a isla cercana y Piscina Natural',
+        ],
+      },
+      excluded: {
+        en: [
+          'Guna Yala entrance fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Port fee ($5 per person)',
+          'Beverages and personal items',
+        ],
+        es: [
+          'Entrada a la Comarca Guna Yala ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa de puerto ($5 por persona)',
+          'Bebidas y consumo personal',
+        ],
+      },
+      transportation: {
+        en: '4x4 SUV overland transfer from Panama City to Cartí Port + boat transfer to Guasirdub.',
+        es: 'Traslado 4x4 desde Ciudad de Panamá a Puerto Cartí + traslado en lancha a Guasirdub.',
+      },
+      meals: {
+        en: 'Fresh seafood and traditional Guna meals served daily.',
+        es: 'Mariscos frescos y platos tradicionales gunas servidos diariamente.',
+      },
+      excursions: {
+        en: 'Includes shared boat trip to nearby coral island and natural sandbar pool.',
+        es: 'Incluye recorrido en bote a cayo cercano y banco de arena natural.',
+      },
+    },
   },
   {
-    id: 'isla-franklin',
-    name: 'Isla Franklin (Franklin Island)',
-    gunaName: 'Franklin Dup',
-    group: 'Limón Sector',
-    tagline: {
-      en: 'Classic palm-fringed coral cay with traditional beachfront wood-and-thatch cabanas',
-      es: 'Cayo tradicional de coral con cabañas de madera y paja frente al mar',
+    id: 'perro-chico',
+    name: 'Perro Chico',
+    title: 'PERRO CHICO',
+    subtitle: {
+      en: 'Relax. Snorkel. Explore.',
+      es: 'Relájate. Snorkel. Explora.',
     },
     description: {
-      en: 'Classic palm-fringed coral cay with traditional beachfront wood-and-thatch cabanas, calm turquoise swimming, and fresh island dining under unpolluted starry skies.',
-      es: 'Cayo tradicional con cabañas de madera y paja frente al mar, aguas calmas y almuerzo de pescado fresco bajo cielos estrellados.',
+      en: 'Discover white sand beaches, crystal-clear Caribbean waters, and the famous sunken shipwreck just offshore.',
+      es: 'Descubre playas de arena blanca, aguas cristalinas del Caribe y el famoso barco hundido a pocos metros de la orilla.',
     },
-    waterVisibility: '22m+ Crystal Lagoon',
+    accommodation: {
+      en: 'Beachfront or overwater cabin with private bathroom.',
+      es: 'Cabaña frente al mar o sobre el agua con baño privado.',
+    },
     highlights: {
-      en: ['Traditional beachfront cabanas', 'Fresh catch island lunch', 'Quiet coral beach shores'],
-      es: ['Cabañas playeras tradicionales', 'Almuerzo fresco de pescado', 'Orillas tranquilas de coral'],
+      en: [
+        'Snorkeling Adventure — Famous offshore coral-encrusted shipwreck.',
+        'Island Accommodation — Recently renovated cabins with private bathroom.',
+        'Island Atmosphere — Rooftop sunset views and outdoor beach bar.',
+      ],
+      es: [
+        'Aventura de Snorkel — Famoso barco hundido cubierto de coral.',
+        'Alojamiento Renovado — Cabañas recientemente renovadas con baño privado.',
+        'Ambiente de la Isla — Vistas al atardecer y bar playero.',
+      ],
     },
-    bestFor: {
-      en: 'Overnight Stays & Traditional Beach Experience',
-      es: 'Estadías Nocturnas y Experiencia Tradicional de Playa',
+    firstNightRate: {
+      en: 'From USD 249 per person',
+      es: 'Desde USD 249 por persona',
     },
-    categoryLink: 'overnight',
-    experienceId: 'overnight-island-stay',
-    posterImage: '/pictures/04 Franklin.jpg',
-    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['isla-franklin']?.videoUrl),
+    additionalNightRate: {
+      en: 'From USD 109 per person',
+      es: 'Desde USD 109 por persona',
+    },
+    image: '/pictures/perrochico.jpg',
+    isVerifiedImage: true,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Renovated cabin stay with private bathroom',
+          'Daily traditional meals',
+          'Shared boat excursion to Natural Pool & neighboring cays',
+          'Local Guna guide during excursion',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Estadía en cabaña renovada con baño privado',
+          'Comidas tradicionales diarias',
+          'Excursión en lancha a la Piscina Natural y cayos vecinos',
+          'Guía guna local durante la excursión',
+        ],
+      },
+      excluded: {
+        en: [
+          'Comarca entrance fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Cartí Port tax ($5 per person)',
+          'Snorkel gear hire ($5 USD optional rental if not brought)',
+          'Drinks at the island beach bar',
+        ],
+        es: [
+          'Entrada a la Comarca ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa de Puerto Cartí ($5 por persona)',
+          'Alquiler de equipo de snorkel ($5 USD opcional si no trae el propio)',
+          'Bebidas en el bar playero',
+        ],
+      },
+      transportation: {
+        en: '4x4 SUV pickup in Panama City between 5:00 AM – 5:30 AM to Cartí Port. 25-minute boat ride to Perro Chico.',
+        es: 'Recogida en SUV 4x4 en Ciudad de Panamá entre 5:00 AM y 5:30 AM hacia Puerto Cartí. 25 minutos de lancha a Perro Chico.',
+      },
+      meals: {
+        en: 'Includes breakfast, lunch, and dinner. Fresh fish, chicken, plantains, rice, and fresh salad.',
+        es: 'Incluye desayuno, almuerzo y cena. Pescado fresco, pollo, patacones, arroz y ensalada.',
+      },
+      excursions: {
+        en: 'Includes 1 guided boat excursion to the Natural Pool with sea stars.',
+        es: 'Incluye 1 excursión guiada en bote a la Piscina Natural con estrellas de mar.',
+      },
+    },
   },
   {
-    id: 'cayos-chichime',
-    name: 'Cayos Chichime',
-    gunaName: 'Chichime Dup',
-    group: 'Northern Lagoon',
-    tagline: {
-      en: 'Vast white sand lagoon and the premier anchorage for sailors',
-      es: 'Extensa laguna de arena blanca y el fondeadero predilecto para navegantes',
+    id: 'franklin-island',
+    name: 'Franklin Island',
+    title: 'FRANKLIN ISLAND',
+    subtitle: {
+      en: 'Relax. Connect. Explore.',
+      es: 'Relájate. Conecta. Explora.',
     },
     description: {
-      en: 'A pair of idyllic islands embracing a tranquil, deep blue natural anchorage. A favorite mooring spot for private sailing yachts and catamarans, with calm nights and authentic thatched cabanas.',
-      es: 'Dos islas idílicas que abrazan un fondeadero tranquilo de aguas serenas. El punto de anclaje favorito para veleros y catamaranes, con noches estrelladas y cabañas tradicionales de paja.',
+      en: 'Experience rustic beachfront accommodation, beautiful white sand beaches, and a relaxed social island atmosphere.',
+      es: 'Vive una experiencia en cabañas rústicas frente al mar, hermosas playas de arena blanca y un ambiente insular acogedor.',
     },
-    waterVisibility: '25m+ Lagoon Calm',
+    accommodation: {
+      en: 'Rustic beachfront cabin with shared bathroom facilities.',
+      es: 'Cabaña rústica frente a la playa con baño compartido.',
+    },
     highlights: {
-      en: ['Sheltered sailing anchorage', 'Traditional wooden cabanas', 'Fresh catch seafood dining'],
-      es: ['Fondeadero protegido para veleros', 'Cabañas rústicas tradicionales', 'Pescados y mariscos frescos locales'],
+      en: [
+        'Beachfront Cabins — Authentic wood and thatch construction.',
+        'Island Atmosphere — Evening beach bonfires and gathering.',
+        'Swimming & Excursions — Clear turquoise waters and boat tours.',
+      ],
+      es: [
+        'Cabañas Playeras — Construcción tradicional de madera y paja.',
+        'Ambiente Festivo — Fogatas nocturnas en la playa.',
+        'Natación y Excursiones — Aguas turquesas y recorridos en lancha.',
+      ],
     },
-    bestFor: {
-      en: 'Overnight Island Cabanas & Sailing Charters',
-      es: 'Noches en Cabañas y Veleros / Catamarán',
+    firstNightRate: {
+      en: 'USD 229 per person',
+      es: 'USD 229 por persona',
     },
-    categoryLink: 'sailing',
-    experienceId: 'private-sailing-charter',
-    posterImage: '/pictures/catamaran.jpg',
-    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['cayos-chichime']?.videoUrl),
+    additionalNightRate: {
+      en: 'USD 79 per person',
+      es: 'USD 79 por persona',
+    },
+    image: '/pictures/04 Franklin.jpg',
+    isVerifiedImage: true,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Rustic beachfront cabin stay',
+          'Traditional meals (Breakfast, Lunch, Dinner)',
+          'Shared boat excursion to Natural Pool',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Alojamiento en cabaña rústica frente al mar',
+          'Comidas tradicionales (Desayuno, Almuerzo, Cena)',
+          'Excursión en lancha a la Piscina Natural',
+        ],
+      },
+      excluded: {
+        en: [
+          'Guna Comarca entry fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Port tax ($5 per person)',
+          'Island bar drinks',
+        ],
+        es: [
+          'Entrada a la Comarca Guna ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa de puerto ($5 por persona)',
+          'Bebidas en el bar de la isla',
+        ],
+      },
+      transportation: {
+        en: '4x4 SUV pickup in Panama City at 5:00 AM to Cartí Port. 30-minute boat ride to Franklin Island.',
+        es: 'Recogida en SUV 4x4 en Ciudad de Panamá a las 5:00 AM hacia Puerto Cartí. 30 minutos de lancha a Isla Franklin.',
+      },
+      meals: {
+        en: 'Traditional island meals served in the communal open-air dining cabana.',
+        es: 'Comidas tradicionales servidas en el comedor comunitario al aire libre.',
+      },
+      excursions: {
+        en: 'Includes afternoon boat tour to neighboring cays and sandbars.',
+        es: 'Incluye recorrido por la tarde en bote a cayos y bancos de arena vecinos.',
+      },
+    },
   },
   {
-    id: 'isla-pelicano',
-    name: 'Isla Pelícano (Pelican Island)',
-    gunaName: 'Pelícano Dup',
-    group: 'Central Sector',
-    tagline: {
-      en: 'Intimate, cinematic sanctuary made famous by international cinema',
-      es: 'Santuario íntimo y cinematográfico inmortalizado en el cine internacional',
+    id: 'yansailadub',
+    name: 'Yansailadub',
+    title: 'YANSAILADUB',
+    subtitle: {
+      en: 'The Simple Beauty of Island Living.',
+      es: 'La Simple Belleza de la Vida Insular.',
     },
     description: {
-      en: 'An unforgettable miniature jewel of an island surrounded by 360 degrees of pristine aquamarine water. Famously featured as the hideaway in Netflix’s "Money Heist" (La Casa de Papel).',
-      es: 'Una inolvidable isla joya en miniatura rodeada en 360 grados por agua color aguamarina cristalina. Famosa por ser el refugio elegido en la serie de Netflix "La Casa de Papel".',
+      en: 'Wake up surrounded by turquoise Caribbean waters and experience the peaceful rhythm of island life.',
+      es: 'Despierta rodeado de aguas turquesas del Caribe y experimenta el ritmo apacible de la vida en la isla.',
     },
-    waterVisibility: '22m+ Aquamarine',
+    accommodation: {
+      en: 'Private overwater cabin with shared bathroom facilities.',
+      es: 'Cabaña privada sobre el agua con baño compartido.',
+    },
     highlights: {
-      en: ['Cinematic 360° ocean panorama', 'Intimate secluded beach', 'Calm swimming perimeter'],
-      es: ['Panorama oceánico de 360° de película', 'Playa íntima y aislada', 'Perímetro calmo para nadar'],
+      en: [
+        'Overwater Living — Cabins perched above crystal turquoise water.',
+        'Caribbean Relaxation — Quiet palm-fringed coral shores.',
+        'Island Excursion — Boat trip to neighboring cays.',
+      ],
+      es: [
+        'Vida Sobre el Agua — Cabañas suspendidas sobre aguas turquesas.',
+        'Relajación Caribeña — Orillas de coral con palmeras tranquilas.',
+        'Excursión Insular — Recorrido en bote a cayos vecinos.',
+      ],
     },
-    bestFor: {
-      en: 'Couples, Film Enthusiasts & Private Charters',
-      es: 'Parejas, Amantes del Cine y Paseos Privados',
+    firstNightRate: {
+      en: 'From USD 229 per person',
+      es: 'Desde USD 229 por persona',
     },
-    categoryLink: 'private-custom',
-    experienceId: 'private-boat-custom',
-    posterImage: '/pictures/images (1).jpg',
-    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['isla-pelicano']?.videoUrl),
+    additionalNightRate: {
+      en: 'From USD 109 per person',
+      es: 'Desde USD 109 por persona',
+    },
+    image: '/pictures/piscinanat.jpg',
+    isVerifiedImage: false,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Overwater cabin accommodation',
+          'Daily traditional meals',
+          'Shared boat excursion',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Alojamiento en cabaña sobre el agua',
+          'Comidas tradicionales diarias',
+          'Excursión compartida en lancha',
+        ],
+      },
+      excluded: {
+        en: [
+          'Guna Comarca fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Port tax ($5 per person)',
+          'Personal beverages',
+        ],
+        es: [
+          'Tasa Comarcal Guna ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa de puerto ($5 por persona)',
+          'Bebidas personales',
+        ],
+      },
+      transportation: {
+        en: 'Overland 4x4 pickup in Panama City at 5:00 AM + Guna boat transfer.',
+        es: 'Traslado terrestre en 4x4 con recogida en Ciudad de Panamá a las 5:00 AM + lancha guna.',
+      },
+      meals: {
+        en: 'Fresh seafood, chicken, and traditional side dishes.',
+        es: 'Mariscos frescos, pollo y acompañamientos tradicionales.',
+      },
+      excursions: {
+        en: 'Includes boat tour to nearby coral sandbar.',
+        es: 'Incluye paseo en lancha a banco de arena coralina cercano.',
+      },
+    },
+  },
+  {
+    id: 'nurdub-community',
+    name: 'Nurdub Community',
+    title: 'NURDUB COMMUNITY',
+    subtitle: {
+      en: 'Culture. Community. Immersion.',
+      es: 'Cultura. Comunidad. Inmersión.',
+    },
+    description: {
+      en: 'Experience Guna community life through traditional accommodation, local hospitality, and cultural experiences.',
+      es: 'Vive la vida en una comunidad guna a través de alojamiento tradicional, hospitalidad local y experiencias culturales.',
+    },
+    accommodation: {
+      en: 'Traditional Guna cabin with shared bathroom facilities.',
+      es: 'Cabaña tradicional Guna con baño compartido.',
+    },
+    highlights: {
+      en: [
+        'Guna Community & Culture — Authentic indigenous village life.',
+        'Traditional Accommodation — Handcrafted wood and thatch cabana.',
+        'Cultural Experiences — Mola artisan storytelling & heritage.',
+        'Island Exploration — Boat trips to surrounding reefs.',
+      ],
+      es: [
+        'Comunidad y Cultura Guna — Auténtica vida comunitaria indígena.',
+        'Alojamiento Tradicional — Cabaña de madera y paja artesanal.',
+        'Experiencias Culturales — Historias de molas y patrimonio cultural.',
+        'Exploración Insular — Paseos en bote a arrecifes cercanos.',
+      ],
+    },
+    firstNightRate: {
+      en: 'From USD 229 per person',
+      es: 'Desde USD 229 por persona',
+    },
+    additionalNightRate: {
+      en: 'From USD 119 per person',
+      es: 'Desde USD 119 por persona',
+    },
+    optionalActivity: {
+      en: 'Optional Mola-making cultural workshop: From USD 40 per person (subject to artisan availability).',
+      es: 'Taller cultural opcional de confección de Mola: Desde USD 40 por persona (sujeto a disponibilidad de artesanas).',
+    },
+    image: '/pictures/Gunamola.jpg',
+    isVerifiedImage: true,
+    packageInclusions: {
+      included: {
+        en: [
+          'Shared 4x4 overland transport from Panama City',
+          'Shared boat transfers Cartí Port ↔ Island',
+          'Traditional Guna village cabin stay',
+          'Daily traditional meals prepared by community hosts',
+          'Community tour and cultural introduction',
+        ],
+        es: [
+          'Transporte terrestre compartido 4x4 desde Ciudad de Panamá',
+          'Traslado marítimo en lancha Puerto Cartí ↔ Isla',
+          'Estadía en cabaña tradicional en aldea guna',
+          'Comidas tradicionales preparadas por anfitriones de la comunidad',
+          'Recorrido comunitario e introducción cultural',
+        ],
+      },
+      excluded: {
+        en: [
+          'Guna Comarca entrance fee ($20 non-resident / $5 resident - pending confirmation)',
+          'Port fee ($5 per person)',
+          'Optional Mola workshop ($40 USD per person)',
+        ],
+        es: [
+          'Entrada a la Comarca Guna ($20 no residente / $5 residente - pendiente confirmación)',
+          'Tasa de puerto ($5 por persona)',
+          'Taller de Mola opcional ($40 USD por persona)',
+        ],
+      },
+      transportation: {
+        en: '4x4 SUV pickup in Panama City at 5:00 AM + boat to Nurdub community.',
+        es: 'Recogida en SUV 4x4 en Ciudad de Panamá a las 5:00 AM + lancha a la comunidad Nurdub.',
+      },
+      meals: {
+        en: 'Authentic Guna family meals prepared with local fish and agricultural produce.',
+        es: 'Comidas familiares gunas elaboradas con pesca local y cosechas de la comarca.',
+      },
+      excursions: {
+        en: 'Guided village walk + boat visit to surrounding coral cays.',
+        es: 'Caminata guiada por la aldea + visita en bote a cayos de coral vecinos.',
+      },
+    },
   },
 ];
 
-export const TheIslands: React.FC<TheIslandsProps> = ({
-  currentLang,
-  onExploreExperience,
-  onOpenExperienceDetailsById,
-  onWatchFilm,
-}) => {
-  const t = TRANSLATIONS[currentLang];
-  const [activeIslandId, setActiveIslandId] = useState<string>(ISLANDS_LIST[0].id);
+export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlanner }) => {
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [activeHighlightTab, setActiveHighlightTab] = useState<number>(0);
+  const [isPackageExpanded, setIsPackageExpanded] = useState<boolean>(false);
 
-  const selectedIsland =
-    ISLANDS_LIST.find((i) => i.id === activeIslandId) || ISLANDS_LIST[0];
+  const isEs = currentLang === 'es';
+  const currentIsland = ISLAND_PACKAGES[selectedIndex];
 
-  const handleOpenDetails = (island: IslandData) => {
-    if (onOpenExperienceDetailsById) {
-      onOpenExperienceDetailsById(island.experienceId);
-    } else {
-      onExploreExperience(island.categoryLink);
-    }
-  };
-
-  const handleWatchFilm = (island: IslandData) => {
-    if (onWatchFilm) {
-      onWatchFilm({
-        id: island.id,
-        name: island.name,
-        gunaName: island.gunaName,
-      });
-    }
+  const handleSelectIsland = (idx: number) => {
+    setSelectedIndex(idx);
+    setActiveHighlightTab(0);
+    setIsPackageExpanded(false);
   };
 
   return (
-    <section
-      id="islands"
-      className="py-24 sm:py-32 bg-[#0B2924] text-[#F6F2E9] relative overflow-hidden scroll-mt-20 border-b border-[#C8AC75]/20"
-    >
-      {/* Background ambient lighting */}
-      <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-[#153B49]/30 rounded-full blur-[140px] pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        
-        {/* Editorial Section Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16 border-b border-[#C8AC75]/25 pb-8">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-sans font-semibold uppercase tracking-[0.25em] text-[#C8AC75] mb-3">
-              <Compass className="w-3.5 h-3.5 text-[#C8AC75]" />
-              <span>{t.islands.collectionTag}</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-light text-white tracking-tight text-balance">
-              {t.islands.collectionTitle}
-            </h2>
+    <section id="islands" className="bg-[#06121e] text-[#f6f2e9] py-12 sm:py-16 md:py-20 px-4 sm:px-6 md:px-8 relative overflow-hidden border-t border-[#1e3a5f]/60">
+      <div className="max-w-7xl mx-auto space-y-5 sm:space-y-6 md:space-y-7">
+        {/* ========================================================
+            1. SECTION HEADER
+           ======================================================== */}
+        <div className="text-center space-y-2 sm:space-y-2.5 max-w-3xl mx-auto">
+          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-[#c8ac75]/15 border border-[#c8ac75]/40 text-[#c8ac75] text-[11px] font-mono uppercase tracking-[0.25em]">
+            <Compass className="w-3.5 h-3.5 text-[#c8ac75]" />
+            <span>{isEs ? 'Colección de Islas Oficial' : 'Official Island Collection'}</span>
           </div>
-          <p className="text-sm sm:text-base text-[#F6F2E9]/80 max-w-lg leading-relaxed font-sans font-light">
-            {t.islands.collectionSubtitle}
+
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif text-[#f6f2e9] tracking-tight">
+            DISCOVER THE ISLANDS OF GUNA YALA
+          </h2>
+
+          <p className="text-sm sm:text-base text-[#cbd5e1] font-light leading-relaxed max-w-2xl mx-auto">
+            {isEs
+              ? 'Siete experiencias insulares extraordinarias, cada una con su propio carácter, belleza natural y hospitalidad local.'
+              : 'Seven extraordinary island experiences, each with its own character, natural beauty, and local hospitality.'}
           </p>
         </div>
 
-        {/* Island Navigation Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-10 scrollbar-none">
-          {ISLANDS_LIST.map((island) => {
-            const isSelected = island.id === selectedIsland.id;
+        {/* ========================================================
+            2. INTERACTIVE 7-ISLAND SELECTOR BAR
+           ======================================================== */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none justify-start md:justify-center">
+          {ISLAND_PACKAGES.map((isl, idx) => {
+            const isSelected = selectedIndex === idx;
             return (
               <button
-                key={island.id}
-                onClick={() => setActiveIslandId(island.id)}
-                className={`px-4 sm:px-5 py-2.5 rounded-full text-xs font-sans uppercase tracking-[0.12em] font-medium whitespace-nowrap transition-all duration-300 focus:outline-none ${
+                key={isl.id}
+                onClick={() => handleSelectIsland(idx)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-mono uppercase tracking-wider transition-all shrink-0 border ${
                   isSelected
-                    ? 'bg-[#C8AC75] text-[#0B2924] font-semibold shadow-lg'
-                    : 'bg-white/10 hover:bg-white/15 text-[#F6F2E9]/80 hover:text-white border border-white/10'
+                    ? 'bg-[#c8ac75] text-[#06121e] border-[#c8ac75] font-bold shadow-md scale-102 ring-2 ring-[#c8ac75]/40'
+                    : 'bg-[#091b2e]/90 text-[#94a3b8] border-[#1e3a5f] hover:text-white hover:border-[#c8ac75]/50'
                 }`}
               >
-                <span>{island.name.split('(')[0].trim()}</span>
+                <div className="w-5 h-5 rounded-md overflow-hidden border border-white/20 shrink-0">
+                  <img src={isl.image} alt={isl.name} className="w-full h-full object-cover" />
+                </div>
+                <span>{isl.name}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Featured Island Showcase (Information First, Video Optional) */}
-        <div className="bg-[#061815] border border-[#C8AC75]/30 rounded-3xl overflow-hidden shadow-2xl grid grid-cols-1 lg:grid-cols-12 gap-0">
-          
-          {/* Island Imagery & Optional Film Trigger */}
-          <div className="lg:col-span-6 relative aspect-[16/11] lg:aspect-auto min-h-[340px] sm:min-h-[440px] overflow-hidden bg-[#071F1B]">
-            <img
-              src={selectedIsland.posterImage}
-              alt={selectedIsland.name}
-              className="w-full h-full object-cover filter brightness-[0.92] contrast-[1.04] transition-all duration-700 ease-out"
-              loading="lazy"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#061815]/80 via-transparent to-transparent pointer-events-none" />
+        {/* ========================================================
+            3. MAIN INTERACTIVE ISLAND DISPLAY PANEL (DESIGN 03)
+           ======================================================== */}
+        <div className="bg-[#091b2e]/90 rounded-3xl border border-[#1e3a5f] p-5 sm:p-7 md:p-8 shadow-2xl space-y-6 relative overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+            {/* LEFT: Cinematic Destination Photograph */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="relative aspect-[16/10] sm:aspect-[16/9] rounded-2xl overflow-hidden border border-[#c8ac75]/30 bg-[#06121e] shadow-2xl group">
+                <img
+                  key={currentIsland.id}
+                  src={currentIsland.image}
+                  alt={currentIsland.title}
+                  className="w-full h-full object-cover transition-all duration-700 animate-in fade-in zoom-in-95 group-hover:scale-105"
+                  loading="eager"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
-            {/* Optional Watch Island Film Button Overlay */}
-            {selectedIsland.hasVideo && (
-              <div className="absolute top-5 right-5 z-20">
-                <button
-                  onClick={() => handleWatchFilm(selectedIsland)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#0B2924]/90 hover:bg-[#0B2924] text-[#C8AC75] hover:text-white border border-[#C8AC75] rounded-full backdrop-blur-md text-xs font-sans uppercase tracking-[0.14em] font-medium shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 focus:outline-none"
-                  aria-label={`${t.islands.watchFilmBtn} - ${selectedIsland.name}`}
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>{t.islands.watchFilmBtn}</span>
-                </button>
+                {/* Verification Status Badge */}
+                <div className="absolute top-4 left-4 z-10">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-widest backdrop-blur-md border ${
+                    currentIsland.isVerifiedImage
+                      ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/40'
+                      : 'bg-amber-950/80 text-amber-300 border-amber-500/40'
+                  }`}>
+                    <Sparkles className="w-3 h-3" />
+                    <span>{currentIsland.isVerifiedImage ? (isEs ? 'Fotografía Verificada' : 'Verified Photo') : (isEs ? 'Muestra Preliminar' : 'Preview Media')}</span>
+                  </span>
+                </div>
+
+                {/* Island Overlay Title */}
+                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs font-mono text-[#c8ac75] bg-black/65 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10">
+                  <span className="font-serif text-sm font-semibold text-white">{currentIsland.title}</span>
+                  <span>Guna Yala · San Blas</span>
+                </div>
               </div>
-            )}
 
-            {/* Water Clarity Badge (Clean unboxed presentation) */}
-            <div className="absolute bottom-5 left-5 z-20 flex items-center gap-2 px-3.5 py-1.5 bg-[#0B2924]/85 backdrop-blur-md rounded-full border border-[#C8AC75]/40 text-xs text-[#F6F2E9]">
-              <Waves className="w-3.5 h-3.5 text-[#C8AC75]" />
-              <span className="font-sans text-[11px] font-medium">{t.islands.waterVisibilityLabel}: {selectedIsland.waterVisibility}</span>
+              {/* Documented Starting Rate Strip */}
+              <div className="p-4 rounded-2xl bg-[#06121e]/90 border border-[#c8ac75]/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono">
+                <div className="flex items-center gap-2 text-[#c8ac75]">
+                  <Sparkles className="w-4 h-4" />
+                  <span>{isEs ? 'Tarifa Documentada:' : 'Documented Rate:'}</span>
+                  <span className="text-white font-bold text-sm">{currentIsland.firstNightRate[currentLang]}</span>
+                </div>
+                <div className="text-[#94a3b8] text-[11px]">
+                  {currentIsland.additionalNightRate[currentLang]}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Comprehensive Island Information (Information First) */}
-          <div className="lg:col-span-6 p-7 sm:p-10 flex flex-col justify-between">
-            <div>
-              {/* Indigenous Guna Name & Sector */}
-              <div className="flex items-center gap-2 text-xs font-sans text-[#C8AC75] uppercase tracking-[0.2em] font-semibold mb-2">
-                <span>{selectedIsland.gunaName}</span>
-                <span className="text-white/30">·</span>
-                <span className="text-white/60 font-light">{selectedIsland.group}</span>
+            {/* RIGHT: Detailed Information Panel */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="space-y-2">
+                <div className="text-xs font-mono uppercase tracking-widest text-[#c8ac75]">
+                  {currentIsland.name} (Guna Yala)
+                </div>
+                <h3 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">
+                  {currentIsland.title}
+                </h3>
+                <p className="text-base font-serif italic text-[#c8ac75]">
+                  {currentIsland.subtitle[currentLang]}
+                </p>
               </div>
 
-              {/* Title */}
-              <h3 className="text-2xl sm:text-3xl lg:text-4xl font-serif text-white font-light tracking-tight mb-4">
-                {selectedIsland.name}
-              </h3>
+              <div className="h-px w-20 bg-[#c8ac75]" />
 
-              {/* Tagline */}
-              <p className="text-sm sm:text-base font-serif italic text-[#C8AC75] leading-relaxed mb-4">
-                “{selectedIsland.tagline[currentLang]}”
+              <p className="text-sm text-[#cbd5e1] font-light leading-relaxed">
+                {currentIsland.description[currentLang]}
               </p>
 
-              {/* Description */}
-              <p className="text-xs sm:text-sm text-[#F6F2E9]/80 font-sans font-light leading-relaxed mb-6">
-                {selectedIsland.description[currentLang]}
-              </p>
-
-              {/* Highlights List */}
-              <div className="space-y-2 mb-6 pt-5 border-t border-[#C8AC75]/20">
-                <span className="text-[11px] font-sans uppercase tracking-[0.16em] text-[#C8AC75] font-semibold block mb-2">
-                  {t.islands.highlightsLabel}
+              <div className="p-4 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-1">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-[#c8ac75] block font-semibold">
+                  {isEs ? 'Alojamiento Incluido:' : 'Included Accommodation:'}
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {selectedIsland.highlights[currentLang].map((hl, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs text-[#F6F2E9]/90 font-light">
-                      <span className="text-[#C8AC75]">✦</span>
+                <p className="text-xs text-white font-medium">
+                  {currentIsland.accommodation[currentLang]}
+                </p>
+              </div>
+
+              {/* Interactive Highlights List */}
+              <div className="space-y-2 pt-2">
+                <span className="text-xs font-mono uppercase tracking-widest text-[#c8ac75] block">
+                  {isEs ? 'Aspectos Destacados de la Isla:' : 'Key Island Highlights:'}
+                </span>
+                <div className="space-y-1.5">
+                  {currentIsland.highlights[currentLang].map((hl, hIdx) => (
+                    <div key={hIdx} className="flex items-start gap-2 text-xs text-[#cbd5e1]">
+                      <Check className="w-4 h-4 text-[#c8ac75] shrink-0 mt-0.5" />
                       <span>{hl}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Best For */}
-              <div className="p-3.5 bg-white/5 rounded-xl border border-[#C8AC75]/20 text-xs text-[#F6F2E9]/85 mb-6">
-                <span className="font-semibold text-[#C8AC75] mr-1.5 uppercase tracking-wider text-[10px]">
-                  {t.islands.bestForLabel}:
-                </span>
-                <span className="font-light">{selectedIsland.bestFor[currentLang]}</span>
+              {/* Optional Cultural Activity Note if Present */}
+              {currentIsland.optionalActivity && (
+                <div className="p-3 rounded-xl bg-[#c8ac75]/10 border border-[#c8ac75]/30 text-xs text-[#c8ac75]">
+                  {currentIsland.optionalActivity[currentLang]}
+                </div>
+              )}
+
+              {/* Inquiry CTA */}
+              <div className="pt-2">
+                <button
+                  onClick={() => onOpenPlanner?.('overnight', currentIsland.name)}
+                  className="w-full py-4 px-6 rounded-2xl bg-[#c8ac75] hover:bg-[#d4af37] text-[#06121e] font-mono font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xl hover:shadow-[#c8ac75]/20"
+                >
+                  <span>{isEs ? 'SOLICITAR ESTA EXPERIENCIA' : 'REQUEST THIS EXPERIENCE'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
-
-            {/* Bottom Actions */}
-            <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-[#C8AC75]/20">
-              <button
-                onClick={() => handleOpenDetails(selectedIsland)}
-                className="w-full sm:w-auto flex-1 py-3 px-6 bg-[#C8AC75] hover:bg-[#dfc38d] text-[#0B2924] font-semibold text-xs font-sans uppercase tracking-[0.14em] rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
-              >
-                <span>{t.islands.viewDetailsBtn}</span>
-                <ArrowRight className="w-3.5 h-3.5 text-[#0B2924]" />
-              </button>
-
-              {/* Optional Watch Island Film button in footer */}
-              {selectedIsland.hasVideo && (
-                <button
-                  onClick={() => handleWatchFilm(selectedIsland)}
-                  className="w-full sm:w-auto py-3 px-5 bg-white/10 hover:bg-white/15 text-[#F6F2E9] border border-[#C8AC75]/40 text-xs font-sans uppercase tracking-[0.14em] font-medium rounded-xl transition-all flex items-center justify-center gap-2"
-                >
-                  <Play className="w-3.5 h-3.5 text-[#C8AC75]" />
-                  <span>{t.islands.watchFilmBtn}</span>
-                </button>
-              )}
-            </div>
-
           </div>
 
+          {/* ========================================================
+              4. EXPANDABLE PACKAGE DETAILS ACCORDION
+             ======================================================== */}
+          <div className="border-t border-[#1e3a5f] pt-6">
+            <button
+              onClick={() => setIsPackageExpanded(!isPackageExpanded)}
+              className="w-full py-3 px-4 rounded-2xl bg-[#06121e] border border-[#1e3a5f] hover:border-[#c8ac75]/50 flex items-center justify-between text-xs font-mono text-[#c8ac75] uppercase tracking-wider transition-all"
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-[#c8ac75]" />
+                <span>
+                  {isEs
+                    ? `Ver Detalles del Paquete y Logística para ${currentIsland.name}`
+                    : `View Package Details & Logistics for ${currentIsland.name}`}
+                </span>
+              </div>
+              {isPackageExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+
+            {isPackageExpanded && (
+              <div className="mt-4 p-6 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-6 text-xs text-[#cbd5e1] font-light animate-in fade-in duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Included Services */}
+                  <div className="space-y-2">
+                    <h4 className="font-mono text-xs text-[#c8ac75] uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span>{isEs ? 'Lo Que Incluye El Paquete' : 'What is Included'}</span>
+                    </h4>
+                    <ul className="space-y-1.5 pl-2">
+                      {currentIsland.packageInclusions.included[currentLang].map((inc, iIdx) => (
+                        <li key={iIdx} className="flex items-start gap-2">
+                          <span className="text-emerald-400 font-bold">•</span>
+                          <span>{inc}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Excluded Services & Cash Notes */}
+                  <div className="space-y-2">
+                    <h4 className="font-mono text-xs text-[#c8ac75] uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <X className="w-4 h-4 text-amber-400" />
+                      <span>{isEs ? 'Lo Que NO Incluye / Gastos en Efectivo' : 'What is Not Included / Cash Fees'}</span>
+                    </h4>
+                    <ul className="space-y-1.5 pl-2">
+                      {currentIsland.packageInclusions.excluded[currentLang].map((exc, eIdx) => (
+                        <li key={eIdx} className="flex items-start gap-2">
+                          <span className="text-amber-400 font-bold">•</span>
+                          <span>{exc}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Transportation & Meals Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-[#1e3a5f] pt-4">
+                  <div className="space-y-1">
+                    <span className="font-mono text-[10px] text-[#c8ac75] uppercase tracking-wider block font-semibold flex items-center gap-1">
+                      <Car className="w-3.5 h-3.5" />
+                      <span>{isEs ? 'Transporte' : 'Transportation'}</span>
+                    </span>
+                    <p className="text-[11px] leading-relaxed">{currentIsland.packageInclusions.transportation[currentLang]}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="font-mono text-[10px] text-[#c8ac75] uppercase tracking-wider block font-semibold flex items-center gap-1">
+                      <Utensils className="w-3.5 h-3.5" />
+                      <span>{isEs ? 'Alimentación' : 'Meals'}</span>
+                    </span>
+                    <p className="text-[11px] leading-relaxed">{currentIsland.packageInclusions.meals[currentLang]}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="font-mono text-[10px] text-[#c8ac75] uppercase tracking-wider block font-semibold flex items-center gap-1">
+                      <Ship className="w-3.5 h-3.5" />
+                      <span>{isEs ? 'Excursiones' : 'Excursions'}</span>
+                    </span>
+                    <p className="text-[11px] leading-relaxed">{currentIsland.packageInclusions.excursions[currentLang]}</p>
+                  </div>
+                </div>
+
+                {/* Required Confirmation Notice */}
+                <div className="p-3.5 rounded-xl bg-[#0b2438] border border-[#1e3a5f] flex items-start gap-2.5 text-[11px] text-[#94a3b8]">
+                  <ShieldAlert className="w-4 h-4 text-[#c8ac75] shrink-0 mt-0.5" />
+                  <p>
+                    {isEs
+                      ? 'Nota Provisional de Petra: Las tarifas de entrada a la Comarca Guna Yala ($20 USD no residentes / $5 USD residentes o nacionales) y las tasas portuarias ($5 USD) se pagan en efectivo directamente a las autoridades locales. Confirmación requerida antes de la reserva.'
+                      : 'Petra’s Provisional Notice: Guna Yala Comarca entrance fees ($20 USD non-residents / $5 USD residents) and port taxes ($5 USD) are payable in cash directly to local authorities. Rates subject to final confirmation by Petra.'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* ========================================================
+            5. DAY TOURS INTEGRATION STRIP (PHASE 5)
+           ======================================================== */}
+        <div className="p-8 rounded-3xl bg-gradient-to-r from-[#0b2438] via-[#091b2e] to-[#0b2438] border border-[#c8ac75]/40 shadow-2xl space-y-6">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-[#c8ac75]">
+                <Sun className="w-4 h-4" />
+                <span>{isEs ? 'Opciones de Pasadías (Day Tours)' : 'Official Day Tour Packages'}</span>
+              </div>
+              <h3 className="text-2xl font-serif text-white mt-1">
+                {isEs ? '¿Prefieres Visitar San Blas en Pasadía de Un Día?' : 'Prefer a Single Day Caribbean Excursion?'}
+              </h3>
+            </div>
+
+            <span className="text-[11px] font-mono text-[#c8ac75] italic">
+              {isEs ? 'Precios sujeto a confirmación final de Petra' : 'Provisional rates subject to Petra’s approval'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Day Tour Panama City */}
+            <div className="p-6 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#38bdf8]">
+                    {isEs ? 'Pasadía Completo con Traslado' : 'Full Day Tour with Transport'}
+                  </span>
+                  <h4 className="text-lg font-serif text-white font-medium">
+                    {isEs ? 'Pasadía desde Ciudad de Panamá' : 'Day Tour from Panama City'}
+                  </h4>
+                </div>
+                <div className="text-right font-mono">
+                  <div className="text-lg font-bold text-[#c8ac75]">USD 142</div>
+                  <div className="text-[10px] text-[#94a3b8]">{isEs ? '/ persona' : '/ person'}</div>
+                </div>
+              </div>
+
+              <p className="text-xs text-[#cbd5e1] leading-relaxed">
+                {isEs
+                  ? 'Incluye transporte 4x4 ida y vuelta desde Ciudad de Panamá, recorrido en lancha, visita a 2 islas, Piscina Natural, almuerzo con 1 bebida, equipo de snorkel y guía guna.'
+                  : 'Includes round-trip 4x4 transport from Panama City, boat excursion, 2 islands, Natural Pool, lunch with 1 drink, snorkeling equipment, and Guna guide.'}
+              </p>
+
+              <button
+                onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Panama City')}
+                className="w-full py-2.5 rounded-xl bg-[#0e7490] hover:bg-[#0284c7] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+              >
+                {isEs ? 'SOLICITAR PASADÍA COMPLETO' : 'REQUEST FULL DAY TOUR'}
+              </button>
+            </div>
+
+            {/* Day Tour Port */}
+            <div className="p-6 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#38bdf8]">
+                    {isEs ? 'Pasadía Marítimo Desde Puerto' : 'Maritime Day Tour from Port'}
+                  </span>
+                  <h4 className="text-lg font-serif text-white font-medium">
+                    {isEs ? 'Pasadía desde Puerto Cartí' : 'Day Tour from Guna Yala Port'}
+                  </h4>
+                </div>
+                <div className="text-right font-mono">
+                  <div className="text-lg font-bold text-[#c8ac75]">USD 69</div>
+                  <div className="text-[10px] text-[#94a3b8]">{isEs ? '/ persona' : '/ person'}</div>
+                </div>
+              </div>
+
+              <p className="text-xs text-[#cbd5e1] leading-relaxed">
+                {isEs
+                  ? 'Incluye excursión en lancha compartida desde Puerto Cartí, visita a 2 islas, Piscina Natural, almuerzo con 1 bebida, equipo de snorkel y guía guna. (No incluye traslado terrestre).'
+                  : 'Includes shared boat excursion from Cartí Port, 2 islands, Natural Pool, lunch with 1 drink, snorkeling gear, and Guna guide. (Ground transfer excluded).'}
+              </p>
+
+              <button
+                onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Guna Yala Port')}
+                className="w-full py-2.5 rounded-xl bg-[#0e7490] hover:bg-[#0284c7] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+              >
+                {isEs ? 'SOLICITAR PASADÍA DESDE PUERTO' : 'REQUEST PORT DAY TOUR'}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
