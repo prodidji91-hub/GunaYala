@@ -39,6 +39,13 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
     },
   };
 
+  const fontSizeMap = {
+    sm: '20px',
+    md: '24px',
+    lg: '30px',
+    xl: '38px',
+  };
+  const titleFontSize = fontSizeMap[size] || '24px';
   const currentSize = sizeStyles[size];
 
   // Water-hero styling: Luxury fashion-editorial + calm ocean float & sunlight caustics reflection
@@ -71,7 +78,7 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
             style={{
               letterSpacing: '0.40em',
               paddingLeft: '0.40em', // Mathematically balances trailing letter-spacing
-              fontSize: '35px',
+              fontSize: titleFontSize,
               fontWeight: 600,
               fontFamily: '"Bodoni Moda", serif',
               fontStyle: 'italic',
@@ -93,7 +100,7 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
                 style={{
                   letterSpacing: '0.40em',
                   paddingLeft: '0.40em',
-                  fontSize: '35px',
+                  fontSize: titleFontSize,
                   fontWeight: 600,
                   fontFamily: '"Bodoni Moda", serif',
                   fontStyle: 'italic',
@@ -117,7 +124,7 @@ export const BrandWordmark: React.FC<BrandWordmarkProps> = ({
                 style={{
                   letterSpacing: '0.40em',
                   paddingLeft: '0.40em',
-                  fontSize: '35px',
+                  fontSize: titleFontSize,
                   fontWeight: 600,
                   fontFamily: '"Bodoni Moda", serif',
                   fontStyle: 'italic',

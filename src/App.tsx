@@ -15,6 +15,7 @@ import { ExperienceBookingModal } from './components/planner/ExperienceBookingMo
 import { FinalCta } from './components/FinalCta';
 import { Footer } from './components/Footer';
 import { AdminAuthGuard } from './components/admin/AdminAuthGuard';
+import { IslandDesignPreview } from './components/preview/IslandDesignPreview';
 import { EXPERIENCES_DATA } from './data/experiences';
 import { supabase } from './lib/supabase';
 
@@ -61,6 +62,11 @@ export default function App() {
     return false;
   });
 
+  const [isPreviewRoute, setIsPreviewRoute] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname.startsWith('/island-design-preview');
+  });
+
   // Handle Shareable Experience Deep Links (?experience=id or ?exp=id)
   const handleSetExperienceModal = (exp: Experience | null) => {
     setSelectedExperienceForModal(exp);
@@ -79,6 +85,8 @@ export default function App() {
   useEffect(() => {
     const handleLocationChange = () => {
       const atAdmin = window.location.pathname.startsWith('/admin') || isAuthCallbackUrl();
+      const atPreview = window.location.pathname.startsWith('/island-design-preview');
+
       if (atAdmin && !window.location.pathname.startsWith('/admin')) {
         window.history.replaceState(
           {},
@@ -87,6 +95,7 @@ export default function App() {
         );
       }
       setIsAdminRoute(atAdmin);
+      setIsPreviewRoute(atPreview);
 
       // Sync experience parameter on back/forward or initial navigate
       const params = new URLSearchParams(window.location.search);
@@ -130,6 +139,7 @@ export default function App() {
     if (typeof window !== 'undefined') {
       window.history.pushState({}, '', '/');
       setIsAdminRoute(false);
+      setIsPreviewRoute(false);
       window.scrollTo(0, 0);
     }
   };
@@ -157,6 +167,17 @@ export default function App() {
       handleSetExperienceModal(found);
     }
   };
+
+  // Render Island Design Preview Prototype Route
+  if (isPreviewRoute) {
+    return (
+      <IslandDesignPreview
+        currentLang={currentLang}
+        onLanguageChange={setCurrentLang}
+        onBackToWebsite={handleNavigateToPublic}
+      />
+    );
+  }
 
   // Render Admin Auth Guard / Dashboard at /admin with secure authorization
   if (isAdminRoute) {

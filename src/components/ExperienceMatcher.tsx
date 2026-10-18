@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Language, ExperienceCategory } from '../types';
 import { TRANSLATIONS } from '../data/translations';
 import { EXPERIENCES_DATA } from '../data/experiences';
-import { Sparkles, ArrowRight, RotateCcw, Check } from 'lucide-react';
+import { Sparkles, ArrowRight, RotateCcw, Check, Compass } from 'lucide-react';
 
 interface ExperienceMatcherProps {
   currentLang: Language;
@@ -59,11 +59,22 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
         };
       }
       return {
-        id: 'private-custom-experience',
-        category: 'private-custom',
+        id: 'luxury-catamaran-charter',
+        category: 'catamaran',
         reason: {
-          en: 'Customized private itinerary tailored to your group rhythm, with private island transfers and flexible daily stops.',
-          es: 'Itinerario privado a la medida de su grupo, con traslados marítimos privados y paradas diarias flexibles.',
+          en: 'A private multi-day yacht or catamaran provides an exclusive, tranquil retreat across the secluded outer cays.',
+          es: 'Un catamarán o yate privado multidía ofrece un retiro exclusivo y sereno a través de los cayos exteriores más aislados.',
+        },
+      };
+    }
+
+    if (vibeChoice === 'culture') {
+      return {
+        id: 'multi-day-exploration',
+        category: 'multi-day',
+        reason: {
+          en: 'Our multi-day journeys include dedicated visits to traditional Guna island communities and mola artisan villages with local guides.',
+          es: 'Nuestras travesías multidía incluyen visitas guiadas a comunidades tradicionales guna y pueblos de artesanas de la mola.',
         },
       };
     }
@@ -73,30 +84,29 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
         id: 'day-trip-classic',
         category: 'day-trip',
         reason: {
-          en: 'The classic day trip maximizes your time with roundtrip 4x4 pickup, visiting top coral islands, and snorkeling the natural starfish pool.',
-          es: 'La excursión clásica de un día aprovecha su tiempo con transporte 4x4, visitando islas destacadas y la piscina natural de estrellas marinas.',
+          en: 'Our classic day trip delivers the iconic San Blas experience: 2 to 3 coral cays, the Natural Pool sandbar, and fresh seafood lunch.',
+          es: 'Nuestra clásica excursión de un día ofrece lo esencial de San Blas: 2 a 3 islas de coral, la Piscina Natural y almuerzo fresco.',
         },
       };
     }
 
-    if (timeChoice === 'multiday' || vibeChoice === 'culture') {
+    if (timeChoice === 'overnight') {
       return {
-        id: 'multi-day-exploration',
-        category: 'multi-day',
+        id: 'overnight-island-stay',
+        category: 'overnight',
         reason: {
-          en: 'With 3+ days, you can reach the pristine outer cays of Cayos Holandeses and visit an authentic Guna indigenous community.',
-          es: 'Con 3+ días podrá llegar a los cayos exteriores de Cayos Holandeses y visitar una comunidad indígena tradicional guna.',
+          en: 'An overnight stay lets you experience the quiet magic of the islands after day-trippers depart, sleeping in beachfront cabanas under unpolluted stars.',
+          es: 'Una noche en la isla le permite vivir la serenidad absoluta tras la partida de los pasadías, durmiendo en cabañas frente al mar.',
         },
       };
     }
 
-    // Default overnight
     return {
-      id: 'overnight-island-stay',
-      category: 'overnight',
+      id: 'multi-day-exploration',
+      category: 'multi-day',
       reason: {
-        en: 'Spending the night in a beach cabana lets you witness San Blas at its most peaceful: sunset, starlit Caribbean skies, and calm morning water.',
-        es: 'Dormir en una cabaña de playa le permite disfrutar de San Blas en su momento más sereno: atardeceres, cielos estrellados y mar calmo al amanecer.',
+        en: 'A multi-day expedition allows you to reach the remote outer coral barrier of Cayos Holandeses and Lemon Cays beyond the standard tourist trail.',
+        es: 'Una expedición multidía le permite alcanzar la remota barrera exterior de Cayos Holandeses y Cayos Limón fuera de las rutas habituales.',
       },
     };
   };
@@ -112,11 +122,10 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
     setPartyChoice(null);
   };
 
-  // Helper to split parenthetical option labels
-  const parseOptionWithSubtext = (fullLabel: string) => {
-    const match = fullLabel.match(/^(.*?)\s*\((.*?)\)$/);
+  const parseOptionWithSubtext = (fullLabel: string): { title: string; subtitle: string | null } => {
+    const match = fullLabel.match(/^([^(]+)\s*\(([^)]+)\)$/);
     if (match) {
-      return { title: match[1].trim(), subtitle: match[2].trim() };
+      return { title: match[1].trim(), subtitle: `(${match[2].trim()})` };
     }
     return { title: fullLabel, subtitle: null };
   };
@@ -135,40 +144,43 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
   }[currentLang];
 
   return (
-    <section id="finder" className="py-6 lg:py-8 bg-[#FAF8F5] border-y border-[#C6A15B]/20 scroll-mt-20">
+    <section id="finder" className="py-12 sm:py-16 bg-[#F6F2E9] border-b border-[#C8AC75]/25 scroll-mt-20 text-[#0B2924]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         
-        {/* SINGLE LUXURY TRAVEL CONCIERGE PANEL */}
-        <div className="bg-[#F7F3EC] rounded-2xl p-4 sm:p-6 border border-[#C6A15B]/30 shadow-sm transition-all">
+        {/* Luxury Travel Concierge Panel */}
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#C8AC75]/35 shadow-xl transition-all">
           
-          {/* TOP PANEL HEADER */}
-          <div className="mb-4 pb-3 border-b border-[#C6A15B]/20">
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-[0.2em] mb-0.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#9b7938]" />
-              <span style={{ borderColor: '#b8841c', fontSize: '14px', lineHeight: '18px', fontWeight: 'bold', fontStyle: 'italic', color: '#9b7938' }}>
+          {/* Header */}
+          <div className="mb-6 pb-4 border-b border-[#C8AC75]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 text-xs font-sans uppercase tracking-[0.2em] text-[#C8AC75] font-semibold mb-1">
+                <Sparkles className="w-3.5 h-3.5 text-[#C8AC75]" />
+                <span>{currentLang === 'es' ? 'CONSERJERÍA DE VIAJE' : 'TRAVEL CONCIERGE'}</span>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-serif font-light text-[#0B2924] leading-snug">
                 {t.quickFinder.title}
-              </span>
+              </h3>
             </div>
-            <p className="text-xs sm:text-sm font-serif text-[#06121E] font-light leading-snug">
+            <p className="text-xs sm:text-sm text-[#153B49]/80 font-sans font-light max-w-sm">
               {t.quickFinder.subtitle}
             </p>
           </div>
 
-          {/* 3-COLUMN QUESTIONNAIRE GRID ON DESKTOP */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:gap-6 items-start">
+          {/* 3-Column Questionnaire Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
 
-            {/* COLUMN 1: 01 YOUR TIME */}
+            {/* Column 1: Time */}
             <div className="flex flex-col h-full">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[11px] font-mono font-bold tracking-wider" style={{ fontSize: '23px', color: '#af7008' }}>01</span>
-                <span className="text-[11px] font-mono uppercase tracking-[0.15em]" style={{ fontSize: '15px', fontWeight: 'bold', color: '#855d0b' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-mono font-bold text-[#C8AC75]">01</span>
+                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#0B2924]">
                   {sectionLabels.q1Tag}
                 </span>
               </div>
 
-              <h3 className="text-sm sm:text-base font-serif font-medium text-[#06121E] mb-2.5 lg:h-9 flex items-center" style={{ fontFamily: 'Fraunces, serif' }}>
+              <h4 className="text-sm font-serif font-medium text-[#0B2924] mb-3 lg:h-9 flex items-center">
                 {t.quickFinder.questionTime}
-              </h3>
+              </h4>
 
               <div className="flex flex-col gap-2">
                 {[
@@ -183,25 +195,25 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                     <button
                       key={opt.id}
                       onClick={() => setTimeChoice(opt.id as any)}
-                      className={`px-3 py-2 text-left rounded-lg border transition-all duration-200 flex items-center justify-between cursor-pointer ${
+                      className={`px-3.5 py-2.5 text-left rounded-xl border transition-all duration-200 flex items-center justify-between cursor-pointer focus:outline-none ${
                         isSelected
-                          ? 'bg-[#06121E] text-[#F7F3EC] border-[#C6A15B] shadow-sm ring-1 ring-[#C6A15B]/40'
-                          : 'bg-[#F8EDE5] text-[#06121E] border-[#E5CFC2] hover:bg-[#F2E3D8] hover:border-[#C6A15B]'
+                          ? 'bg-[#0B2924] text-[#F6F2E9] border-[#C8AC75] shadow-sm'
+                          : 'bg-[#F6F2E9]/70 text-[#0B2924] border-[#C8AC75]/25 hover:bg-white hover:border-[#C8AC75]/60'
                       }`}
                     >
                       <div className="pr-2">
-                        <div className={`text-xs sm:text-sm font-sans font-semibold leading-tight ${isSelected ? 'text-[#F7F3EC]' : 'text-[#06121E]'}`}>
+                        <div className={`text-xs sm:text-sm font-sans font-medium leading-tight ${isSelected ? 'text-white' : 'text-[#0B2924]'}`}>
                           {parsed.title}
                         </div>
                         {parsed.subtitle && (
-                          <div className={`text-[11px] mt-0.5 leading-tight ${isSelected ? 'text-[#C6A15B]' : 'text-[#7A6354]'}`}>
+                          <div className={`text-[11px] mt-0.5 leading-tight ${isSelected ? 'text-[#C8AC75]' : 'text-[#153B49]/70'}`}>
                             {parsed.subtitle}
                           </div>
                         )}
                       </div>
 
                       <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 transition-all ${
-                        isSelected ? 'bg-[#C6A15B] text-[#06121E]' : 'border border-[#C6A15B]/30 opacity-0'
+                        isSelected ? 'bg-[#C8AC75] text-[#0B2924]' : 'border border-[#C8AC75]/30 opacity-0'
                       }`}>
                         <Check className="w-3 h-3 stroke-[2.5]" />
                       </div>
@@ -211,18 +223,18 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
               </div>
             </div>
 
-            {/* COLUMN 2: 02 YOUR EXPERIENCE */}
+            {/* Column 2: Vibe */}
             <div className="flex flex-col h-full">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[11px] font-mono font-bold tracking-wider" style={{ fontSize: '19px', color: '#9a690c' }}>02</span>
-                <span className="text-[11px] font-mono uppercase tracking-[0.15em]" style={{ fontSize: '15px', fontWeight: 'bold', color: '#7d590c' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-mono font-bold text-[#C8AC75]">02</span>
+                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#0B2924]">
                   {sectionLabels.q2Tag}
                 </span>
               </div>
 
-              <h3 className="text-sm sm:text-base font-serif font-medium text-[#06121E] mb-2.5 lg:h-9 flex items-center">
+              <h4 className="text-sm font-serif font-medium text-[#0B2924] mb-3 lg:h-9 flex items-center">
                 {t.quickFinder.questionVibe}
-              </h3>
+              </h4>
 
               <div className="grid grid-cols-2 gap-2">
                 {[
@@ -239,20 +251,20 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                     <button
                       key={opt.id}
                       onClick={() => setVibeChoice(opt.id as any)}
-                      className={`px-2.5 py-2 text-left rounded-lg border transition-all duration-200 flex items-center justify-between cursor-pointer min-h-[42px] ${
+                      className={`px-3 py-2 text-left rounded-xl border transition-all duration-200 flex items-center justify-between cursor-pointer min-h-[44px] focus:outline-none ${
                         isFullWidth ? 'col-span-2' : ''
                       } ${
                         isSelected
-                          ? 'bg-[#06121E] text-[#F7F3EC] border-[#C6A15B] shadow-sm ring-1 ring-[#C6A15B]/40'
-                          : 'bg-[#F8EDE5] text-[#06121E] border-[#E5CFC2] hover:bg-[#F2E3D8] hover:border-[#C6A15B]'
+                          ? 'bg-[#0B2924] text-[#F6F2E9] border-[#C8AC75] shadow-sm'
+                          : 'bg-[#F6F2E9]/70 text-[#0B2924] border-[#C8AC75]/25 hover:bg-white hover:border-[#C8AC75]/60'
                       }`}
                     >
-                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-[#F7F3EC]' : 'text-[#06121E]'}`}>
+                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-white' : 'text-[#0B2924]'}`}>
                         {opt.label}
                       </span>
 
                       <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ml-1 transition-all ${
-                        isSelected ? 'bg-[#C6A15B] text-[#06121E]' : 'border border-[#C6A15B]/30 opacity-0'
+                        isSelected ? 'bg-[#C8AC75] text-[#0B2924]' : 'border border-[#C8AC75]/30 opacity-0'
                       }`}>
                         <Check className="w-3 h-3 stroke-[2.5]" />
                       </div>
@@ -262,18 +274,18 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
               </div>
             </div>
 
-            {/* COLUMN 3: 03 YOUR TRAVEL STYLE */}
+            {/* Column 3: Party */}
             <div className="flex flex-col h-full">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[11px] font-mono font-bold tracking-wider" style={{ fontSize: '18px', color: '#7e5509' }}>03</span>
-                <span className="text-[11px] font-mono uppercase tracking-[0.15em]" style={{ fontSize: '15px', fontWeight: 'bold', color: '#8a610a' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-mono font-bold text-[#C8AC75]">03</span>
+                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#0B2924]">
                   {sectionLabels.q3Tag}
                 </span>
               </div>
 
-              <h3 className="text-sm sm:text-base font-serif font-medium text-[#06121E] mb-2.5 lg:h-9 flex items-center">
+              <h4 className="text-sm font-serif font-medium text-[#0B2924] mb-3 lg:h-9 flex items-center">
                 {t.quickFinder.questionParty}
-              </h3>
+              </h4>
 
               <div className="grid grid-cols-2 gap-2">
                 {[
@@ -288,18 +300,18 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                     <button
                       key={opt.id}
                       onClick={() => setPartyChoice(opt.id as any)}
-                      className={`px-2.5 py-2 text-left rounded-lg border transition-all duration-200 flex items-center justify-between cursor-pointer min-h-[42px] ${
+                      className={`px-3 py-2 text-left rounded-xl border transition-all duration-200 flex items-center justify-between cursor-pointer min-h-[44px] focus:outline-none ${
                         isSelected
-                          ? 'bg-[#06121E] text-[#F7F3EC] border-[#C6A15B] shadow-sm ring-1 ring-[#C6A15B]/40'
-                          : 'bg-[#F8EDE5] text-[#06121E] border-[#E5CFC2] hover:bg-[#F2E3D8] hover:border-[#C6A15B]'
+                          ? 'bg-[#0B2924] text-[#F6F2E9] border-[#C8AC75] shadow-sm'
+                          : 'bg-[#F6F2E9]/70 text-[#0B2924] border-[#C8AC75]/25 hover:bg-white hover:border-[#C8AC75]/60'
                       }`}
                     >
-                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-[#F7F3EC]' : 'text-[#06121E]'}`}>
+                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-white' : 'text-[#0B2924]'}`}>
                         {opt.label}
                       </span>
 
                       <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ml-1 transition-all ${
-                        isSelected ? 'bg-[#C6A15B] text-[#06121E]' : 'border border-[#C6A15B]/30 opacity-0'
+                        isSelected ? 'bg-[#C8AC75] text-[#0B2924]' : 'border border-[#C8AC75]/30 opacity-0'
                       }`}>
                         <Check className="w-3 h-3 stroke-[2.5]" />
                       </div>
@@ -311,45 +323,45 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
 
           </div>
 
-          {/* RECOMMENDATION RESULT INSIDE CONTAINER */}
+          {/* Recommendation Result */}
           {matchedExperience && recommendation && (
-            <div className="mt-4 pt-3 border-t border-[#C6A15B]/30 animate-in fade-in duration-300">
-              <div className="bg-[#06121E] text-white border border-[#C6A15B]/40 rounded-xl p-4 sm:p-5 shadow-lg">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
+            <div className="mt-6 pt-5 border-t border-[#C8AC75]/30 animate-fadeIn">
+              <div className="bg-[#0B2924] text-[#F6F2E9] border border-[#C8AC75]/40 rounded-2xl p-5 sm:p-6 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-[#C6A15B]" />
-                    <span className="text-[11px] font-mono font-bold uppercase tracking-[0.2em] text-[#C6A15B]">
+                    <Sparkles className="w-4 h-4 text-[#C8AC75]" />
+                    <span className="text-xs font-sans font-semibold uppercase tracking-[0.2em] text-[#C8AC75]">
                       {t.quickFinder.recommendedTitle}
                     </span>
                   </div>
                   <button
                     onClick={handleReset}
-                    className="inline-flex items-center gap-1 text-[11px] font-mono text-[#94a3b8] hover:text-white transition-colors self-start sm:self-auto cursor-pointer"
+                    className="inline-flex items-center gap-1.5 text-xs font-sans text-[#F6F2E9]/70 hover:text-[#C8AC75] transition-colors self-start sm:self-auto cursor-pointer"
                   >
-                    <RotateCcw className="w-3 h-3 text-[#C6A15B]" />
+                    <RotateCcw className="w-3 h-3 text-[#C8AC75]" />
                     <span>{t.quickFinder.reset}</span>
                   </button>
                 </div>
 
-                <h3 className="text-lg sm:text-xl font-serif font-light text-white mb-1">
+                <h3 className="text-xl sm:text-2xl font-serif font-light text-white mb-2">
                   {matchedExperience.title[currentLang]}
                 </h3>
 
-                <p className="text-xs text-[#cbd5e1] font-light leading-relaxed mb-4">
+                <p className="text-xs sm:text-sm text-[#F6F2E9]/85 font-sans font-light leading-relaxed mb-5">
                   {recommendation.reason[currentLang]}
                 </p>
 
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={() => onViewExperienceDetails(matchedExperience.id)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-mono uppercase tracking-wider font-semibold text-white bg-white/10 border border-white/25 rounded-lg hover:bg-white/20 transition-all cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-sans uppercase tracking-wider font-medium text-[#F6F2E9] bg-white/10 border border-white/25 rounded-xl hover:bg-white/20 transition-all cursor-pointer"
                   >
                     <span>{t.quickFinder.viewDetails}</span>
                   </button>
 
                   <button
                     onClick={() => onSelectExperience(recommendation.category)}
-                    className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-mono uppercase tracking-wider font-bold text-[#06121E] bg-[#C6A15B] hover:bg-[#d4af37] rounded-lg transition-all shadow-md cursor-pointer"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-sans uppercase tracking-wider font-semibold text-[#0B2924] bg-[#C8AC75] hover:bg-[#dfc38d] rounded-xl transition-all shadow-md cursor-pointer"
                   >
                     <span>{t.quickFinder.planThis}</span>
                     <ArrowRight className="w-3.5 h-3.5" />

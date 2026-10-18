@@ -65,7 +65,7 @@ export const EXPERIENCES_DATA: Experience[] = [
         'Snorkel mask (recommended to bring your own or confirm rental in advance)',
       ],
       es: [
-        'Entrance and port fees will be confirmed in your quotation.',
+        'Los impuestos de entrada y tarifas de puerto se confirmarán en su cotización.',
         'Bebidas personales, aperitivos y artesanías (molas hechas a mano)',
         'Equipo de snorkel (se recomienda traer el propio o confirmar alquiler previo)',
       ],
@@ -172,7 +172,7 @@ export const EXPERIENCES_DATA: Experience[] = [
         'Optional late-checkout boat surcharge (if returning late on Day 2)',
       ],
       es: [
-        'Entrance and port fees will be confirmed in your quotation.',
+        'Los impuestos de entrada y tarifas de puerto se confirmarán en su cotización.',
         'Bebidas adicionales, cervezas, refrescos o agua embotellada',
         'Suplemento opcional por salida tardía en bote (si regresa en la tarde del Día 2)',
       ],
@@ -282,7 +282,7 @@ export const EXPERIENCES_DATA: Experience[] = [
         'Personal drinks and artisan mola purchases in communities',
       ],
       es: [
-        'Entrance and port fees will be confirmed in your quotation.',
+        'Los impuestos de entrada y tarifas de puerto se confirmarán en su cotización.',
         'Bebidas personales y compras de artesanías en las comunidades',
       ],
     },
@@ -377,7 +377,7 @@ export const EXPERIENCES_DATA: Experience[] = [
         'Personal gratuities',
       ],
       es: [
-        'Entrance and port fees will be confirmed in your quotation.',
+        'Los impuestos de entrada y tarifas de puerto se confirmarán en su cotización.',
         'Propinas personales',
       ],
     },
@@ -473,7 +473,7 @@ export const EXPERIENCES_DATA: Experience[] = [
         'Specialty alcoholic beverages (guests may bring their own provisions)',
       ],
       es: [
-        'Entrance and port fees will be confirmed in your quotation.',
+        'Los impuestos de entrada y tarifas de puerto se confirmarán en su cotización.',
         'Traslado terrestre 4x4 (se puede coordinar directamente con Petra)',
         'Bebidas alcohólicas especiales (los viajeros pueden llevar sus provisiones)',
       ],
@@ -576,7 +576,7 @@ export const EXPERIENCES_DATA: Experience[] = [
         'Premium champagne or specialty wines (bring your own welcome)',
       ],
       es: [
-        'Entrance and port fees will be confirmed in your quotation.',
+        'Los impuestos de entrada y tarifas de puerto se confirmarán en su cotización.',
         'Vuelo chárter opcional o traslado terrestre en 4x4',
         'Champán premium o vinos especiales (se permite llevar provisiones propias)',
       ],

@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { Language } from '../types';
 import { TRANSLATIONS } from '../data/translations';
-import { Sparkles, MapPin, Compass, Waves, Anchor, Eye, ArrowUpRight } from 'lucide-react';
+import { ISLAND_MEDIA_REGISTRY } from '../videos';
+import { Compass, Waves, Play, ArrowRight, Eye, Sparkles } from 'lucide-react';
 
 interface TheIslandsProps {
   currentLang: Language;
   onExploreExperience: (categoryId?: string) => void;
+  onOpenExperienceDetailsById?: (id: string) => void;
+  onWatchFilm?: (island: { id: string; name: string; gunaName?: string }) => void;
 }
 
-interface IslandData {
+export interface IslandData {
   id: string;
   name: string;
   gunaName: string;
@@ -19,15 +22,12 @@ interface IslandData {
   highlights: { en: string[]; es: string[] };
   bestFor: { en: string; es: string };
   categoryLink: string;
-  imageSvg: {
-    bgGradient: string;
-    sandColor: string;
-    palmCount: number;
-    waterType: 'turquoise' | 'deep-lagoon' | 'coral-barrier' | 'sandbar';
-  };
+  experienceId: string;
+  posterImage: string;
+  hasVideo: boolean;
 }
 
-const ISLANDS_LIST: IslandData[] = [
+export const ISLANDS_LIST: IslandData[] = [
   {
     id: 'cayos-limon',
     name: 'Cayos Limón (Lemon Cays)',
@@ -51,12 +51,9 @@ const ISLANDS_LIST: IslandData[] = [
       es: 'Natación, Fotografía, Pasadías y Familias',
     },
     categoryLink: 'day-trip',
-    imageSvg: {
-      bgGradient: 'from-[#0ea5e9] via-[#14b8a6] to-[#042f2e]',
-      sandColor: '#fef3c7',
-      palmCount: 4,
-      waterType: 'sandbar',
-    },
+    experienceId: 'day-trip-classic',
+    posterImage: '/pictures/piscinanat.jpg',
+    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['cayos-limon']?.videoUrl),
   },
   {
     id: 'cayos-holandeses',
@@ -81,12 +78,9 @@ const ISLANDS_LIST: IslandData[] = [
       es: 'Expediciones Multidía, Navegación y Snorkel Profundo',
     },
     categoryLink: 'multi-day',
-    imageSvg: {
-      bgGradient: 'from-[#0284c7] via-[#0d9488] to-[#0f172a]',
-      sandColor: '#fffbeb',
-      palmCount: 6,
-      waterType: 'coral-barrier',
-    },
+    experienceId: 'multi-day-exploration',
+    posterImage: '/pictures/cayouholandese.jpg',
+    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['cayos-holandeses']?.videoUrl),
   },
   {
     id: 'isla-perro-chico',
@@ -111,12 +105,9 @@ const ISLANDS_LIST: IslandData[] = [
       es: 'Snorkel en Pecios y Excursiones de Día',
     },
     categoryLink: 'day-trip',
-    imageSvg: {
-      bgGradient: 'from-[#06b6d4] via-[#0891b2] to-[#164e63]',
-      sandColor: '#fef08a',
-      palmCount: 5,
-      waterType: 'turquoise',
-    },
+    experienceId: 'day-trip-classic',
+    posterImage: '/pictures/perrochico.jpg',
+    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['isla-perro-chico']?.videoUrl),
   },
   {
     id: 'isla-franklin',
@@ -128,8 +119,8 @@ const ISLANDS_LIST: IslandData[] = [
       es: 'Cayo tradicional de coral con cabañas de madera y paja frente al mar',
     },
     description: {
-      en: 'Classic palm-fringed coral cay with traditional beachfront wood-and-thatch cabanas, calm turquoise swimming, and fresh island dining.',
-      es: 'Cayo tradicional con cabañas de madera y paja frente al mar, aguas calmas y almuerzo de pescado fresco.',
+      en: 'Classic palm-fringed coral cay with traditional beachfront wood-and-thatch cabanas, calm turquoise swimming, and fresh island dining under unpolluted starry skies.',
+      es: 'Cayo tradicional con cabañas de madera y paja frente al mar, aguas calmas y almuerzo de pescado fresco bajo cielos estrellados.',
     },
     waterVisibility: '22m+ Crystal Lagoon',
     highlights: {
@@ -141,12 +132,9 @@ const ISLANDS_LIST: IslandData[] = [
       es: 'Estadías Nocturnas y Experiencia Tradicional de Playa',
     },
     categoryLink: 'overnight',
-    imageSvg: {
-      bgGradient: 'from-[#0284c7] via-[#0d9488] to-[#042f2e]',
-      sandColor: '#fef08a',
-      palmCount: 6,
-      waterType: 'turquoise',
-    },
+    experienceId: 'overnight-island-stay',
+    posterImage: '/pictures/04 Franklin.jpg',
+    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['isla-franklin']?.videoUrl),
   },
   {
     id: 'cayos-chichime',
@@ -158,25 +146,22 @@ const ISLANDS_LIST: IslandData[] = [
       es: 'Extensa laguna de arena blanca y el fondeadero predilecto para navegantes',
     },
     description: {
-      en: 'A pair of idyllic islands embracing a tranquil, deep blue natural anchorage. A favorite mooring spot for private sailing yachts and catamarans, with calm nights, bioluminescence, and authentic thatched cabanas.',
+      en: 'A pair of idyllic islands embracing a tranquil, deep blue natural anchorage. A favorite mooring spot for private sailing yachts and catamarans, with calm nights and authentic thatched cabanas.',
       es: 'Dos islas idílicas que abrazan un fondeadero tranquilo de aguas serenas. El punto de anclaje favorito para veleros y catamaranes, con noches estrelladas y cabañas tradicionales de paja.',
     },
     waterVisibility: '25m+ Lagoon Calm',
     highlights: {
-      en: ['Sheltered sailing anchorage', 'Traditional wooden cabanas', 'Fresh lobster dining'],
-      es: ['Fondeadero protegido para veleros', 'Cabañas rústicas tradicionales', 'Langosta fresca local'],
+      en: ['Sheltered sailing anchorage', 'Traditional wooden cabanas', 'Fresh catch seafood dining'],
+      es: ['Fondeadero protegido para veleros', 'Cabañas rústicas tradicionales', 'Pescados y mariscos frescos locales'],
     },
     bestFor: {
       en: 'Overnight Island Cabanas & Sailing Charters',
       es: 'Noches en Cabañas y Veleros / Catamarán',
     },
-    categoryLink: 'overnight',
-    imageSvg: {
-      bgGradient: 'from-[#38bdf8] via-[#2dd4bf] to-[#134e4a]',
-      sandColor: '#fef9c3',
-      palmCount: 7,
-      waterType: 'deep-lagoon',
-    },
+    categoryLink: 'sailing',
+    experienceId: 'private-sailing-charter',
+    posterImage: '/pictures/catamaran.jpg',
+    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['cayos-chichime']?.videoUrl),
   },
   {
     id: 'isla-pelicano',
@@ -200,196 +185,192 @@ const ISLANDS_LIST: IslandData[] = [
       en: 'Couples, Film Enthusiasts & Private Charters',
       es: 'Parejas, Amantes del Cine y Paseos Privados',
     },
-    categoryLink: 'private',
-    imageSvg: {
-      bgGradient: 'from-[#0284c7] via-[#06b6d4] to-[#042f2e]',
-      sandColor: '#fef3c7',
-      palmCount: 3,
-      waterType: 'turquoise',
-    },
+    categoryLink: 'private-custom',
+    experienceId: 'private-boat-custom',
+    posterImage: '/pictures/images (1).jpg',
+    hasVideo: Boolean(ISLAND_MEDIA_REGISTRY['isla-pelicano']?.videoUrl),
   },
 ];
 
-export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onExploreExperience }) => {
+export const TheIslands: React.FC<TheIslandsProps> = ({
+  currentLang,
+  onExploreExperience,
+  onOpenExperienceDetailsById,
+  onWatchFilm,
+}) => {
   const t = TRANSLATIONS[currentLang];
-  const [selectedIsland, setSelectedIsland] = useState<IslandData>(ISLANDS_LIST[0]);
+  const [activeIslandId, setActiveIslandId] = useState<string>(ISLANDS_LIST[0].id);
+
+  const selectedIsland =
+    ISLANDS_LIST.find((i) => i.id === activeIslandId) || ISLANDS_LIST[0];
+
+  const handleOpenDetails = (island: IslandData) => {
+    if (onOpenExperienceDetailsById) {
+      onOpenExperienceDetailsById(island.experienceId);
+    } else {
+      onExploreExperience(island.categoryLink);
+    }
+  };
+
+  const handleWatchFilm = (island: IslandData) => {
+    if (onWatchFilm) {
+      onWatchFilm({
+        id: island.id,
+        name: island.name,
+        gunaName: island.gunaName,
+      });
+    }
+  };
 
   return (
-    <section id="islands" className="py-24 md:py-36 bg-[#06121E] text-white relative overflow-hidden scroll-mt-20 border-t border-[#C6A15B]/20">
+    <section
+      id="islands"
+      className="py-24 sm:py-32 bg-[#0B2924] text-[#F6F2E9] relative overflow-hidden scroll-mt-20 border-b border-[#C8AC75]/20"
+    >
       {/* Background ambient lighting */}
-      <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-[#0e7490]/15 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-[#153B49]/30 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         
         {/* Editorial Section Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16 border-b border-[#C6A15B]/20 pb-8">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16 border-b border-[#C8AC75]/25 pb-8">
           <div>
-            <div className="flex items-center gap-2.5 text-[11px] font-mono font-semibold uppercase tracking-[0.25em] text-[#C6A15B] mb-3">
-              <Compass className="w-4 h-4 text-[#C6A15B]" />
-              <span>{t.islands.tag}</span>
+            <div className="flex items-center gap-2 text-xs font-sans font-semibold uppercase tracking-[0.25em] text-[#C8AC75] mb-3">
+              <Compass className="w-3.5 h-3.5 text-[#C8AC75]" />
+              <span>{t.islands.collectionTag}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-light text-white tracking-tight text-balance">
-              {t.islands.title}
+              {t.islands.collectionTitle}
             </h2>
           </div>
-          <p className="text-sm sm:text-base text-[#94a3b8] max-w-lg leading-relaxed font-light">
-            {t.islands.subtitle}
+          <p className="text-sm sm:text-base text-[#F6F2E9]/80 max-w-lg leading-relaxed font-sans font-light">
+            {t.islands.collectionSubtitle}
           </p>
         </div>
 
-        {/* Islands Interactive Feature Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Island Navigation Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-10 scrollbar-none">
+          {ISLANDS_LIST.map((island) => {
+            const isSelected = island.id === selectedIsland.id;
+            return (
+              <button
+                key={island.id}
+                onClick={() => setActiveIslandId(island.id)}
+                className={`px-4 sm:px-5 py-2.5 rounded-full text-xs font-sans uppercase tracking-[0.12em] font-medium whitespace-nowrap transition-all duration-300 focus:outline-none ${
+                  isSelected
+                    ? 'bg-[#C8AC75] text-[#0B2924] font-semibold shadow-lg'
+                    : 'bg-white/10 hover:bg-white/15 text-[#F6F2E9]/80 hover:text-white border border-white/10'
+                }`}
+              >
+                <span>{island.name.split('(')[0].trim()}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Featured Island Showcase (Information First, Video Optional) */}
+        <div className="bg-[#061815] border border-[#C8AC75]/30 rounded-3xl overflow-hidden shadow-2xl grid grid-cols-1 lg:grid-cols-12 gap-0">
           
-          {/* Left Column: Island Selector Tabs */}
-          <div className="lg:col-span-5 space-y-2.5">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-white/40 block mb-2 font-mono">
-              {currentLang === 'es' ? 'Seleccionar Destino' : 'Select Destination'}
-            </span>
+          {/* Island Imagery & Optional Film Trigger */}
+          <div className="lg:col-span-6 relative aspect-[16/11] lg:aspect-auto min-h-[340px] sm:min-h-[440px] overflow-hidden bg-[#071F1B]">
+            <img
+              src={selectedIsland.posterImage}
+              alt={selectedIsland.name}
+              className="w-full h-full object-cover filter brightness-[0.92] contrast-[1.04] transition-all duration-700 ease-out"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#061815]/80 via-transparent to-transparent pointer-events-none" />
 
-            {ISLANDS_LIST.map((island) => {
-              const isSelected = selectedIsland.id === island.id;
-              return (
+            {/* Optional Watch Island Film Button Overlay */}
+            {selectedIsland.hasVideo && (
+              <div className="absolute top-5 right-5 z-20">
                 <button
-                  key={island.id}
-                  onClick={() => setSelectedIsland(island)}
-                  className={`w-full text-left p-4 sm:p-5 rounded-2xl transition-all duration-300 border flex flex-col justify-between group ${
-                    isSelected
-                      ? 'bg-white/10 border-cyan-400/40 shadow-lg shadow-cyan-950/40 backdrop-blur-md'
-                      : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.05] hover:border-white/15'
-                  }`}
+                  onClick={() => handleWatchFilm(selectedIsland)}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#0B2924]/90 hover:bg-[#0B2924] text-[#C8AC75] hover:text-white border border-[#C8AC75] rounded-full backdrop-blur-md text-xs font-sans uppercase tracking-[0.14em] font-medium shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 focus:outline-none"
+                  aria-label={`${t.islands.watchFilmBtn} - ${selectedIsland.name}`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-300/80 block">
-                        {island.gunaName}
-                      </span>
-                      <h3
-                        className={`text-base sm:text-lg font-serif font-medium mt-0.5 transition-colors ${
-                          isSelected ? 'text-white' : 'text-white/80 group-hover:text-white'
-                        }`}
-                      >
-                        {island.name}
-                      </h3>
-                    </div>
-                    <span
-                      className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
-                        isSelected
-                          ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                          : 'border-white/10 text-white/40 group-hover:text-white/70'
-                      }`}
-                    >
-                      {island.group}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-white/60 line-clamp-1 mt-2 font-light">
-                    {island.tagline[currentLang]}
-                  </p>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>{t.islands.watchFilmBtn}</span>
                 </button>
-              );
-            })}
+              </div>
+            )}
+
+            {/* Water Clarity Badge (Clean unboxed presentation) */}
+            <div className="absolute bottom-5 left-5 z-20 flex items-center gap-2 px-3.5 py-1.5 bg-[#0B2924]/85 backdrop-blur-md rounded-full border border-[#C8AC75]/40 text-xs text-[#F6F2E9]">
+              <Waves className="w-3.5 h-3.5 text-[#C8AC75]" />
+              <span className="font-sans text-[11px] font-medium">{t.islands.waterVisibilityLabel}: {selectedIsland.waterVisibility}</span>
+            </div>
           </div>
 
-          {/* Right Column: Heroic Spotlight of the Selected Island */}
-          <div className="lg:col-span-7 bg-white/[0.03] border border-white/10 rounded-3xl p-6 sm:p-8 lg:p-10 backdrop-blur-xl relative flex flex-col justify-between">
-            
-            {/* Visual Island Header */}
+          {/* Comprehensive Island Information (Information First) */}
+          <div className="lg:col-span-6 p-7 sm:p-10 flex flex-col justify-between">
             <div>
-              {/* Destination Image Preview */}
-              <div className="relative aspect-[21/9] sm:aspect-[16/7] rounded-2xl overflow-hidden mb-6 border border-white/10 shadow-lg bg-[#0b1f30]">
-                <img
-                  src={
-                    selectedIsland.id === 'isla-perro-chico' || selectedIsland.id === 'isla-perro'
-                      ? '/pictures/perrochico.jpg'
-                      : selectedIsland.id === 'isla-franklin'
-                      ? '/pictures/Franklin.jpg'
-                      : selectedIsland.id === 'cayos-limon'
-                      ? '/pictures/placeholder/islands.jpg'
-                      : selectedIsland.id === 'cayos-holandeses'
-                      ? '/pictures/multidaytravel.jpg'
-                      : '/pictures/01 Boat Day Tour .jpg'
-                  }
-                  alt={selectedIsland.name}
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover transition-all duration-500 hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute bottom-3 left-4 text-[11px] font-mono tracking-wider text-cyan-200 uppercase bg-black/40 backdrop-blur-xs px-2.5 py-0.5 rounded-full border border-white/15">
-                  {selectedIsland.gunaName}
-                </div>
+              {/* Indigenous Guna Name & Sector */}
+              <div className="flex items-center gap-2 text-xs font-sans text-[#C8AC75] uppercase tracking-[0.2em] font-semibold mb-2">
+                <span>{selectedIsland.gunaName}</span>
+                <span className="text-white/30">·</span>
+                <span className="text-white/60 font-light">{selectedIsland.group}</span>
               </div>
 
-              {/* Top metadata tags */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-6 mb-6">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-cyan-400" />
-                  <span className="text-xs font-mono tracking-wider text-cyan-200 uppercase">
-                    {selectedIsland.gunaName}
-                  </span>
-                  <span className="text-white/30 text-xs">·</span>
-                  <span className="text-xs text-white/70">{selectedIsland.group}</span>
-                </div>
-
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs">
-                  <Waves className="w-3.5 h-3.5" />
-                  <span>{selectedIsland.waterVisibility}</span>
-                </div>
-              </div>
-
-              {/* Island Title & Tagline */}
-              <h3 className="text-2xl sm:text-3xl lg:text-4xl font-display font-light text-white tracking-tight">
+              {/* Title */}
+              <h3 className="text-2xl sm:text-3xl lg:text-4xl font-serif text-white font-light tracking-tight mb-4">
                 {selectedIsland.name}
               </h3>
-              <p className="text-sm sm:text-base text-cyan-100/90 font-light mt-2 italic">
-                "{selectedIsland.tagline[currentLang]}"
+
+              {/* Tagline */}
+              <p className="text-sm sm:text-base font-serif italic text-[#C8AC75] leading-relaxed mb-4">
+                “{selectedIsland.tagline[currentLang]}”
               </p>
 
-              {/* Prose Description */}
-              <p className="text-sm text-white/80 leading-relaxed font-light mt-4">
+              {/* Description */}
+              <p className="text-xs sm:text-sm text-[#F6F2E9]/80 font-sans font-light leading-relaxed mb-6">
                 {selectedIsland.description[currentLang]}
               </p>
 
               {/* Highlights List */}
-              <div className="mt-6 pt-6 border-t border-white/10">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-white/50 block mb-3 font-mono">
-                  {currentLang === 'es' ? 'Aspectos Destacados' : 'Natural Highlights'}
+              <div className="space-y-2 mb-6 pt-5 border-t border-[#C8AC75]/20">
+                <span className="text-[11px] font-sans uppercase tracking-[0.16em] text-[#C8AC75] font-semibold block mb-2">
+                  {t.islands.highlightsLabel}
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {selectedIsland.highlights[currentLang].map((hl, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-black/20 border border-white/10 rounded-xl p-3 text-xs text-white/90 flex items-center gap-2"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                    <div key={idx} className="flex items-center gap-2 text-xs text-[#F6F2E9]/90 font-light">
+                      <span className="text-[#C8AC75]">✦</span>
                       <span>{hl}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Best For Tag */}
-              <div className="mt-5 text-xs text-white/70 flex items-center gap-2">
-                <span className="text-cyan-400 font-medium">
-                  {currentLang === 'es' ? 'Ideal para:' : 'Best for:'}
+              {/* Best For */}
+              <div className="p-3.5 bg-white/5 rounded-xl border border-[#C8AC75]/20 text-xs text-[#F6F2E9]/85 mb-6">
+                <span className="font-semibold text-[#C8AC75] mr-1.5 uppercase tracking-wider text-[10px]">
+                  {t.islands.bestForLabel}:
                 </span>
-                <span>{selectedIsland.bestFor[currentLang]}</span>
+                <span className="font-light">{selectedIsland.bestFor[currentLang]}</span>
               </div>
             </div>
 
-            {/* Action Zone: Connect directly to the experience visiting this island */}
-            <div className="mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-xs text-white/60">
-                <span>{currentLang === 'es' ? 'Coordinado directamente con familias locales' : 'Direct indigenous family access & protection'}</span>
-              </div>
-
+            {/* Bottom Actions */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-[#C8AC75]/20">
               <button
-                onClick={() => onExploreExperience(selectedIsland.categoryLink)}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-full text-xs font-semibold tracking-wider uppercase text-[#06131f] bg-white hover:bg-neutral-100 transition-all hover:scale-105 active:scale-95"
+                onClick={() => handleOpenDetails(selectedIsland)}
+                className="w-full sm:w-auto flex-1 py-3 px-6 bg-[#C8AC75] hover:bg-[#dfc38d] text-[#0B2924] font-semibold text-xs font-sans uppercase tracking-[0.14em] rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
               >
-                <span>{t.islands.exploreExpBtn}</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
+                <span>{t.islands.viewDetailsBtn}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-[#0B2924]" />
               </button>
+
+              {/* Optional Watch Island Film button in footer */}
+              {selectedIsland.hasVideo && (
+                <button
+                  onClick={() => handleWatchFilm(selectedIsland)}
+                  className="w-full sm:w-auto py-3 px-5 bg-white/10 hover:bg-white/15 text-[#F6F2E9] border border-[#C8AC75]/40 text-xs font-sans uppercase tracking-[0.14em] font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Play className="w-3.5 h-3.5 text-[#C8AC75]" />
+                  <span>{t.islands.watchFilmBtn}</span>
+                </button>
+              )}
             </div>
 
           </div>

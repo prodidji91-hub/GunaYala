@@ -1,217 +1,293 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronRight, Sparkles, Compass, Play, Pause, Volume2, VolumeX, Shield, Anchor, MapPin } from 'lucide-react';
 import { Language } from '../types';
 import { TRANSLATIONS } from '../data/translations';
-import { HERO_VIDEO_CONFIG } from '../videos';
-import { VisualAsset } from '../pictures';
-import { REVIEWS_METRIC } from '../data/reviews';
-import { Calendar, ChevronDown, Volume2, VolumeX, Play, Pause } from 'lucide-react';
 
 interface HeroProps {
   currentLang: Language;
-  onExploreClick?: () => void;
-  onPlanClick: () => void;
+  onExploreClick: () => void;
+  onPlanClick?: () => void;
+  onBookClick?: () => void;
 }
 
-export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanClick }) => {
-  const t = TRANSLATIONS[currentLang];
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const [videoLoaded, setVideoLoaded] = useState(false);
-  const [videoError, setVideoError] = useState(false);
+export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanClick, onBookClick }) => {
+  const language = currentLang;
+  const t = TRANSLATIONS[language].hero;
+  const panels = t.panels || {
+    islands: {
+      number: '01',
+      tag: 'THE ISLANDS',
+      headline: 'Island Escapes',
+      description: 'Discover pristine beaches, turquoise waters and unforgettable island experiences.',
+      cta: 'Explore Islands',
+    },
+    sailing: {
+      number: '02',
+      tag: 'SAILING',
+      headline: 'Sailing Adventures',
+      description: 'Experience the Caribbean through extraordinary sailing journeys.',
+      cta: 'Explore Sailing',
+    },
+    culture: {
+      number: '03',
+      tag: 'GUNA CULTURE',
+      headline: 'Authentic Guna Culture',
+      description: 'Discover the traditions, stories and hospitality of the Guna people.',
+      cta: 'Explore Culture',
+    },
+  };
 
-  // Background photo (src/pictures/images (1).jpg) is primary on header page load
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
+  const [videoError, setVideoError] = useState(false);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const handlePrimaryClick = onBookClick || onPlanClick || onExploreClick;
+
+  // Handle video play/pause
   useEffect(() => {
     if (videoRef.current) {
-      videoRef.current.defaultMuted = true;
-      videoRef.current.muted = true;
-    }
-  }, []);
-
-  const togglePlay = () => {
-    if (videoRef.current) {
       if (isPlaying) {
-        videoRef.current.pause();
-        setIsPlaying(false);
+        videoRef.current.play().catch(() => setVideoError(true));
       } else {
-        const playPromise = videoRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => setIsPlaying(true))
-            .catch(() => setIsPlaying(false));
-        } else {
-          setIsPlaying(true);
-        }
+        videoRef.current.pause();
       }
     }
-  };
+  }, [isPlaying]);
 
-  const toggleMute = () => {
-    if (videoRef.current) {
-      const nextMuted = !isMuted;
-      videoRef.current.muted = nextMuted;
-      setIsMuted(nextMuted);
-    }
-  };
-
-  const handleScrollToNext = () => {
-    const discoverSection = document.getElementById('discover');
-    if (discoverSection) {
-      discoverSection.scrollIntoView({ behavior: 'smooth' });
-    } else if (onExploreClick) {
+  const handleNavScroll = (targetId: string) => {
+    const el = document.getElementById(targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    } else {
       onExploreClick();
     }
   };
 
   return (
-    <section
-      id="hero"
-      className="relative w-full h-screen min-h-[640px] flex flex-col justify-between overflow-hidden bg-[#06121e] text-white select-none"
-    >
+    <div id="hero" className="relative min-h-[92vh] lg:min-h-screen flex flex-col justify-between bg-[#0B2924] text-[#F6F2E9] overflow-hidden pt-[72px] sm:pt-[72px] lg:pt-[72px] select-none">
+      
       {/* ========================================================
-          BACKGROUND LAYER: Header Page Hero Photo (header1.jpg)
-          With optional smooth cinematic video toggle
+          THREE SIDE-BY-SIDE CINEMATIC PANELS (DESKTOP HORIZONTAL)
          ======================================================== */}
-      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none w-full h-full max-w-full">
+      <div className="flex-1 w-full flex flex-col lg:flex-row items-stretch border-t border-[#C8AC75]/25 overflow-hidden">
         
-        {/* Header Page Background Image (src/pictures/header1.jpg) */}
-        <img
-          src="/pictures/header1.jpg"
-          onError={(e) => {
-            const target = e.currentTarget;
-            if (!target.src.includes('guna-yala-hero.jpg')) {
-              target.src = '/pictures/hero/guna-yala-hero.jpg';
-            }
-          }}
-          alt="Guna Yala San Blas Caribbean Ocean"
-          width={2508}
-          height={1664}
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none filter brightness-95 contrast-105"
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          loading="eager"
-        />
+        {/* PANEL 01 — THE ISLANDS */}
+        <div className="relative flex-1 group transition-all duration-700 ease-out hover:lg:flex-[1.35] border-b-2 lg:border-b-0 lg:border-r-2 border-[#C8AC75] overflow-hidden flex flex-col justify-between min-h-[380px] sm:min-h-[440px] lg:min-h-0">
+          {/* Background Video / Photo Backdrop */}
+          <div className="absolute inset-0 z-0 overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0B2924]/98 via-[#0B2924]/50 to-black/30 z-10 pointer-events-none" />
+            
+            {!videoError ? (
+              <video
+                ref={videoRef}
+                autoPlay
+                muted={isMuted}
+                loop
+                playsInline
+                preload="metadata"
+                poster="/pictures/hero/guna-yala-hero.jpg"
+                onError={() => setVideoError(true)}
+                className="w-full h-full object-cover object-center scale-105 group-hover:scale-110 transition-transform duration-1000 ease-out"
+              >
+                <source src="/videos/guna-yala-hero.mp4" type="video/mp4" />
+                Your browser does not support video.
+              </video>
+            ) : (
+              <div 
+                className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-1000 ease-out brightness-[0.92] contrast-[1.05]"
+                style={{ backgroundImage: `url("/pictures/hero/guna-yala-hero.jpg")` }}
+              />
+            )}
+          </div>
 
-        {/* Local Cinematic Destination Video (Overlay when user clicks play) */}
-        <video
-          ref={videoRef}
-          autoPlay={false}
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          poster="/pictures/header1.jpg"
-          onLoadedData={() => setVideoLoaded(true)}
-          onCanPlay={() => setVideoLoaded(true)}
-          onError={() => setVideoError(true)}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 filter brightness-90 contrast-[1.04] pointer-events-none ${
-            isPlaying && videoLoaded && !videoError ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        >
-          <source src="/videos/guna-yala-hero.mp4" type="video/mp4" />
-        </video>
+          {/* Panel Content Overlay */}
+          <div className="relative z-20 h-full p-6 sm:p-8 lg:p-10 flex flex-col justify-between">
+            {/* Top Tag & Video Controls */}
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center space-x-2 bg-black/45 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-[#C8AC75]/40 text-xs font-sans uppercase tracking-[0.2em] text-[#C8AC75] shadow-lg">
+                <span className="font-mono font-bold text-[#C8AC75]">{panels.islands.number}</span>
+                <span className="text-[#C8AC75]/40">&bull;</span>
+                <span>{panels.islands.tag}</span>
+              </div>
 
-        {/* Luxury Vignettes: preserves visual dominance while ensuring crisp typography */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-[#06121e]/90 pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_45%,rgba(6,18,30,0.6)_100%)] pointer-events-none" />
-      </div>
-
-      {/* ========================================================
-          TOP BUFFER: Keeps center area clear for the GUNA YALA header composition
-         ======================================================== */}
-      <div className="h-28 sm:h-36 lg:h-40 pointer-events-none" />
-
-      {/* ========================================================
-          CENTER CONTENT: Minimal, Restrained Hero Copy
-          "GUNA YALA - The islands. The culture. The experience."
-         ======================================================== */}
-      <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center my-auto">
-        
-        {/* Minimal Kicker Tag */}
-        <div className="inline-flex items-center gap-2 mb-4 text-[10px] sm:text-xs font-mono uppercase tracking-[0.3em] text-cyan-200/90 drop-shadow-md">
-          <span>{currentLang === 'es' ? 'Archipiélago de San Blas' : 'San Blas Archipelago'}</span>
-          <span className="w-1 h-1 rounded-full bg-cyan-400 opacity-60" />
-          <span>{currentLang === 'es' ? 'Comarca Indígena' : 'Autonomous Comarca'}</span>
-        </div>
-
-        {/* Minimal Hero Tagline in high-fashion editorial serif */}
-        <h2 className="text-3xl sm:text-5xl md:text-6xl font-display italic font-light tracking-tight text-white leading-[1.15] drop-shadow-[0_4px_30px_rgba(0,0,0,0.8)] text-balance">
-          {t.hero.tagline}
-        </h2>
-
-        {/* Restrained Luxury Call to Action */}
-        <div className="mt-8 sm:mt-10 flex items-center justify-center">
-          {/* Plan Your Trip */}
-          <button
-            onClick={onPlanClick}
-            className="w-full sm:w-auto max-w-xs inline-flex items-center justify-center gap-2 px-8 py-3.5 text-xs sm:text-sm font-medium tracking-[0.18em] uppercase text-white bg-black/30 hover:bg-white/15 border border-white/30 hover:border-white/60 rounded-full backdrop-blur-md shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-95"
-          >
-            <Calendar className="w-3.5 h-3.5 text-cyan-300" />
-            <span>{t.hero.secondaryCta}</span>
-          </button>
-        </div>
-
-      </div>
-
-      {/* ========================================================
-          BOTTOM ZONE: Social Proof & Ambient Video Controls
-         ======================================================== */}
-      <div className="relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-8 pb-6 sm:pb-8 pt-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-white/10 pt-4 sm:pt-5">
-          
-          {/* Left: Quantitative Proof (Subtle, unboxed, authentic) */}
-          <div className="flex items-center gap-3 text-xs text-white/80">
-            <div className="flex items-center gap-1 text-amber-300">
-              <span className="font-bold text-white text-xs">5.0</span>
-              <span className="text-[11px] tracking-tighter">★★★★★</span>
+              {/* Minimal Audio/Playback Pill for Panel 01 Video */}
+              <div className="flex items-center space-x-2 bg-black/45 backdrop-blur-md px-2.5 py-1 rounded-full border border-[#C8AC75]/30">
+                <button 
+                  onClick={() => setIsMuted(!isMuted)} 
+                  className="text-[#F6F2E9]/80 hover:text-[#C8AC75] p-1 transition-colors"
+                  aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+                  title={isMuted ? "Unmute audio" : "Mute audio"}
+                >
+                  {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-[#C8AC75]" />}
+                </button>
+                <div className="w-px h-3 bg-[#C8AC75]/30" />
+                <button 
+                  onClick={() => setIsPlaying(!isPlaying)} 
+                  className="text-[#F6F2E9]/80 hover:text-[#C8AC75] p-1 transition-colors"
+                  aria-label={isPlaying ? "Pause video" : "Play video"}
+                  title={isPlaying ? "Pause video" : "Play video"}
+                >
+                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-[#C8AC75]" />}
+                </button>
+              </div>
             </div>
-            <span className="text-white/30">·</span>
-            <span className="font-medium text-white/90">
-              {REVIEWS_METRIC.reviewCount} {currentLang === 'es' ? 'Reseñas Verificadas' : 'Verified Google Reviews'}
-            </span>
-            <span className="hidden md:inline text-white/30">·</span>
-            <span className="hidden md:inline text-cyan-300/90 font-mono text-[11px] uppercase tracking-wider">
-              {t.hero.gunaOwned}
-            </span>
+
+            {/* Bottom Content Area */}
+            <div className="pt-12 sm:pt-16">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-serif font-light tracking-tight text-[#F6F2E9] leading-tight mb-3 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
+                {panels.islands.headline}
+              </h2>
+              <p className="text-xs sm:text-sm lg:text-base text-[#F6F2E9]/90 font-sans font-light leading-relaxed mb-6 max-w-md drop-shadow-[0_1px_8px_rgba(0,0,0,0.8)]">
+                {panels.islands.description}
+              </p>
+              <button
+                onClick={() => handleNavScroll('islands')}
+                className="inline-flex items-center justify-center px-6 py-3.5 rounded-full bg-[#C8AC75] hover:bg-[#d8be89] text-[#0B2924] font-semibold text-xs uppercase tracking-[0.2em] shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-[1.03] active:scale-95 group/btn border border-[#C8AC75] w-full sm:w-auto"
+              >
+                <span>{panels.islands.cta}</span>
+                <ChevronRight className="w-4 h-4 ml-2 text-[#0B2924] group-hover/btn:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* PANEL 02 — SAILING */}
+        <div className="relative flex-1 group transition-all duration-700 ease-out hover:lg:flex-[1.35] border-b-2 lg:border-b-0 lg:border-r-2 border-[#C8AC75] overflow-hidden flex flex-col justify-between min-h-[380px] sm:min-h-[440px] lg:min-h-0">
+          {/* Background Image */}
+          <div className="absolute inset-0 z-0 overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0B2924]/98 via-[#0B2924]/50 to-black/30 z-10 pointer-events-none" />
+            <div 
+              className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-1000 ease-out brightness-[0.92] contrast-[1.05]"
+              style={{ backgroundImage: `url("/pictures/catamaran.jpg")` }}
+            />
           </div>
 
-          {/* Center: Scroll down invitation */}
-          <button
-            onClick={handleScrollToNext}
-            className="group inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.25em] text-white/70 hover:text-white transition-colors"
-          >
-            <span>{t.hero.scrollInvite}</span>
-            <ChevronDown className="w-3.5 h-3.5 animate-bounce text-cyan-300 group-hover:translate-y-0.5 transition-transform" />
-          </button>
+          {/* Panel Content Overlay */}
+          <div className="relative z-20 h-full p-6 sm:p-8 lg:p-10 flex flex-col justify-between">
+            {/* Top Tag */}
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center space-x-2 bg-black/45 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-[#C8AC75]/40 text-xs font-sans uppercase tracking-[0.2em] text-[#C8AC75] shadow-lg">
+                <span className="font-mono font-bold text-[#C8AC75]">{panels.sailing.number}</span>
+                <span className="text-[#C8AC75]/40">&bull;</span>
+                <span>{panels.sailing.tag}</span>
+              </div>
+            </div>
 
-          {/* Right: Ambient Video Controls (Play/Pause & Mute) */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={togglePlay}
-              disabled={videoError}
-              className={`p-1.5 sm:p-2 rounded-full bg-black/40 hover:bg-black/60 border border-white/15 text-white/80 hover:text-white transition-colors backdrop-blur-sm ${
-                videoError ? 'opacity-40 cursor-not-allowed' : ''
-              }`}
-              aria-label={isPlaying ? 'Pause background video' : 'Play background video'}
-              title={isPlaying ? 'Pause Video' : 'Play Video'}
-            >
-              {isPlaying && !videoError ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-            </button>
-            <button
-              onClick={toggleMute}
-              disabled={videoError}
-              className={`p-1.5 sm:p-2 rounded-full bg-black/40 hover:bg-black/60 border border-white/15 text-white/80 hover:text-white transition-colors backdrop-blur-sm ${
-                videoError ? 'opacity-40 cursor-not-allowed' : ''
-              }`}
-              aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
-              title={isMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-            </button>
+            {/* Bottom Content Area */}
+            <div className="pt-12 sm:pt-16">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-serif font-light tracking-tight text-[#F6F2E9] leading-tight mb-3 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
+                {panels.sailing.headline}
+              </h2>
+              <p className="text-xs sm:text-sm lg:text-base text-[#F6F2E9]/90 font-sans font-light leading-relaxed mb-6 max-w-md drop-shadow-[0_1px_8px_rgba(0,0,0,0.8)]">
+                {panels.sailing.description}
+              </p>
+              <button
+                onClick={() => handleNavScroll('experiences')}
+                className="inline-flex items-center justify-center px-6 py-3.5 rounded-full bg-[#C8AC75] hover:bg-[#d8be89] text-[#0B2924] font-semibold text-xs uppercase tracking-[0.2em] shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-[1.03] active:scale-95 group/btn border border-[#C8AC75] w-full sm:w-auto"
+              >
+                <Compass className="w-4 h-4 mr-2 text-[#0B2924] group-hover/btn:rotate-45 transition-transform duration-500" />
+                <span>{panels.sailing.cta}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* PANEL 03 — GUNA CULTURE */}
+        <div className="relative flex-1 group transition-all duration-700 ease-out hover:lg:flex-[1.35] overflow-hidden flex flex-col justify-between min-h-[380px] sm:min-h-[440px] lg:min-h-0">
+          {/* Background Image */}
+          <div className="absolute inset-0 z-0 overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0B2924]/98 via-[#0B2924]/50 to-black/30 z-10 pointer-events-none" />
+            <div 
+              className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-1000 ease-out brightness-[0.92] contrast-[1.05]"
+              style={{ backgroundImage: `url("/pictures/04 Learn about the Guna Community in San Blas.jpg")` }}
+            />
           </div>
 
+          {/* Panel Content Overlay */}
+          <div className="relative z-20 h-full p-6 sm:p-8 lg:p-10 flex flex-col justify-between">
+            {/* Top Tag */}
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center space-x-2 bg-black/45 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-[#C8AC75]/40 text-xs font-sans uppercase tracking-[0.2em] text-[#C8AC75] shadow-lg">
+                <span className="font-mono font-bold text-[#C8AC75]">{panels.culture.number}</span>
+                <span className="text-[#C8AC75]/40">&bull;</span>
+                <span>{panels.culture.tag}</span>
+              </div>
+            </div>
+
+            {/* Bottom Content Area */}
+            <div className="pt-12 sm:pt-16">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-serif font-light tracking-tight text-[#F6F2E9] leading-tight mb-3 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
+                {panels.culture.headline}
+              </h2>
+              <p className="text-xs sm:text-sm lg:text-base text-[#F6F2E9]/90 font-sans font-light leading-relaxed mb-6 max-w-md drop-shadow-[0_1px_8px_rgba(0,0,0,0.8)]">
+                {panels.culture.description}
+              </p>
+              <button
+                onClick={() => handleNavScroll('heritage')}
+                className="inline-flex items-center justify-center px-6 py-3.5 rounded-full bg-[#C8AC75] hover:bg-[#d8be89] text-[#0B2924] font-semibold text-xs uppercase tracking-[0.2em] shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-[1.03] active:scale-95 group/btn border border-[#C8AC75] w-full sm:w-auto"
+              >
+                <Sparkles className="w-4 h-4 mr-2 text-[#0B2924]" />
+                <span>{panels.culture.cta}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Bottom Trust Indicators Bar */}
+      <div className="relative z-20 border-t border-[#C8AC75]/20 bg-[#0B2924]/85 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center md:text-left">
+          <div className="flex items-center space-x-3 justify-center md:justify-start">
+            <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-[#C8AC75] shrink-0" />
+            <div>
+              <div className="text-[11px] sm:text-xs text-[#C8AC75] uppercase tracking-wider font-semibold">
+                {language === 'en' ? 'Guna Owned' : 'Propiedad Guna'}
+              </div>
+              <div className="text-[10px] sm:text-xs text-[#F6F2E9]/80 font-light">
+                {language === 'en' ? 'Authentic Local Heritage' : 'Herencia Local Auténtica'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 justify-center md:justify-start">
+            <Anchor className="w-4 h-4 sm:w-5 sm:h-5 text-[#C8AC75] shrink-0" />
+            <div>
+              <div className="text-[11px] sm:text-xs text-[#C8AC75] uppercase tracking-wider font-semibold">
+                {language === 'en' ? '365 Islands' : '365 Islas'}
+              </div>
+              <div className="text-[10px] sm:text-xs text-[#F6F2E9]/80 font-light">
+                {language === 'en' ? 'Pristine Caribbean Waters' : 'Aguas Caribeñas Vírgenes'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 justify-center md:justify-start">
+            <MapPin className="w-4 h-4 sm:w-5 sm:h-5 text-[#C8AC75] shrink-0" />
+            <div>
+              <div className="text-[11px] sm:text-xs text-[#C8AC75] uppercase tracking-wider font-semibold">
+                {language === 'en' ? 'Private Transfers' : 'Traslados Privados'}
+              </div>
+              <div className="text-[10px] sm:text-xs text-[#F6F2E9]/80 font-light">
+                {language === 'en' ? '4x4 & Speedboat Included' : '4x4 y Lancha Incluidos'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 justify-center md:justify-start">
+            <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-[#C8AC75] shrink-0" />
+            <div>
+              <div className="text-[11px] sm:text-xs text-[#C8AC75] uppercase tracking-wider font-semibold">
+                {language === 'en' ? 'Tailored Itineraries' : 'Itinerarios a Medida'}
+              </div>
+              <div className="text-[10px] sm:text-xs text-[#F6F2E9]/80 font-light">
+                {language === 'en' ? 'Day Trips & Overnight Stays' : 'Excursiones y Estadías'}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
   );
 };
