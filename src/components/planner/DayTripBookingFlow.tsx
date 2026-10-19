@@ -67,6 +67,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   // Generated confirmation number on checkout
   const [reservationNumber, setReservationNumber] = useState<string>('');
   const [emailCopied, setEmailCopied] = useState<boolean>(false);
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
 
   // Generate clean date pills for the next 14 days
   const upcomingDates = Array.from({ length: 14 }).map((_, index) => {
@@ -762,19 +763,73 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
 
             {/* Direct WhatsApp Action */}
             {(() => {
-              const whatsappMsg = isEs
+              const termsNote = isEs
+                ? `\n\nEl cliente reconoció los Términos y Condiciones del Tour de Día Compartido (versión 2026-10-18) antes de abrir WhatsApp.`
+                : `\n\nCustomer acknowledged the Shared Day Tour Terms & Conditions (version 2026-10-18) before opening WhatsApp.`;
+              const whatsappMsg = (isEs
                 ? `Hola Guna Yala Panama Travel, me gustaría confirmar la disponibilidad para una Pasadía (Day Trip) el ${selectedDate}.\n\nReferencia: ${reservationNumber}\nTitular: ${fullName}\nPasajeros: ${adults} adultos${children > 0 ? `, ${children} niños` : ''}\nRecogida: ${pickupLocation}${specialNotes ? `\nNotas: ${specialNotes}` : ''}`
-                : `Hello Guna Yala Panama Travel, I would like to confirm availability for a San Blas Day Trip on ${selectedDate}.\n\nReference: ${reservationNumber}\nLead Contact: ${fullName}\nTravelers: ${adults} Adults${children > 0 ? `, ${children} Children` : ''}\nPickup Location: ${pickupLocation}${specialNotes ? `\nNotes: ${specialNotes}` : ''}`;
+                : `Hello Guna Yala Panama Travel, I would like to confirm availability for a San Blas Day Trip on ${selectedDate}.\n\nReference: ${reservationNumber}\nLead Contact: ${fullName}\nTravelers: ${adults} Adults${children > 0 ? `, ${children} Children` : ''}\nPickup Location: ${pickupLocation}${specialNotes ? `\nNotes: ${specialNotes}` : ''}`) + termsNote;
 
               const waUrl = `https://wa.me/50764443649?text=${encodeURIComponent(whatsappMsg)}`;
 
               return (
                 <div className="space-y-4 pt-2">
+                  <div className="flex items-start gap-2.5 p-3.5 bg-[#FAF8F5] border border-[#E2D8C5] rounded-xl text-xs text-[#334155]">
+                    <input
+                      type="checkbox"
+                      id="shared-tour-terms-chk"
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      className="mt-0.5 rounded border-[#C8AC75] text-[#061815] focus:ring-[#061815]"
+                    />
+                    <label htmlFor="shared-tour-terms-chk" className="cursor-pointer select-none">
+                      {isEs ? (
+                        <>
+                          He leído y reconozco los{' '}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              window.dispatchEvent(new CustomEvent('open-terms', { detail: 'day-trip' }));
+                            }}
+                            className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                          >
+                            Términos y Condiciones del Tour de Día Compartido
+                          </button>
+                          . *
+                        </>
+                      ) : (
+                        <>
+                          I have read and acknowledge the{' '}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              window.dispatchEvent(new CustomEvent('open-terms', { detail: 'day-trip' }));
+                            }}
+                            className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                          >
+                            Shared Day Tour Terms & Conditions
+                          </button>
+                          . *
+                        </>
+                      )}
+                    </label>
+                  </div>
+
                   <a
-                    href={waUrl}
+                    href={termsAccepted ? waUrl : '#'}
+                    onClick={(e) => {
+                      if (!termsAccepted) {
+                        e.preventDefault();
+                        alert(isEs ? 'Debe aceptar los Términos y Condiciones para continuar.' : 'Please acknowledge the Terms & Conditions to proceed.');
+                      }
+                    }}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full py-4 px-6 rounded-xl bg-[#25D366] hover:bg-[#1ebd59] text-white text-xs uppercase tracking-[0.18em] font-semibold transition-all flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg"
+                    className={`w-full py-4 px-6 rounded-xl text-xs uppercase tracking-[0.18em] font-semibold transition-all flex items-center justify-center gap-2.5 shadow-md ${
+                      termsAccepted ? 'bg-[#25D366] hover:bg-[#1ebd59] text-white cursor-pointer shadow-lg' : 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none'
+                    }`}
                   >
                     <Phone className="w-4 h-4 fill-current" />
                     <span>{isEs ? 'Confirmar Reserva Vía WhatsApp (+507 6444-3649)' : 'Confirm Reservation via WhatsApp (+507 6444-3649)'}</span>

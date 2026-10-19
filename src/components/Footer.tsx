@@ -209,6 +209,13 @@ export const Footer: React.FC<FooterProps> = ({
             <span>© {new Date().getFullYear()} {t.footer.rights}</span>
             <span className="text-[#C8AC75]/30">|</span>
             <button
+              onClick={() => window.dispatchEvent(new CustomEvent('open-terms', { detail: 'day-trip' }))}
+              className="text-[#F6F2E9]/70 hover:text-[#C8AC75] transition-colors hover:underline"
+            >
+              <span>{currentLang === 'es' ? 'Términos y Condiciones' : 'Terms & Conditions'}</span>
+            </button>
+            <span className="text-[#C8AC75]/30">|</span>
+            <button
               onClick={() => {
                 window.history.pushState({}, '', '/admin');
                 window.dispatchEvent(new Event('popstate'));

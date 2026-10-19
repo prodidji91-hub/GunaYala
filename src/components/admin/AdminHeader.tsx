@@ -5,7 +5,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 interface AdminHeaderProps {
   onBackToWebsite: () => void;
   onResetData: () => void;
-  activeView: 'list' | 'editor' | 'preview';
+  activeView: 'list' | 'editor' | 'preview' | 'descriptions' | 'crm';
   quotationRef?: string;
   onNavigateList?: () => void;
 }
@@ -98,7 +98,13 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
             </button>
             <span>/</span>
             <span className="text-[#e8dbbf] font-medium font-mono">
-              {activeView === 'editor' ? `Editing ${quotationRef || ''}` : `Customer Preview ${quotationRef || ''}`}
+              {activeView === 'editor'
+                ? `Editing ${quotationRef || ''}`
+                : activeView === 'preview'
+                ? `Customer Preview ${quotationRef || ''}`
+                : activeView === 'crm'
+                ? 'Customer Management'
+                : 'Manage Package Descriptions'}
             </span>
           </div>
         )}

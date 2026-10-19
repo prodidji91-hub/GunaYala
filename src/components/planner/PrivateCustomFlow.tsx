@@ -316,6 +316,12 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
               </div>
             </div>
 
+            <p className="text-[11px] text-[#64748b] italic">
+              {isEs
+                ? 'Las condiciones específicas de reserva se proporcionarán junto con su cotización personalizada.'
+                : 'Specific booking terms will be provided with your personalized quotation.'}
+            </p>
+
             {/* Actions */}
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
               <button

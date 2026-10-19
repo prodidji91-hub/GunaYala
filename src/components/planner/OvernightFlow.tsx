@@ -53,6 +53,7 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
   const [phone, setPhone] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
 
   const validateInquiry = () => {
     const errors: { [key: string]: string } = {};
@@ -65,6 +66,10 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
 
   const handleSubmitInquiry = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!termsAccepted) {
+      alert(isEs ? 'Debe aceptar los Términos y Condiciones para continuar.' : 'Please acknowledge the Terms & Conditions to proceed.');
+      return;
+    }
     if (validateInquiry()) {
       setStep('submitted');
     }
@@ -80,15 +85,18 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
       ? (isEs ? 'Habitación Privada con Baño' : 'Private Room with Bath')
       : (isEs ? 'Cabina Náutica' : 'Nautical Vessel Cabin');
     const specialRequests = notes.trim() || (isEs ? 'Ninguna' : 'None');
+    const termsNote = isEs
+      ? `\n\nEl cliente reconoció los Términos y Condiciones de Estadía Nocturna (versión 2026-10-18) antes de abrir WhatsApp.`
+      : `\n\nCustomer acknowledged the Overnight Stay Terms & Conditions (version 2026-10-18) before opening WhatsApp.`;
 
     if (isEs) {
       return encodeURIComponent(
-        `¡Hola Guna Yala Panama Travel!\n\nMe gustaría solicitar información sobre una experiencia de ${expTitle}.\n\nFecha preferida: ${dateStr}\nAdultos: ${adults}\nNiños: ${children}\nNoches: ${nights}\nIntereses: ${interestsStr}\nSolicitudes especiales: ${specialRequests}\n\n¿Podrían confirmar disponibilidad y enviarme una cotización?`
+        `¡Hola Guna Yala Panama Travel!\n\nMe gustaría solicitar información sobre una experiencia de ${expTitle}.\n\nFecha preferida: ${dateStr}\nAdultos: ${adults}\nNiños: ${children}\nNoches: ${nights}\nIntereses: ${interestsStr}\nSolicitudes especiales: ${specialRequests}\n\n¿Podrían confirmar disponibilidad y enviarme una cotización?` + termsNote
       );
     }
 
     return encodeURIComponent(
-      `Hello Guna Yala Panama Travel!\n\nI would like to inquire about an ${expTitle} experience.\n\nPreferred date: ${dateStr}\nAdults: ${adults}\nChildren: ${children}\nNights: ${nights}\nInterests: ${interestsStr}\nSpecial requests: ${specialRequests}\n\nCould you please confirm availability and provide a quotation?`
+      `Hello Guna Yala Panama Travel!\n\nI would like to inquire about an ${expTitle} experience.\n\nPreferred date: ${dateStr}\nAdults: ${adults}\nChildren: ${children}\nNights: ${nights}\nInterests: ${interestsStr}\nSpecial requests: ${specialRequests}\n\nCould you please confirm availability and provide a quotation?` + termsNote
     );
   };
 
@@ -441,22 +449,70 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <button
-                type="button"
-                onClick={() => setStep('browse')}
-                className="text-xs font-medium uppercase tracking-[0.14em] text-[#64748b] hover:text-[#06121e]"
-              >
-                {isEs ? 'Cambiar Experiencia' : 'Change Experience'}
-              </button>
+            <div className="space-y-4 pt-2">
+              <div className="flex items-start gap-2.5 p-3.5 bg-[#FAF8F5] border border-[#E2D8C5] rounded-xl text-xs text-[#334155]">
+                <input
+                  type="checkbox"
+                  id="overnight-terms-chk"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="mt-0.5 rounded border-[#C8AC75] text-[#061815] focus:ring-[#061815]"
+                />
+                <label htmlFor="overnight-terms-chk" className="cursor-pointer select-none">
+                  {isEs ? (
+                    <>
+                      He leído y reconozco los{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.dispatchEvent(new CustomEvent('open-terms', { detail: 'overnight' }));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                      >
+                        Términos y Condiciones de Estadía Nocturna
+                      </button>
+                      . *
+                    </>
+                  ) : (
+                    <>
+                      I have read and acknowledge the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.dispatchEvent(new CustomEvent('open-terms', { detail: 'overnight' }));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                      >
+                        Overnight Stay Terms & Conditions
+                      </button>
+                      . *
+                    </>
+                  )}
+                </label>
+              </div>
 
-              <button
-                type="submit"
-                className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-[#06121e] hover:bg-[#1e3a5f] text-white text-xs uppercase tracking-[0.16em] font-medium transition-all flex items-center justify-center gap-2 shadow-sm"
-              >
-                <Send className="w-4 h-4" />
-                <span>{isEs ? 'Enviar Solicitud a Petra' : 'Submit Inquiry to Petra'}</span>
-              </button>
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => setStep('browse')}
+                  className="text-xs font-medium uppercase tracking-[0.14em] text-[#64748b] hover:text-[#06121e]"
+                >
+                  {isEs ? 'Cambiar Experiencia' : 'Change Experience'}
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={!termsAccepted}
+                  className={`w-full sm:w-auto py-3.5 px-8 rounded-xl text-xs uppercase tracking-[0.16em] font-medium transition-all flex items-center justify-center gap-2 shadow-sm ${
+                    termsAccepted ? 'bg-[#06121e] hover:bg-[#1e3a5f] text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isEs ? 'Enviar Solicitud a Petra' : 'Submit Inquiry to Petra'}</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>

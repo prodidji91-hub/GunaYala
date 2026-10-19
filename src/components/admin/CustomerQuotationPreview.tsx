@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Quotation } from '../../types/quotation';
 import { pdf } from '@react-pdf/renderer';
 import { QuotationPdfDocument } from './QuotationPdfDocument';
@@ -58,7 +58,8 @@ async function urlToBase64DataUrl(url: string): Promise<string> {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          const isPng = url.toLowerCase().includes('.png') || url.toLowerCase().includes('logo');
+          const dataUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', isPng ? undefined : 0.9);
           resolve(dataUrl);
           return;
         }
@@ -84,6 +85,10 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
   onBackToList,
 }) => {
   const [quotation, setQuotation] = useState<Quotation>(initialQuotation);
+
+  useEffect(() => {
+    setQuotation(initialQuotation);
+  }, [initialQuotation]);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [resetSuccessMsg, setResetSuccessMsg] = useState<string | null>(null);
@@ -150,7 +155,14 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
     try {
       console.log('Building PDF document using @react-pdf/renderer for:', quotation.reference);
 
-      // 1. Prepare Base64 images for reliable rendering inside @react-pdf/renderer
+      // 1. Prepare Base64 images and logo for reliable rendering inside @react-pdf/renderer
+      let logoDataUrl = '';
+      try {
+        logoDataUrl = await urlToBase64DataUrl('/pictures/logo1-transparent.png');
+      } catch (e) {
+        console.warn('Logo pre-conversion error:', e);
+      }
+
       const selectedPhotos = quotation.selectedPhotos || [];
       const preparedPhotos = await Promise.all(
         selectedPhotos.map(async (photo) => {
@@ -166,7 +178,7 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
       );
 
       // 2. Generate PDF blob using @react-pdf/renderer
-      const doc = <QuotationPdfDocument quotation={quotation} preparedPhotos={preparedPhotos} />;
+      const doc = <QuotationPdfDocument quotation={quotation} preparedPhotos={preparedPhotos} logoDataUrl={logoDataUrl} />;
       const asPdf = pdf(doc);
       const blob = await asPdf.toBlob();
 
@@ -217,24 +229,100 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
     }
   };
 
-  const snapshot = quotation.packageSnapshot || {
+  const lang = quotation.language || 'en';
+  const PENDING_TEXT = lang === 'es' ? 'Pendiente de confirmación por Petra.' : 'Pending Petra’s confirmation.';
+
+  const l = {
+    officialQuotation: lang === 'es' ? 'Cotización Oficial' : 'Official Quotation',
+    referenceCode: lang === 'es' ? 'Código de Referencia' : 'Reference Code',
+    quotationDate: lang === 'es' ? 'Fecha de Cotización' : 'Quotation Date',
+    validThrough: lang === 'es' ? 'Válida Hasta' : 'Valid Through',
+    availabilityNotice: lang === 'es' ? 'La disponibilidad está sujeta a confirmación.' : 'Availability is subject to confirmation.',
+    bookingDetails: lang === 'es' ? 'DETALLES DE SU RESERVA' : 'YOUR BOOKING DETAILS',
+    leadBooker: lang === 'es' ? 'Titular de Reserva' : 'Lead Booker',
+    destinationIslandExp: lang === 'es' ? 'Destino / Isla y Experiencia' : 'Destination / Island & Experience',
+    experience: lang === 'es' ? 'Experiencia' : 'Experience',
+    numberOfTravellers: lang === 'es' ? 'Número de Viajeros' : 'Number of Travellers',
+    travelDates: lang === 'es' ? 'Fechas de Viaje' : 'Travel Dates',
+    duration: lang === 'es' ? 'Duración' : 'Duration',
+    night: lang === 'es' ? 'Noche' : 'Night',
+    nights: lang === 'es' ? 'Noches' : 'Noches',
+    quotationDetails: lang === 'es' ? 'DETALLES DE COTIZACIÓN' : 'QUOTATION DETAILS',
+    ratesPending: lang === 'es' ? 'Tarifas por Confirmar' : 'Rates Pending Confirmation',
+    ratesPendingMsg: lang === 'es'
+      ? 'La tarifa oficial para este itinerario personalizado está pendiente de confirmación por parte de los operadores locales de Guna Yala y Petra. Las tarifas finales se confirmarán al validar el itinerario.'
+      : 'Official pricing for this custom itinerary is currently pending confirmation from local Guna Yala island operators and Petra. Final rates will be confirmed upon itinerary validation.',
+    serviceDescription: lang === 'es' ? 'Descripción del Servicio' : 'Service Description',
+    qtyPax: lang === 'es' ? 'Cant. / Pax' : 'Qty / Pax',
+    rateUsd: lang === 'es' ? 'Tarifa (USD)' : 'Rate (USD)',
+    totalUsd: lang === 'es' ? 'Total (USD)' : 'Total (USD)',
+    islandAccommodationFirstNight: lang === 'es' ? 'Alojamiento en Cabaña en Isla y Comidas (Primera Noche)' : 'Island Cabaña Accommodation & Meals (First Night)',
+    completePackagePrice: lang === 'es' ? 'Precio de Paquete Completo (Estadía en Isla y Todas las Inclusiones)' : 'Complete Package Price (Island Stay & All Inclusions)',
+    optionalExtra: lang === 'es' ? 'Servicio Opcional' : 'Optional Extra',
+    packageSubtotal: lang === 'es' ? 'Subtotal del Paquete' : 'Package Subtotal',
+    grandTotal: lang === 'es' ? 'Gran Total' : 'Grand Total',
+    whatsIncluded: lang === 'es' ? 'QUÉ INCLUYE' : "WHAT'S INCLUDED",
+    includedServicesSummary: lang === 'es' ? 'Servicios Incluidos y Resumen' : 'Included Services & Summary',
+    experienceOverview: lang === 'es' ? 'Descripción de la Experiencia' : 'Experience Overview',
+    accommodationBathroom: lang === 'es' ? 'Alojamiento y Baño' : 'Accommodation & Bathroom',
+    mealsByDay: lang === 'es' ? 'Comidas por Día' : 'Meals by Day',
+    groundTransportation: lang === 'es' ? 'Transporte Terrestre' : 'Ground Transportation',
+    boatTransfers: lang === 'es' ? 'Traslados en Bote' : 'Boat Transfers',
+    includedToursActivities: lang === 'es' ? 'Tours y Actividades Incluidas' : 'Included Tours & Activities',
+    islandScheduleTiming: lang === 'es' ? 'Horarios e Itinerario en Isla' : 'Island Schedule & Timing',
+    importantTravelInstructions: lang === 'es' ? 'Instrucciones Importantes de Viaje' : 'Important Travel Instructions',
+    whatIsExcluded: lang === 'es' ? 'Qué Excluye (Efectivo Requerido en Sitio)' : 'What Is Excluded (Cash Required on Site)',
+    destinationVisualShowcase: lang === 'es' ? 'Galería Visual del Destino' : 'Destination Visual Showcase',
+    bookingConditionsTerms: lang === 'es' ? 'Condiciones de Reserva y Términos Estacionales' : 'Booking Conditions & Seasonal Travel Terms',
+    draftConditions: lang === 'es' ? 'Condiciones en borrador — pendiente de aprobación de Petra' : 'Draft conditions — pending Petra’s approval',
+    paymentScheduleDeposit: lang === 'es' ? '1. Programa de Pagos y Requisitos de Depósito' : '1. Payment Schedule & Deposit Requirements',
+    cancellationRevisionPolicy: lang === 'es' ? '2. Política de Cancelación y Modificación' : '2. Cancellation & Revision Policy',
+    seasonalSpecialConditions: lang === 'es' ? '3. Condiciones Estacionales / Especiales de Viaje' : '3. Seasonal / Special Travel Conditions',
+    gunaYalaLogisticsWeather: lang === 'es' ? '4. Logística del Territorio Guna Yala y Clima' : '4. Guna Yala Territory Logistics & Weather',
+    quotationRef: lang === 'es' ? 'Ref. de Cotización:' : 'Quotation Ref:',
+    ratesToBeConfirmed: lang === 'es' ? 'Tarifas por confirmar' : 'Rates to Be Confirmed',
+  };
+
+  const snapshot = lang === 'es' ? (quotation.packageSnapshotEs || quotation.packageSnapshot || {
+    overview: 'Experimente la vida en las islas de Guna Yala.',
+    accommodationDetails: `${quotation.cabinCategoryEs || quotation.cabinCategory} (${quotation.bathroomType} Baño)`,
+    mealsByDay: 'Plan de comidas diario incluido según el horario de la isla.',
+    groundTransportationDetails: `Transporte terrestre: ${quotation.groundTransportation}`,
+    boatTransferDetails: `Traslados en bote: ${quotation.boatTransfers}`,
+    toursAndActivities: 'Recorridos por islas y actividades en arrecifes.',
+    islandSchedule: 'Salidas matutinas desde Ciudad de Panamá.',
+    importantInstructions: 'Se requiere pasaporte original en el puesto fronterizo de Guna Yala.',
+  }) : (quotation.packageSnapshot || {
     overview: 'Experience island life in Guna Yala.',
     accommodationDetails: `${quotation.cabinCategory} (${quotation.bathroomType} Bathroom)`,
     mealsByDay: 'Daily meal plan included as per island schedule.',
     groundTransportationDetails: `Ground transport: ${quotation.groundTransportation}`,
     boatTransferDetails: `Boat transfers: ${quotation.boatTransfers}`,
     toursAndActivities: 'Island hopping and reef activities.',
-    otherInclusions: quotation.inclusions.join('; '),
-    optionalExtras: 'Custom requests upon inquiry.',
-    exclusions: quotation.exclusions.join('; '),
     islandSchedule: 'Morning Panama City departures.',
     importantInstructions: 'Original passport required at Guna Yala border.',
-  };
+  });
+
+  const inclusions = lang === 'es' && quotation.inclusionsEs && quotation.inclusionsEs.length > 0
+    ? quotation.inclusionsEs
+    : quotation.inclusions;
+
+  const exclusions = lang === 'es' && quotation.exclusionsEs && quotation.exclusionsEs.length > 0
+    ? quotation.exclusionsEs
+    : quotation.exclusions;
+
+  const experienceName = lang === 'es' ? (quotation.experienceEs || quotation.experience || 'Experiencia Nocturna en Isla') : (quotation.experience || 'Island Overnight Experience');
+  const cabinCategoryName = lang === 'es' ? (quotation.cabinCategoryEs || quotation.cabinCategory || 'Cabaña Estándar') : (quotation.cabinCategory || 'Standard Cabaña');
 
   const conditionsTitle =
     quotation.termsStatus === 'Approved by Petra'
-      ? 'Booking Conditions & Seasonal Travel Terms'
-      : 'Draft conditions — pending Petra’s approval';
+      ? l.bookingConditionsTerms
+      : l.draftConditions;
+
+  const isRatesPending =
+    quotation.pricingStatus === 'Rates to Be Confirmed' ||
+    (quotation.pricingMode === 'first_night_additional' && (!quotation.firstNightRate || quotation.firstNightRate <= 0)) ||
+    (quotation.pricingMode === 'single_total' && (!quotation.totalPackagePrice || quotation.totalPackagePrice <= 0));
 
   const rootRef = quotation.rootReference || extractRootReference(quotation.reference);
   const familyQuotes = (allQuotations || []).filter((q) => {
@@ -263,6 +351,11 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             <span className="text-[11px] text-[#52606d] font-medium">Switch Proposal Revision:</span>
             {familyQuotes.map((q) => {
               const isSelected = q.id === quotation.id || q.reference === quotation.reference;
+              const isQRatesPending =
+                q.pricingStatus === 'Rates to Be Confirmed' ||
+                (q.pricingMode === 'first_night_additional' && (!q.firstNightRate || q.firstNightRate <= 0)) ||
+                (q.pricingMode === 'single_total' && (!q.totalPackagePrice || q.totalPackagePrice <= 0));
+
               return (
                 <button
                   key={q.id}
@@ -276,7 +369,7 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                       ? 'bg-[#0e3b2f] text-white font-bold shadow-xs'
                       : 'bg-white hover:bg-[#e6dece] text-[#1c242c] border border-[#cfc7b2]'
                   }`}
-                  title={`${q.reference} - $${q.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                  title={`${q.reference} - ${isQRatesPending ? 'Rates to Be Confirmed' : `$${q.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}`}
                 >
                   {q.reference}
                 </button>
@@ -397,9 +490,14 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
         <div className="p-8 sm:p-10 border-b border-[#ebdcb8] bg-[#FAF8F5] flex flex-col sm:flex-row justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#0e3b2f] text-[#e8dbbf] flex items-center justify-center font-serif font-bold text-xl shadow-sm border border-[#c9a96e]">
-                GY
-              </div>
+              <img
+                src="/pictures/logo1-transparent.png"
+                alt="Guna Yala Panama Travel Logo"
+                className="w-12 h-12 object-contain"
+                onError={(e: any) => {
+                  e.target.style.display = 'none';
+                }}
+              />
               <div>
                 <h1 className="font-serif text-xl sm:text-2xl font-bold tracking-wider text-[#0e3b2f] uppercase">
                   Guna Yala Panama Travel
@@ -458,7 +556,7 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
         <div className="p-8 sm:p-10 space-y-8">
           <div className="bg-[#f7f4ed] border border-[#e0d6c1] rounded-lg p-6 space-y-4">
             <h2 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider border-b border-[#e0d6c1] pb-2">
-              YOUR BOOKING DETAILS
+              {lang === 'es' ? 'DETALLES DE SU RESERVA' : 'YOUR BOOKING DETAILS'}
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 text-xs">
@@ -500,11 +598,43 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             </div>
           </div>
 
+          {/* Experience Overview (Placed directly below Booking Details) */}
+          {snapshot.overview && (
+            <div className="bg-[#FAF8F5] border border-[#C8AC75]/40 rounded-lg p-6 space-y-3 shadow-2xs">
+              <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider border-b border-[#C8AC75]/30 pb-2 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#c9a96e]" />
+                <span>{lang === 'es' ? 'RESUMEN DE TU EXPERIENCIA' : 'YOUR EXPERIENCE OVERVIEW'}</span>
+              </h3>
+              <p className="text-xs sm:text-sm text-[#2d3a45] font-light leading-relaxed">
+                {snapshot.overview}
+              </p>
+            </div>
+          )}
+
           {/* Pricing Breakdown Table (QUOTATION DETAILS) */}
           <div className="space-y-3 pt-2">
-            <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider border-b border-[#e5dec9] pb-2">
-              QUOTATION DETAILS
-            </h3>
+            <div className="flex items-center justify-between border-b border-[#e5dec9] pb-2">
+              <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider flex items-center gap-2">
+                <span>QUOTATION DETAILS</span>
+              </h3>
+              {isRatesPending && (
+                <span className="text-[11px] font-sans font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded">
+                  Rates Pending Confirmation
+                </span>
+              )}
+            </div>
+
+            {isRatesPending && (
+              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-semibold block text-amber-950">Rates Pending Confirmation:</strong>
+                  <span>
+                    Official pricing for this custom itinerary is currently pending confirmation from local Guna Yala island operators and Petra. Final rates will be confirmed upon itinerary validation.
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div className="border border-[#e5dec9] rounded-lg overflow-hidden">
               <table className="w-full text-left text-xs">
@@ -512,8 +642,8 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                   <tr>
                     <th className="py-3 px-4 font-semibold">Service Description</th>
                     <th className="py-3 px-4 font-semibold text-center w-20">Qty / Pax</th>
-                    <th className="py-3 px-4 font-semibold text-right w-32">Rate (USD)</th>
-                    <th className="py-3 px-4 font-semibold text-right w-36">Total (USD)</th>
+                    <th className="py-3 px-4 font-semibold text-right w-36">Rate (USD)</th>
+                    <th className="py-3 px-4 font-semibold text-right w-40">Total (USD)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#eee7d8]">
@@ -527,10 +657,18 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                           {quotation.travelers} traveler{quotation.travelers !== 1 ? 's' : ''}
                         </td>
                         <td className="py-3.5 px-4 text-right text-[#52606d] font-mono tabular-nums">
-                          ${(quotation.firstNightRate || 0).toFixed(2)}
+                          {isRatesPending ? (
+                            <span className="text-amber-800 font-sans font-medium text-[11px]">Rates to Be Confirmed</span>
+                          ) : (
+                            `$${(quotation.firstNightRate || 0).toFixed(2)}`
+                          )}
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] tabular-nums">
-                          ${(quotation.travelers * (quotation.firstNightRate || 0)).toFixed(2)}
+                          {isRatesPending ? (
+                            <span className="text-amber-800 font-sans font-medium text-[11px]">Rates to Be Confirmed</span>
+                          ) : (
+                            `$${(quotation.travelers * (quotation.firstNightRate || 0)).toFixed(2)}`
+                          )}
                         </td>
                       </tr>
                       {Math.max(quotation.nights - 1, 0) > 0 && (
@@ -542,27 +680,83 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                             {quotation.travelers} pax × {Math.max(quotation.nights - 1, 0)} nts
                           </td>
                           <td className="py-3.5 px-4 text-right text-[#52606d] font-mono tabular-nums">
-                            ${(quotation.additionalNightRate || 0).toFixed(2)}
+                            {isRatesPending ? (
+                              <span className="text-amber-800 font-sans font-medium text-[11px]">Rates to Be Confirmed</span>
+                            ) : (
+                              `$${(quotation.additionalNightRate || 0).toFixed(2)}`
+                            )}
                           </td>
                           <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] tabular-nums">
-                            ${(quotation.travelers * Math.max(quotation.nights - 1, 0) * (quotation.additionalNightRate || 0)).toFixed(2)}
+                            {isRatesPending ? (
+                              <span className="text-amber-800 font-sans font-medium text-[11px]">Rates to Be Confirmed</span>
+                            ) : (
+                              `$${(quotation.travelers * Math.max(quotation.nights - 1, 0) * (quotation.additionalNightRate || 0)).toFixed(2)}`
+                            )}
                           </td>
                         </tr>
                       )}
+                      {/* Optional Add-on Line Items */}
+                      {quotation.lineItems && quotation.lineItems.length > 0 && quotation.lineItems.map((item, index) => (
+                        <tr key={item.id || index} className="hover:bg-[#faf8f5] bg-emerald-50/25">
+                          <td className="py-3.5 px-4 font-medium text-[#1c242c]">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-emerald-700 font-bold">+</span>
+                              <span>{item.description}</span>
+                              <span className="text-[10px] text-emerald-800 font-mono bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">Optional Extra</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center text-[#52606d] font-mono">
+                            {item.quantity}
+                          </td>
+                          <td className="py-3.5 px-4 text-right text-[#52606d] font-mono tabular-nums">
+                            ${item.unitPrice.toFixed(2)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] tabular-nums">
+                            ${item.total.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
                     </>
                   ) : quotation.pricingMode === 'single_total' ? (
-                    <tr className="hover:bg-[#faf8f5]">
-                      <td className="py-3.5 px-4 font-medium text-[#1c242c]">
-                        Complete Package Price (Island Stay & All Inclusions)
-                      </td>
-                      <td className="py-3.5 px-4 text-center text-[#52606d] font-mono">
-                        {quotation.travelers} pax, {quotation.nights} nts
-                      </td>
-                      <td className="py-3.5 px-4 text-right text-[#52606d] font-mono tabular-nums">—</td>
-                      <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] tabular-nums">
-                        ${(quotation.totalPackagePrice || quotation.subtotal).toFixed(2)}
-                      </td>
-                    </tr>
+                    <>
+                      <tr className="hover:bg-[#faf8f5]">
+                        <td className="py-3.5 px-4 font-medium text-[#1c242c]">
+                          Complete Package Price (Island Stay & All Inclusions)
+                        </td>
+                        <td className="py-3.5 px-4 text-center text-[#52606d] font-mono">
+                          {quotation.travelers} pax, {quotation.nights} nts
+                        </td>
+                        <td className="py-3.5 px-4 text-right text-[#52606d] font-mono tabular-nums">—</td>
+                        <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] tabular-nums">
+                          {isRatesPending ? (
+                            <span className="text-amber-800 font-sans font-medium text-[11px]">Rates to Be Confirmed</span>
+                          ) : (
+                            `$${(quotation.totalPackagePrice || quotation.subtotal).toFixed(2)}`
+                          )}
+                        </td>
+                      </tr>
+                      {/* Optional Add-on Line Items */}
+                      {quotation.lineItems && quotation.lineItems.length > 0 && quotation.lineItems.map((item, index) => (
+                        <tr key={item.id || index} className="hover:bg-[#faf8f5] bg-emerald-50/25">
+                          <td className="py-3.5 px-4 font-medium text-[#1c242c]">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-emerald-700 font-bold">+</span>
+                              <span>{item.description}</span>
+                              <span className="text-[10px] text-emerald-800 font-mono bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">Optional Extra</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center text-[#52606d] font-mono">
+                            {item.quantity}
+                          </td>
+                          <td className="py-3.5 px-4 text-right text-[#52606d] font-mono tabular-nums">
+                            ${item.unitPrice.toFixed(2)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] tabular-nums">
+                            ${item.total.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </>
                   ) : (
                     quotation.lineItems.map((item, index) => (
                       <tr key={item.id || index} className="hover:bg-[#faf8f5]">
@@ -585,10 +779,16 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             <div className="bg-[#FAF8F5] p-5 rounded-lg border border-[#e5dec9] space-y-2 max-w-sm ml-auto text-xs font-mono">
               <div className="flex justify-between text-[#52606d]">
                 <span>Package Subtotal:</span>
-                <span>${quotation.subtotal.toFixed(2)} USD</span>
+                <span>
+                  {isRatesPending ? (
+                    <span className="font-sans font-semibold text-amber-800">Rates to Be Confirmed</span>
+                  ) : (
+                    `$${quotation.subtotal.toFixed(2)} USD`
+                  )}
+                </span>
               </div>
 
-              {quotation.enableAdditionalCharge && (
+              {!isRatesPending && quotation.enableAdditionalCharge && (
                 <div className="flex justify-between text-[#805e24]">
                   <span>{quotation.additionalChargeLabel} ({quotation.additionalChargePercent}%):</span>
                   <span>+${quotation.additionalChargeAmount.toFixed(2)} USD</span>
@@ -597,7 +797,13 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
 
               <div className="flex justify-between text-base font-bold text-[#0e3b2f] border-t border-[#cfc7b2] pt-2 mt-1">
                 <span>Grand Total:</span>
-                <span>${quotation.total.toFixed(2)} USD</span>
+                <span>
+                  {isRatesPending ? (
+                    <span className="font-sans font-bold text-amber-900">Rates to Be Confirmed</span>
+                  ) : (
+                    `$${quotation.total.toFixed(2)} USD`
+                  )}
+                </span>
               </div>
             </div>
           </div>
@@ -626,13 +832,6 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-[#2d3a45]">
-              {snapshot.overview && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Experience Overview</strong>
-                  <p className="leading-relaxed">{snapshot.overview}</p>
-                </div>
-              )}
-
               {snapshot.accommodationDetails && (
                 <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
                   <strong className="block text-[#0e3b2f] font-semibold">Accommodation & Bathroom</strong>
@@ -794,6 +993,16 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                 <p className="leading-relaxed">{renderCondition(quotation.weatherLogisticsNote)}</p>
               </div>
             </div>
+          </div>
+
+          {/* Professional Closing */}
+          <div className="p-6 bg-[#FAF8F5] border border-[#C8AC75]/30 rounded-lg text-center space-y-2 print:break-inside-avoid">
+            <h4 className="font-serif text-base font-medium text-[#0E3B2F]">
+              {lang === 'es' ? 'Esperamos darte la bienvenida a Guna Yala.' : 'We look forward to welcoming you to Guna Yala.'}
+            </h4>
+            <p className="text-xs text-[#687785] italic font-serif">
+              {lang === 'es' ? 'Tu viaje al corazón del Caribe Guna comienza aquí.' : 'Your journey into the heart of the Guna Caribbean begins here.'}
+            </p>
           </div>
 
           {/* Sign-off Footer */}

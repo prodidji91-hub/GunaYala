@@ -19,6 +19,7 @@ import { AdminAuthGuard } from './components/admin/AdminAuthGuard';
 import { IslandDesignPreview } from './components/preview/IslandDesignPreview';
 import { EXPERIENCES_DATA } from './data/experiences';
 import { supabase } from './lib/supabase';
+import { TermsModal } from './components/TermsModal';
 
 const isAuthCallbackUrl = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -41,6 +42,22 @@ const isAuthCallbackUrl = (): boolean => {
 export default function App() {
   const [currentLang, setCurrentLang] = useState<Language>('en');
   const [selectedExperienceForModal, setSelectedExperienceForModal] = useState<Experience | null>(null);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState<boolean>(false);
+  const [termsModalTab, setTermsModalTab] = useState<'overnight' | 'day-trip'>('day-trip');
+
+  useEffect(() => {
+    const handleOpenTerms = (e: Event) => {
+      const customEvent = e as CustomEvent<'overnight' | 'day-trip'>;
+      if (customEvent.detail) {
+        setTermsModalTab(customEvent.detail);
+      }
+      setIsTermsModalOpen(true);
+    };
+    window.addEventListener('open-terms', handleOpenTerms as EventListener);
+    return () => {
+      window.removeEventListener('open-terms', handleOpenTerms as EventListener);
+    };
+  }, []);
   
   // Dedicated Experience Booking Modal State
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState<boolean>(false);
@@ -282,6 +299,14 @@ export default function App() {
         onClose={() => handleSetExperienceModal(null)}
         onInquire={(cat) => handleOpenPlanner(cat)}
         onSelectExperience={(exp) => handleSetExperienceModal(exp)}
+      />
+
+      {/* Official Terms & Conditions Modal */}
+      <TermsModal
+        isOpen={isTermsModalOpen}
+        onClose={() => setIsTermsModalOpen(false)}
+        currentLang={currentLang}
+        initialTab={termsModalTab}
       />
     </div>
   );

@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Quotation } from '../../types/quotation';
+import { CrmInquiry, CrmCustomer } from '../../types/crm';
 import { quotationStorageService } from '../../services/quotationStorageService';
 import { AdminHeader } from './AdminHeader';
 import { QuotationList } from './QuotationList';
 import { QuotationEditor } from './QuotationEditor';
 import { CustomerQuotationPreview } from './CustomerQuotationPreview';
+import { ManagePackageDescriptions } from './ManagePackageDescriptions';
+import { CrmDashboard } from './CrmDashboard';
 import { Loader2 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -21,12 +24,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
   const [apiError, setApiError] = useState<string | null>(null);
 
   // Initialize view and selected quotation from persistent draft / storage state if available
-  const [activeView, setActiveView] = useState<'list' | 'editor' | 'preview'>(() => {
+  const [activeView, setActiveView] = useState<'list' | 'editor' | 'preview' | 'descriptions' | 'crm'>(() => {
     try {
       if (typeof window !== 'undefined') {
         const hasDraft = !!localStorage.getItem(DRAFT_KEY);
         const savedView = sessionStorage.getItem(VIEW_KEY) || localStorage.getItem(VIEW_KEY);
-        if (hasDraft || savedView === 'editor' || savedView === 'preview') {
+        if (hasDraft || savedView === 'editor' || savedView === 'preview' || savedView === 'descriptions' || savedView === 'crm') {
           return (savedView as any) || 'editor';
         }
       }
@@ -49,7 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
     return null;
   });
 
-  const setViewState = (view: 'list' | 'editor' | 'preview', quote?: Quotation | null) => {
+  const setViewState = (view: 'list' | 'editor' | 'preview' | 'descriptions' | 'crm', quote?: Quotation | null) => {
     setActiveView(view);
     try {
       if (typeof window !== 'undefined') {
@@ -66,6 +69,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
           localStorage.removeItem(SELECTED_ID_KEY);
         }
       }
+    } catch (e) {}
+  };
+
+  const handleCreateQuotationForInquiry = async (inquiry: CrmInquiry, customer: CrmCustomer) => {
+    clearDraftState();
+    const nextRef = quotationStorageService.generateNewReference(quotations.length);
+    const newQuote = await quotationStorageService.createBlankQuotation(nextRef);
+    const prefilled: Quotation = {
+      ...newQuote,
+      customerName: customer.full_name,
+      customerEmail: customer.email || '',
+      customerPhone: customer.whatsapp || '',
+      inquiry_id: inquiry.id,
+      experience: inquiry.experience_interest,
+      packageTitle: inquiry.experience_interest,
+      travelers: inquiry.travelers_count || 2,
+    };
+    setSelectedQuotation(prefilled);
+    setViewState('editor', prefilled);
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(prefilled));
     } catch (e) {}
   };
 
@@ -140,10 +164,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
     }
   };
 
-  const handleCreateNew = () => {
+  const handleCreateNew = async () => {
     clearDraftState();
     const nextRef = quotationStorageService.generateNewReference(quotations.length);
-    const newQuote = quotationStorageService.createBlankQuotation(nextRef);
+    const newQuote = await quotationStorageService.createBlankQuotation(nextRef);
     setSelectedQuotation(newQuote);
     setViewState('editor', newQuote);
     try {
@@ -309,6 +333,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
                 onCreateRevision={handleCreateRevision}
                 onDelete={handleDelete}
                 onPreview={handlePreview}
+                onManageDescriptions={() => setViewState('descriptions', null)}
+                onManageCrm={() => setViewState('crm', null)}
+              />
+            )}
+
+            {activeView === 'descriptions' && (
+              <ManagePackageDescriptions
+                onBackToList={() => setViewState('list', null)}
+              />
+            )}
+
+            {activeView === 'crm' && (
+              <CrmDashboard
+                onBackToList={() => setViewState('list', null)}
+                onCreateQuotationForInquiry={handleCreateQuotationForInquiry}
+                onEditQuotation={(quote) => {
+                  setSelectedQuotation(quote);
+                  setViewState('editor', quote);
+                }}
+                onPreviewQuotation={(quote) => {
+                  setSelectedQuotation(quote);
+                  setViewState('preview', quote);
+                }}
               />
             )}
 

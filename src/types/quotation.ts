@@ -11,9 +11,12 @@ export type PricingBasis =
   | 'per_vehicle'      // Per vehicle
   | 'custom';          // Custom quantity
 
+export type QuotationLanguage = 'en' | 'es';
+
 export interface LineItem {
   id: string;
   description: string;
+  descriptionEs?: string;
   pricingBasis: PricingBasis;
   quantity: number;
   unitPrice: number;
@@ -50,14 +53,17 @@ export interface StructuredPackageSnapshot {
 }
 
 export type PricingMode = 'first_night_additional' | 'single_total' | 'custom_itemized';
+export type QuotationPricingStatus = 'Rates to Be Confirmed' | 'Priced Quotation';
 
 export interface Quotation {
   id: string;
   reference: string;
+  packageTemplateId?: string;
+  inquiry_id?: string;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
-  language: 'en';
+  language?: QuotationLanguage;
   quotationDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
   arrivalDate: string; // YYYY-MM-DD
@@ -65,10 +71,16 @@ export interface Quotation {
   nights: number;
   travelers: number;
   island: string;
+  islandEs?: string;
+  packageTitle?: string;
+  packageTitleEs?: string;
   experience?: string;
+  experienceEs?: string;
   cabinCategory: string;
+  cabinCategoryEs?: string;
   cabinsCount: number;
   bathroomType: 'Shared' | 'Private';
+  bathroomTypeEs?: string;
 
   // Transportation
   groundTransportation: TransportOption;
@@ -79,6 +91,7 @@ export interface Quotation {
   
   // Pricing & Pricing Mode
   pricingMode: PricingMode;
+  pricingStatus?: QuotationPricingStatus;
   firstNightRate: number;
   additionalNightRate: number;
   totalPackagePrice: number;
@@ -94,19 +107,27 @@ export interface Quotation {
   additionalChargeAmount: number;
   total: number;
   
-  // Inclusions & Exclusions
+  // Inclusions & Exclusions (English & Spanish)
   inclusions: string[];
+  inclusionsEs?: string[];
   exclusions: string[];
+  exclusionsEs?: string[];
 
-  // Structured Package Details
+  // Structured Package Details (English & Spanish)
   packageSnapshot: StructuredPackageSnapshot;
+  packageSnapshotEs?: StructuredPackageSnapshot;
 
-  // Conditions & Terms
+  // Conditions & Terms (English & Spanish)
   paymentSchedule: string;
+  paymentScheduleEs?: string;
   depositRequirement: string;
+  depositRequirementEs?: string;
   cancellationTerms: string;
+  cancellationTermsEs?: string;
   weatherLogisticsNote: string;
+  weatherLogisticsNoteEs?: string;
   seasonalConditions: string;
+  seasonalConditionsEs?: string;
   supplierPaymentNotes: string; // Internal notes - excluded from customer preview/print
   termsStatus: TermsStatus;
   
@@ -133,13 +154,21 @@ export interface Quotation {
 export interface PackageTemplate {
   id: string;
   name: string;
+  nameEs?: string;
   description: string;
+  descriptionEs?: string;
   island: string;
+  islandEs?: string;
+  experience?: string;
+  experienceEs?: string;
   cabinCategory: string;
+  cabinCategoryEs?: string;
   bathroomType: 'Shared' | 'Private';
+  bathroomTypeEs?: string;
   groundTransportation: TransportOption;
   boatTransfers: TransportOption;
   pricingMode?: PricingMode;
+  pricingStatus?: QuotationPricingStatus;
   firstNightRate?: number;
   additionalNightRate?: number;
   totalPackagePrice?: number;
@@ -147,14 +176,28 @@ export interface PackageTemplate {
   taxPercent?: number;
   lineItems: Array<{
     description: string;
+    descriptionEs?: string;
     pricingBasis: PricingBasis;
     unitPrice: number;
     vehicleCount?: number;
   }>;
   packageSnapshot: StructuredPackageSnapshot;
+  packageSnapshotEs?: StructuredPackageSnapshot;
   inclusions: string[];
+  inclusionsEs?: string[];
   exclusions: string[];
+  exclusionsEs?: string[];
   defaultPhotoIds: string[];
+  paymentSchedule?: string;
+  paymentScheduleEs?: string;
+  depositRequirement?: string;
+  depositRequirementEs?: string;
+  cancellationTerms?: string;
+  cancellationTermsEs?: string;
+  weatherLogisticsNote?: string;
+  weatherLogisticsNoteEs?: string;
+  seasonalConditions?: string;
+  seasonalConditionsEs?: string;
 }
 
 export interface QuotationFilter {

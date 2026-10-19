@@ -1,5 +1,6 @@
 import {
   Quotation,
+  QuotationPricingStatus,
   LineItem,
   AttachedPhoto,
   TransportOption,
@@ -85,6 +86,97 @@ export function calculateLineQuantity(
     default:
       return Math.max(0, customQuantity);
   }
+}
+
+export interface QuotationPricingDetails {
+  pricingMode: string;
+  pricingStatus?: QuotationPricingStatus;
+  travelers: number;
+  nights: number;
+  firstNightRate: number;
+  additionalNightRate: number;
+  totalPackagePrice: number;
+  lineItems: LineItem[];
+  enableTax: boolean;
+  taxPercent: number;
+}
+
+export interface QuotationCalculationSummary {
+  firstNightTotal: number;
+  additionalNightsCount: number;
+  additionalNightsTotal: number;
+  basePackageTotal: number;
+  optionalExtrasTotal: number;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  isRatesPending: boolean;
+}
+
+/**
+ * Shared central calculation utility for quotation totals across editor, preview, and PDF
+ */
+export function calculateQuotationTotals(
+  params: QuotationPricingDetails
+): QuotationCalculationSummary {
+  const travelers = Math.max(1, params.travelers || 1);
+  const nights = Math.max(1, params.nights || 1);
+  const pricingMode = params.pricingMode || 'first_night_additional';
+  const firstNightRate = Math.max(0, params.firstNightRate || 0);
+  const additionalNightRate = Math.max(0, params.additionalNightRate || 0);
+  const totalPackagePrice = Math.max(0, params.totalPackagePrice || 0);
+  const lineItems = params.lineItems || [];
+  const enableTax = Boolean(params.enableTax);
+  const taxPercent = typeof params.taxPercent === 'number' ? params.taxPercent : 7;
+  const isRatesPending =
+    params.pricingStatus === 'Rates to Be Confirmed' ||
+    (pricingMode === 'first_night_additional' && firstNightRate === 0 && additionalNightRate === 0) ||
+    (pricingMode === 'single_total' && totalPackagePrice === 0);
+
+  let firstNightTotal = 0;
+  let additionalNightsCount = 0;
+  let additionalNightsTotal = 0;
+  let basePackageTotal = 0;
+
+  if (pricingMode === 'first_night_additional') {
+    firstNightTotal = Math.round(travelers * firstNightRate * 100) / 100;
+    additionalNightsCount = Math.max(0, nights - 1);
+    additionalNightsTotal = Math.round(travelers * additionalNightsCount * additionalNightRate * 100) / 100;
+    basePackageTotal = Math.round((firstNightTotal + additionalNightsTotal) * 100) / 100;
+  } else if (pricingMode === 'single_total') {
+    basePackageTotal = Math.round(totalPackagePrice * 100) / 100;
+  }
+
+  // Calculate optional extras from lineItems
+  const optionalExtrasTotal = Math.round(
+    lineItems.reduce((acc, item) => {
+      const itemTotal = typeof item.total === 'number' ? item.total : (item.quantity || 1) * (item.unitPrice || 0);
+      return acc + (isNaN(itemTotal) ? 0 : itemTotal);
+    }, 0) * 100
+  ) / 100;
+
+  let subtotal = 0;
+  if (pricingMode === 'first_night_additional' || pricingMode === 'single_total') {
+    subtotal = Math.round((basePackageTotal + optionalExtrasTotal) * 100) / 100;
+  } else {
+    // custom_itemized
+    subtotal = optionalExtrasTotal;
+  }
+
+  const taxAmount = enableTax ? Math.round(((subtotal * taxPercent) / 100) * 100) / 100 : 0;
+  const total = Math.round((subtotal + taxAmount) * 100) / 100;
+
+  return {
+    firstNightTotal,
+    additionalNightsCount,
+    additionalNightsTotal,
+    basePackageTotal,
+    optionalExtrasTotal,
+    subtotal,
+    taxAmount,
+    total,
+    isRatesPending,
+  };
 }
 
 export function extractRootReference(reference: string): string {
@@ -186,6 +278,7 @@ export function normalizeQuotation(q: any): Quotation {
     return {
       id: item.id || `item-${Date.now()}-${idx}`,
       description: item.description || 'Service Line Item',
+      descriptionEs: typeof item.descriptionEs === 'string' ? item.descriptionEs : undefined,
       pricingBasis: basis,
       quantity: qty,
       unitPrice: unitPrice,
@@ -200,10 +293,15 @@ export function normalizeQuotation(q: any): Quotation {
 
   // Preserve existing saved wording faithfully (even empty strings "") without replacing it
   const paymentSchedule = typeof q.paymentSchedule === 'string' ? q.paymentSchedule : PENDING_CONFIRMATION;
+  const paymentScheduleEs = typeof q.paymentScheduleEs === 'string' ? q.paymentScheduleEs : (q.paymentSchedule === PENDING_CONFIRMATION || !q.paymentSchedule ? 'Pendiente de confirmación por Petra.' : '');
   const depositRequirement = typeof q.depositRequirement === 'string' ? q.depositRequirement : PENDING_CONFIRMATION;
+  const depositRequirementEs = typeof q.depositRequirementEs === 'string' ? q.depositRequirementEs : (q.depositRequirement === PENDING_CONFIRMATION || !q.depositRequirement ? 'Pendiente de confirmación por Petra.' : '');
   const cancellationTerms = typeof q.cancellationTerms === 'string' ? q.cancellationTerms : PENDING_CONFIRMATION;
+  const cancellationTermsEs = typeof q.cancellationTermsEs === 'string' ? q.cancellationTermsEs : (q.cancellationTerms === PENDING_CONFIRMATION || !q.cancellationTerms ? 'Pendiente de confirmación por Petra.' : '');
   const weatherLogisticsNote = typeof q.weatherLogisticsNote === 'string' ? q.weatherLogisticsNote : PENDING_CONFIRMATION;
+  const weatherLogisticsNoteEs = typeof q.weatherLogisticsNoteEs === 'string' ? q.weatherLogisticsNoteEs : (q.weatherLogisticsNote === PENDING_CONFIRMATION || !q.weatherLogisticsNote ? 'Pendiente de confirmación por Petra.' : '');
   const seasonalConditions = typeof q.seasonalConditions === 'string' ? q.seasonalConditions : PENDING_CONFIRMATION;
+  const seasonalConditionsEs = typeof q.seasonalConditionsEs === 'string' ? q.seasonalConditionsEs : (q.seasonalConditions === PENDING_CONFIRMATION || !q.seasonalConditions ? 'Pendiente de confirmación por Petra.' : '');
 
   // 5. Package snapshot
   const defaultTemplate = PACKAGE_TEMPLATES[0];
@@ -221,6 +319,9 @@ export function normalizeQuotation(q: any): Quotation {
     importantInstructions: defaultTemplate.packageSnapshot.importantInstructions,
   };
 
+  const packageSnapshotEs: StructuredPackageSnapshot | undefined =
+    q.packageSnapshotEs || (defaultTemplate.packageSnapshotEs ? { ...defaultTemplate.packageSnapshotEs } : undefined);
+
   // 6. Selected Photos
   let selectedPhotos: AttachedPhoto[] = Array.isArray(q.selectedPhotos) ? q.selectedPhotos : [];
   if (selectedPhotos.length === 0 && Array.isArray(q.selectedPhotoIds)) {
@@ -230,35 +331,50 @@ export function normalizeQuotation(q: any): Quotation {
     selectedPhotos = [SAMPLE_DESTINATION_PHOTOS[0], SAMPLE_DESTINATION_PHOTOS[1]];
   }
 
-  // Pricing calculations
+  // Pricing calculations & status
   const pricingMode = q.pricingMode || (q.lineItems && q.lineItems.length > 0 ? 'custom_itemized' : 'first_night_additional');
   const firstNightRate = typeof q.firstNightRate === 'number' ? q.firstNightRate : 0;
   const additionalNightRate = typeof q.additionalNightRate === 'number' ? q.additionalNightRate : 0;
   const totalPackagePrice = typeof q.totalPackagePrice === 'number' ? q.totalPackagePrice : 0;
   const travelers = q.travelers || 2;
 
-  let subtotal = 0;
-  if (pricingMode === 'first_night_additional') {
-    const firstNightTotal = travelers * firstNightRate;
-    const additionalNightsCount = Math.max(nights - 1, 0);
-    const additionalNightsTotal = travelers * additionalNightsCount * additionalNightRate;
-    subtotal = Math.round((firstNightTotal + additionalNightsTotal) * 100) / 100;
-  } else if (pricingMode === 'single_total') {
-    subtotal = Math.round(totalPackagePrice * 100) / 100;
-  } else {
-    subtotal = Math.round(lineItems.reduce((acc, item) => acc + item.total, 0) * 100) / 100;
-  }
+  // Determine pricing status safely
+  const isUnpricedByDefault =
+    (firstNightRate === 0 && additionalNightRate === 0 && totalPackagePrice === 0 && (!lineItems || lineItems.length === 0 || lineItems.every((i) => i.unitPrice === 0))) ||
+    q.island === 'Chichime Chico' ||
+    q.island === 'Nurdub Community';
 
-  const enableTax = q.enableTax !== undefined ? Boolean(q.enableTax) : (q.enableAdditionalCharge !== undefined ? Boolean(q.enableAdditionalCharge) : true);
+  const pricingStatus: QuotationPricingStatus =
+    q.pricingStatus || (isUnpricedByDefault ? 'Rates to Be Confirmed' : 'Priced Quotation');
+
+  const enableTax = q.enableTax !== undefined ? Boolean(q.enableTax) : (q.enableAdditionalCharge !== undefined ? Boolean(q.enableAdditionalCharge) : false);
   const taxPercent = typeof q.taxPercent === 'number' ? q.taxPercent : (typeof q.additionalChargePercent === 'number' ? q.additionalChargePercent : 7);
-  const taxAmount = enableTax ? Math.round((subtotal * taxPercent / 100) * 100) / 100 : 0;
-  const total = Math.round((subtotal + taxAmount) * 100) / 100;
+
+  // Compute calculated summary using shared formula
+  const summary = calculateQuotationTotals({
+    pricingMode,
+    pricingStatus,
+    travelers,
+    nights,
+    firstNightRate,
+    additionalNightRate,
+    totalPackagePrice,
+    lineItems,
+    enableTax,
+    taxPercent,
+  });
+
+  // Preserve existing subtotal and total if historical quote already had them defined to avoid altering stored data
+  const subtotal = typeof q.subtotal === 'number' && q.id ? q.subtotal : summary.subtotal;
+  const taxAmount = typeof q.taxAmount === 'number' && q.id ? q.taxAmount : summary.taxAmount;
+  const total = typeof q.total === 'number' && q.id ? q.total : summary.total;
 
   // Check for outdated legacy text without overwriting user data
   const outdatedInfo = getOutdatedFieldsInfo(q);
 
   return {
     ...q,
+    language: q.language === 'es' ? 'es' : 'en',
     reference: rawRef,
     rootReference,
     revisionLetter,
@@ -268,10 +384,14 @@ export function normalizeQuotation(q: any): Quotation {
     travelers,
     cabinsCount: q.cabinsCount || 1,
     bathroomType: q.bathroomType || 'Private',
+    bathroomTypeEs: q.bathroomTypeEs || (q.bathroomType === 'Private' ? 'Privado' : 'Compartido'),
     groundTransportation,
     boatTransfers,
     transportationReviewFlag: reviewFlag,
+    experience: q.experience || 'Island Overnight Experience',
+    experienceEs: q.experienceEs || defaultTemplate.experienceEs || defaultTemplate.nameEs || 'Experiencia Nocturna en Isla',
     pricingMode,
+    pricingStatus,
     firstNightRate,
     additionalNightRate,
     totalPackagePrice,
@@ -286,13 +406,21 @@ export function normalizeQuotation(q: any): Quotation {
     additionalChargeAmount: taxAmount,
     total,
     inclusions: Array.isArray(q.inclusions) ? q.inclusions : defaultTemplate.inclusions,
+    inclusionsEs: Array.isArray(q.inclusionsEs) ? q.inclusionsEs : (defaultTemplate.inclusionsEs ? [...defaultTemplate.inclusionsEs] : undefined),
     exclusions: Array.isArray(q.exclusions) ? q.exclusions : defaultTemplate.exclusions,
+    exclusionsEs: Array.isArray(q.exclusionsEs) ? q.exclusionsEs : (defaultTemplate.exclusionsEs ? [...defaultTemplate.exclusionsEs] : undefined),
     packageSnapshot,
+    packageSnapshotEs,
     paymentSchedule,
+    paymentScheduleEs,
     depositRequirement,
+    depositRequirementEs,
     cancellationTerms,
+    cancellationTermsEs,
     weatherLogisticsNote,
+    weatherLogisticsNoteEs,
     seasonalConditions,
+    seasonalConditionsEs,
     supplierPaymentNotes,
     termsStatus,
     selectedPhotos,
@@ -504,6 +632,7 @@ class QuotationStorageService {
       data: quotation,
       status: quotation.status || 'Draft',
       customer_name: quotation.customerName || '',
+      inquiry_id: quotation.inquiry_id || null,
       total: typeof quotation.total === 'number' ? quotation.total : 0,
       updated_at: quotation.updatedAt || new Date().toISOString(),
     };
@@ -740,7 +869,151 @@ class QuotationStorageService {
     return `REF-${String(num).padStart(3, '0')}`;
   }
 
-  public createBlankQuotation(referenceNumber: string): Quotation {
+  private descriptionOverridesCache: Record<string, { overviewEn: string; overviewEs: string }> = {};
+
+  public async getPackageDescriptionOverrides(): Promise<Record<string, { overviewEn: string; overviewEs: string }>> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('package_description_overrides').select('*');
+      if (error) {
+        throw new Error(`Failed to load package description overrides from Supabase: ${error.message}`);
+      }
+      if (data) {
+        const map: Record<string, { overviewEn: string; overviewEs: string }> = {};
+        data.forEach((row: any) => {
+          if (row.template_id) {
+            map[row.template_id] = {
+              overviewEn: row.overview_en || '',
+              overviewEs: row.overview_es || '',
+            };
+          }
+        });
+        this.descriptionOverridesCache = map;
+        return map;
+      }
+    }
+    return this.descriptionOverridesCache;
+  }
+
+  public async preloadPackageDescriptionOverrides(): Promise<void> {
+    try {
+      await this.getPackageDescriptionOverrides();
+    } catch (e) {
+      console.warn('Could not preload package description overrides:', e);
+    }
+  }
+
+  public getCachedDescriptionOverride(templateId: string): { overviewEn: string; overviewEs: string } | undefined {
+    return this.descriptionOverridesCache[templateId];
+  }
+
+  public async getSinglePackageDescriptionOverride(templateId: string): Promise<{ overviewEn: string; overviewEs: string } | null> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('package_description_overrides')
+          .select('*')
+          .eq('template_id', templateId)
+          .maybeSingle();
+        if (error) {
+          console.warn(`Error fetching override for ${templateId} from Supabase:`, error);
+        }
+        if (data) {
+          const res = {
+            overviewEn: data.overview_en || '',
+            overviewEs: data.overview_es || '',
+          };
+          this.descriptionOverridesCache[templateId] = res;
+          return res;
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch fresh override for ${templateId}:`, e);
+      }
+    }
+    return this.descriptionOverridesCache[templateId] || null;
+  }
+
+  public async savePackageDescriptionOverride(
+    templateId: string,
+    overviewEn: string,
+    overviewEs: string
+  ): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase is not configured. Live database write required for permanent package description overrides.');
+    }
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id || null;
+
+    // 1. Upsert into Supabase using template_id
+    const { error: upsertError } = await supabase.from('package_description_overrides').upsert(
+      {
+        template_id: templateId,
+        overview_en: overviewEn,
+        overview_es: overviewEs,
+        updated_at: new Date().toISOString(),
+        updated_by: userId,
+      },
+      { onConflict: 'template_id' }
+    );
+
+    if (upsertError) {
+      throw new Error(`Failed to save package description override: ${upsertError.message}`);
+    }
+
+    // 2. Read back and verify record
+    const { data: readBack, error: readError } = await supabase
+      .from('package_description_overrides')
+      .select('*')
+      .eq('template_id', templateId)
+      .single();
+
+    if (readError || !readBack) {
+      throw new Error(`Verification read-back failed: ${readError?.message || 'Record not found in database'}`);
+    }
+
+    if (readBack.overview_en !== overviewEn || readBack.overview_es !== overviewEs) {
+      throw new Error('Verification failed: Stored overview values do not match submitted values.');
+    }
+
+    // 3. Update local cache immediately upon successful verification
+    this.descriptionOverridesCache[templateId] = {
+      overviewEn,
+      overviewEs,
+    };
+  }
+
+  public async deletePackageDescriptionOverride(templateId: string): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase is not configured.');
+    }
+
+    const { error } = await supabase
+      .from('package_description_overrides')
+      .delete()
+      .eq('template_id', templateId);
+
+    if (error) {
+      throw new Error(`Failed to delete package description override: ${error.message}`);
+    }
+
+    // Verify deletion read-back
+    const { data: checkData, error: checkError } = await supabase
+      .from('package_description_overrides')
+      .select('*')
+      .eq('template_id', templateId)
+      .maybeSingle();
+
+    if (checkError) {
+      console.warn('Verification check after delete warning:', checkError);
+    }
+    if (checkData) {
+      throw new Error('Verification failed: Override record still exists in Supabase after delete request.');
+    }
+
+    delete this.descriptionOverridesCache[templateId];
+  }
+
+  public async createBlankQuotation(referenceNumber: string): Promise<Quotation> {
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
     
@@ -757,6 +1030,23 @@ class QuotationStorageService {
     const departureStr = departure.toISOString().split('T')[0];
 
     const template = PACKAGE_TEMPLATES.find((t) => t.id === 'template-master-island-overnight') || PACKAGE_TEMPLATES[3];
+
+    let overrideOverviewEn = '';
+    let overrideOverviewEs = '';
+    const liveOverride = await this.getSinglePackageDescriptionOverride(template.id);
+    if (liveOverride) {
+      overrideOverviewEn = liveOverride.overviewEn;
+      overrideOverviewEs = liveOverride.overviewEs;
+    }
+
+    const finalSnapshot = { ...template.packageSnapshot };
+    if (overrideOverviewEn) {
+      finalSnapshot.overview = overrideOverviewEn;
+    }
+    const finalSnapshotEs = template.packageSnapshotEs ? { ...template.packageSnapshotEs } : { ...template.packageSnapshot };
+    if (overrideOverviewEs) {
+      finalSnapshotEs.overview = overrideOverviewEs;
+    }
 
     const defaultPhotos = SAMPLE_DESTINATION_PHOTOS.filter((p) =>
       template.defaultPhotoIds.includes(p.id)
@@ -784,11 +1074,12 @@ class QuotationStorageService {
       boatTransfers: template.boatTransfers,
       internalNotes: '',
       pricingMode: 'first_night_additional',
+      pricingStatus: 'Rates to Be Confirmed',
       firstNightRate: 0,
       additionalNightRate: 0,
       totalPackagePrice: 0,
       lineItems: [],
-      enableTax: true,
+      enableTax: false,
       taxPercent: 7,
       enableAdditionalCharge: false,
       additionalChargeLabel: 'Territory & Service Tax',
@@ -798,7 +1089,8 @@ class QuotationStorageService {
       total: 0,
       inclusions: [...template.inclusions],
       exclusions: [...template.exclusions],
-      packageSnapshot: { ...template.packageSnapshot },
+      packageSnapshot: finalSnapshot,
+      packageSnapshotEs: finalSnapshotEs,
       paymentSchedule: PENDING_CONFIRMATION,
       depositRequirement: PENDING_CONFIRMATION,
       cancellationTerms: PENDING_CONFIRMATION,

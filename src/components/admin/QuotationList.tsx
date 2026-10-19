@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Quotation, QuotationStatus } from '../../types/quotation';
-import { Search, Plus, Copy, Trash2, Edit3, Eye, Calendar, MapPin, AlertCircle, FileText, GitBranch } from 'lucide-react';
+import { Search, Plus, Copy, Trash2, Edit3, Eye, Calendar, MapPin, AlertCircle, FileText, GitBranch, Users } from 'lucide-react';
 import { generateNextRevisionReference } from '../../services/quotationStorageService';
 
 interface QuotationListProps {
@@ -11,6 +11,8 @@ interface QuotationListProps {
   onCreateRevision: (quotation: Quotation, revisionNote?: string) => void;
   onDelete: (id: string) => void;
   onPreview: (quotation: Quotation) => void;
+  onManageDescriptions?: () => void;
+  onManageCrm?: () => void;
 }
 
 export const QuotationList: React.FC<QuotationListProps> = ({
@@ -21,6 +23,8 @@ export const QuotationList: React.FC<QuotationListProps> = ({
   onCreateRevision,
   onDelete,
   onPreview,
+  onManageDescriptions,
+  onManageCrm,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | QuotationStatus>('All');
@@ -86,13 +90,37 @@ export const QuotationList: React.FC<QuotationListProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onCreateNew}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-[#f7f4ed] font-medium text-xs rounded shadow-sm transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4 text-[#c9a96e]" />
-          <span>Create New Quotation</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {onManageCrm && (
+            <button
+              onClick={onManageCrm}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-[#faf8f5] text-[#0e3b2f] font-medium text-xs rounded border border-[#cfc7b2] shadow-2xs transition-colors shrink-0"
+              title="Customer Management / Gestión de Clientes"
+            >
+              <Users className="w-4 h-4 text-[#c9a96e]" />
+              <span>Customer Management</span>
+            </button>
+          )}
+
+          {onManageDescriptions && (
+            <button
+              onClick={onManageDescriptions}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-[#faf8f5] text-[#0e3b2f] font-medium text-xs rounded border border-[#cfc7b2] shadow-2xs transition-colors shrink-0"
+              title="Manage Package Descriptions / Administrar Descripciones"
+            >
+              <FileText className="w-4 h-4 text-[#c9a96e]" />
+              <span>Manage Descriptions</span>
+            </button>
+          )}
+
+          <button
+            onClick={onCreateNew}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-[#f7f4ed] font-medium text-xs rounded shadow-sm transition-colors shrink-0"
+          >
+            <Plus className="w-4 h-4 text-[#c9a96e]" />
+            <span>Create New Quotation</span>
+          </button>
+        </div>
       </div>
 
       {/* Controls: Search & Status Filters */}
@@ -230,7 +258,13 @@ export const QuotationList: React.FC<QuotationListProps> = ({
 
                       {/* Total USD */}
                       <td className="py-3.5 px-4 text-right font-mono font-semibold text-[#0e3b2f] text-sm tabular-nums">
-                        ${quote.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {quote.pricingStatus === 'Rates to Be Confirmed' || (quote.total === 0 && quote.pricingMode !== 'custom_itemized') ? (
+                          <span className="inline-block text-[11px] font-sans font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded whitespace-nowrap">
+                            Rates to Be Confirmed
+                          </span>
+                        ) : (
+                          `$${quote.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        )}
                       </td>
 
                       {/* Status */}
