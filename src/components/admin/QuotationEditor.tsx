@@ -7,6 +7,7 @@ import {
   TransportOption,
   AttachedPhoto,
   StructuredPackageSnapshot,
+  DepartureOption,
 } from '../../types/quotation';
 import { PACKAGE_TEMPLATES } from '../../data/packageTemplates';
 import { SAMPLE_DESTINATION_PHOTOS, DEMO_PHOTO_UNVERIFIED_LABEL } from '../../data/samplePhotos';
@@ -15,6 +16,8 @@ import {
   calculateQuotationTotals,
   getOutdatedFieldsInfo,
   quotationStorageService,
+  getOptionalExtraPresetsForIsland,
+  OptionalExtraPreset,
 } from '../../services/quotationStorageService';
 import {
   Save,
@@ -41,6 +44,7 @@ import {
   RotateCcw,
   Loader2,
   GitBranch,
+  Clock,
 } from 'lucide-react';
 import { extractRootReference, generateNextRevisionReference } from '../../services/quotationStorageService';
 
@@ -348,6 +352,10 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
   const [isSubmittingRevision, setIsSubmittingRevision] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [templateMsg, setTemplateMsg] = useState<string | null>(null);
+  const [pendingTemplateSwitch, setPendingTemplateSwitch] = useState<{
+    templateId: string;
+    templateName: string;
+  } | null>(null);
 
   const isEs = formData.language === 'es';
   const tr = (en: string, es: string) => (isEs ? es : en);
@@ -499,20 +507,10 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
     formData.taxPercent,
   ]);
 
-  // Handle template selection
-  const handleApplyPackageTemplate = async (templateId: string) => {
+  // Core synchronous template applicator
+  const executeApplyPackageTemplate = (templateId: string, clearLineItems: boolean) => {
     const template = PACKAGE_TEMPLATES.find((t) => t.id === templateId);
     if (!template) return;
-
-    if (formData.lineItems && formData.lineItems.length > 0) {
-      if (!window.confirm('The current quotation contains active line items or optional extras. Do you want to replace them with the new template defaults (clearing optional extras)?')) {
-        return;
-      }
-    }
-
-    // Do NOT automatically add chargeable optional extras to lineItems.
-    // Administrators must explicitly choose extras, quantities, and unit prices.
-    const newLineItems: LineItem[] = [];
 
     // Filter default photos
     const defaultPhotos = SAMPLE_DESTINATION_PHOTOS.filter((p) =>
@@ -526,26 +524,38 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
     const templatePricingStatus: QuotationPricingStatus =
       template.pricingStatus || (isUnpriced ? 'Rates to Be Confirmed' : 'Priced Quotation');
 
-    let overrideOverviewEn = '';
-    let overrideOverviewEs = '';
-    try {
-      const liveOverride = await quotationStorageService.getSinglePackageDescriptionOverride(template.id);
-      if (liveOverride) {
-        overrideOverviewEn = liveOverride.overviewEn;
-        overrideOverviewEs = liveOverride.overviewEs;
-      }
-    } catch (err: any) {
-      console.warn('Failed to fetch fresh description override:', err);
-    }
+    // Departure option: Guasirdub standard includes afternoon departure with lunch
+    const newDepartureOption: DepartureOption = template.island.toLowerCase().includes('guasirdub')
+      ? 'afternoon_with_lunch'
+      : (formData.departureOption || 'standard_morning');
+
+    const newLineItems: LineItem[] = clearLineItems ? [] : (formData.lineItems || []);
+
+    const pricingMode = template.pricingMode || 'first_night_additional';
+    const firstNightRate = template.firstNightRate ?? 0;
+    const additionalNightRate = template.additionalNightRate ?? 0;
+    const totalPackagePrice = template.totalPackagePrice ?? 0;
+    const enableTax = template.enableTax ?? false;
+    const taxPercent = template.taxPercent ?? 7;
+
+    // Synchronously compute totals
+    const totalsSummary = calculateQuotationTotals({
+      pricingMode,
+      pricingStatus: templatePricingStatus,
+      travelers: formData.travelers,
+      nights: formData.nights,
+      firstNightRate,
+      additionalNightRate,
+      totalPackagePrice,
+      lineItems: newLineItems,
+      enableTax,
+      taxPercent,
+    });
 
     const finalSnapshot = { ...template.packageSnapshot };
-    if (overrideOverviewEn) {
-      finalSnapshot.overview = overrideOverviewEn;
-    }
-    const finalSnapshotEs = template.packageSnapshotEs ? { ...template.packageSnapshotEs } : { ...template.packageSnapshot };
-    if (overrideOverviewEs) {
-      finalSnapshotEs.overview = overrideOverviewEs;
-    }
+    const finalSnapshotEs = template.packageSnapshotEs
+      ? { ...template.packageSnapshotEs }
+      : { ...template.packageSnapshot };
 
     const updatedQuote: Quotation = {
       ...formData,
@@ -562,13 +572,21 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
       bathroomTypeEs: template.bathroomTypeEs || (template.bathroomType === 'Private' ? 'Privado' : 'Compartido'),
       groundTransportation: template.groundTransportation,
       boatTransfers: template.boatTransfers,
-      pricingMode: template.pricingMode || 'first_night_additional',
+      departureOption: newDepartureOption,
+      pricingMode,
       pricingStatus: templatePricingStatus,
-      firstNightRate: template.firstNightRate ?? formData.firstNightRate ?? 0,
-      additionalNightRate: template.additionalNightRate ?? formData.additionalNightRate ?? 0,
-      totalPackagePrice: template.totalPackagePrice ?? formData.totalPackagePrice ?? 0,
-      enableTax: template.enableTax ?? formData.enableTax ?? false,
-      taxPercent: template.taxPercent ?? formData.taxPercent ?? 7,
+      firstNightRate,
+      additionalNightRate,
+      totalPackagePrice,
+      enableTax,
+      taxPercent,
+      taxAmount: totalsSummary.taxAmount,
+      subtotal: totalsSummary.subtotal,
+      total: totalsSummary.total,
+      enableAdditionalCharge: enableTax,
+      additionalChargeLabel: 'Territory & Service Tax',
+      additionalChargePercent: taxPercent,
+      additionalChargeAmount: totalsSummary.taxAmount,
       transportationReviewFlag: false,
       lineItems: newLineItems,
       inclusions: [...template.inclusions],
@@ -590,7 +608,10 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
       selectedPhotos: defaultPhotos.length > 0 ? defaultPhotos : formData.selectedPhotos,
     };
 
+    // Update state immediately
     setFormData(updatedQuote);
+
+    // Save to local draft storage immediately
     try {
       if (typeof window !== 'undefined') {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(updatedQuote));
@@ -600,7 +621,67 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
     const templateName = isEs && template.nameEs ? template.nameEs : template.name;
     setTemplateMsg(tr(`${templateName} applied successfully.`, `${templateName} aplicado con éxito.`));
     setTimeout(() => setTemplateMsg(null), 4000);
+
+    // Non-blocking background fetch for live overview overrides
+    quotationStorageService
+      .getSinglePackageDescriptionOverride(template.id)
+      .then((liveOverride) => {
+        if (liveOverride && (liveOverride.overviewEn || liveOverride.overviewEs)) {
+          setFormData((prev) => {
+            if (prev.packageTemplateId !== template.id) return prev;
+            return {
+              ...prev,
+              packageSnapshot: {
+                ...prev.packageSnapshot,
+                overview: liveOverride.overviewEn || prev.packageSnapshot.overview,
+              },
+              packageSnapshotEs: prev.packageSnapshotEs
+                ? {
+                    ...prev.packageSnapshotEs,
+                    overview: liveOverride.overviewEs || prev.packageSnapshotEs.overview,
+                  }
+                : prev.packageSnapshotEs,
+            };
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch fresh description override:', err);
+      });
   };
+
+  // Handle template selection from dropdown
+  const handleApplyPackageTemplate = (templateId: string) => {
+    const template = PACKAGE_TEMPLATES.find((t) => t.id === templateId);
+    if (!template) return;
+
+    if (formData.lineItems && formData.lineItems.length > 0) {
+      setPendingTemplateSwitch({
+        templateId,
+        templateName: isEs && template.nameEs ? template.nameEs : template.name,
+      });
+      return;
+    }
+
+    // No existing line items: apply immediately
+    executeApplyPackageTemplate(templateId, true);
+  };
+
+  // Active applied package template (matched by templateId or island name)
+  const activeTemplate = useMemo(() => {
+    if (formData.packageTemplateId) {
+      const match = PACKAGE_TEMPLATES.find((t) => t.id === formData.packageTemplateId);
+      if (match) return match;
+    }
+    if (formData.island) {
+      return (
+        PACKAGE_TEMPLATES.find(
+          (t) => t.island.toLowerCase() === formData.island.toLowerCase()
+        ) || null
+      );
+    }
+    return null;
+  }, [formData.packageTemplateId, formData.island]);
 
   // Determine Spanish translation status & completeness
   const spanishStatus = useMemo(() => {
@@ -814,11 +895,180 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
     setFormData((prev) => ({ ...prev, lineItems: [...prev.lineItems, newItem] }));
   };
 
+  // Departure Option handler with bi-directional synchronization of line items, inclusions, exclusions, and schedule
+  const handleSetDepartureOption = (option: DepartureOption) => {
+    const isAfternoon = option === 'afternoon_with_lunch';
+    const island = (formData.island || '').toLowerCase();
+
+    // Surcharge rate: Guasirdub includes afternoon departure ($0), Franklin is $25, Chichime/others $35
+    const unitPrice = island.includes('guasirdub') ? 0 : island.includes('franklin') ? 25 : 35;
+
+    let newLineItems = [...(formData.lineItems || [])];
+
+    if (isAfternoon) {
+      if (unitPrice > 0) {
+        const existingIdx = newLineItems.findIndex((it) =>
+          it.description?.toLowerCase().includes('afternoon') || it.descriptionEs?.toLowerCase().includes('tarde')
+        );
+
+        const afternoonItem: LineItem = {
+          id: existingIdx >= 0 ? newLineItems[existingIdx].id : `item-afternoon-${Date.now()}`,
+          description: 'Optional Afternoon Island Departure with Lunch (approx. 03:00 PM)',
+          descriptionEs: 'Salida opcional por la tarde con almuerzo incluido (aprox. 03:00 PM)',
+          pricingBasis: 'per_person_total',
+          unitPrice: unitPrice,
+          quantity: formData.travelers,
+          total: formData.travelers * unitPrice,
+          vehicleCount: 1,
+        };
+
+        if (existingIdx >= 0) {
+          newLineItems[existingIdx] = afternoonItem;
+        } else {
+          newLineItems.push(afternoonItem);
+        }
+      }
+    } else {
+      // Revert to morning: filter out only the afternoon departure item
+      newLineItems = newLineItems.filter(
+        (it) => !(it.description?.toLowerCase().includes('afternoon') || it.descriptionEs?.toLowerCase().includes('tarde'))
+      );
+    }
+
+    // 1. Synchronize Inclusions
+    const morningIncEn = 'Standard morning departure after breakfast (arriving in Panama City approx. 12:00–1:00 PM)';
+    const morningIncEs = 'Salida matutina estándar después del desayuno (llegada a Ciudad de Panamá aprox. 12:00–1:00 PM)';
+    const afternoonIncEn = 'Afternoon island departure around 03:00 PM with departure-day lunch included (cabin checkout by 08:00 AM; luggage stored securely; arrival in Panama City approx. 7:30–8:00 PM)';
+    const afternoonIncEs = 'Salida por la tarde alrededor de las 03:00 PM con almuerzo de despedida incluido (entrega de cabaña a las 08:00 AM; equipaje guardado de forma segura; llegada a Ciudad de Panamá aprox. 7:30–8:00 PM)';
+
+    const updatedInclusions = (formData.inclusions || []).filter(
+      (inc) =>
+        !inc.toLowerCase().includes('departure after breakfast') &&
+        !inc.toLowerCase().includes('standard morning departure') &&
+        !inc.toLowerCase().includes('afternoon island departure')
+    );
+    const updatedInclusionsEs = (formData.inclusionsEs || []).filter(
+      (inc) =>
+        !inc.toLowerCase().includes('salida matutina') &&
+        !inc.toLowerCase().includes('salida por la tarde')
+    );
+
+    if (isAfternoon) {
+      updatedInclusions.push(afternoonIncEn);
+      updatedInclusionsEs.push(afternoonIncEs);
+    } else {
+      updatedInclusions.push(morningIncEn);
+      updatedInclusionsEs.push(morningIncEs);
+    }
+
+    // 2. Synchronize Exclusions
+    const updatedExclusions = (formData.exclusions || []).filter(
+      (exc) => !exc.toLowerCase().includes('afternoon departure')
+    );
+    const updatedExclusionsEs = (formData.exclusionsEs || []).filter(
+      (exc) => !exc.toLowerCase().includes('salida por la tarde')
+    );
+
+    if (!isAfternoon && unitPrice > 0) {
+      updatedExclusions.push(
+        `Optional afternoon departure around 03:00 PM with lunch: USD $${unitPrice} per person (cabin checkout by 08:00 AM; luggage stored securely)`
+      );
+      updatedExclusionsEs.push(
+        `Opción de salida por la tarde alrededor de las 03:00 PM con almuerzo: USD $${unitPrice} por persona (entrega de cabaña a las 08:00 AM; equipaje guardado de forma segura)`
+      );
+    }
+
+    // 3. Synchronize Package Snapshot
+    const snap = formData.packageSnapshot || ({} as any);
+    const snapEs = formData.packageSnapshotEs || ({} as any);
+
+    const updatedSnapshot = {
+      ...snap,
+      mealsByDay: isAfternoon
+        ? 'Day 1 (Arrival): Lunch and Dinner. Intermediate Days: Breakfast, Lunch, and Dinner. Final Day (Departure): Breakfast and Lunch. Traditional island meals feature catch of the day, chicken, coconut rice, and plantains.'
+        : 'Day 1 (Arrival): Lunch and Dinner. Intermediate Days: Breakfast, Lunch, and Dinner. Final Day (Departure): Breakfast. Traditional island meals feature catch of the day, chicken, coconut rice, and plantains.',
+      islandSchedule: isAfternoon
+        ? 'Panama City pickup approx. 5:00 AM. Afternoon island departure departs around 3:00 PM with lunch included (cabin checkout by 08:00 AM, luggage stored securely), arriving in Panama City around 7:30–8:00 PM.'
+        : 'Panama City pickup approx. 5:00 AM. Standard island return departs after breakfast, arriving in Panama City around 12:00–1:00 PM.',
+    };
+
+    const updatedSnapshotEs = {
+      ...snapEs,
+      mealsByDay: isAfternoon
+        ? 'Día 1 (Llegada): Almuerzo y Cena. Días Intermedios: Desayuno, Almuerzo y Cena. Día Final (Salida): Desayuno y Almuerzo. Comidas tradicionales de la isla con pesca del día, pollo, arroz con coco y patacones.'
+        : 'Día 1 (Llegada): Almuerzo y Cena. Días Intermedios: Desayuno, Almuerzo y Cena. Día Final (Salida): Desayuno. Comidas tradicionales de la isla con pesca del día, pollo, arroz con coco y patacones.',
+      islandSchedule: isAfternoon
+        ? 'Recogida en Ciudad de Panamá aprox. 5:00 AM. Salida por la tarde alrededor de las 3:00 PM con almuerzo incluido (entrega de cabaña a las 08:00 AM, equipaje guardado de forma segura), llegando a Ciudad de Panamá alrededor de 7:30–8:00 PM.'
+        : 'Recogida en Ciudad de Panamá aprox. 5:00 AM. El retorno estándar sale después del desayuno, llegando a Ciudad de Panamá alrededor de 12:00–1:00 PM.',
+    };
+
+    setFormData((prev) => ({
+      ...prev,
+      departureOption: option,
+      lineItems: newLineItems,
+      inclusions: updatedInclusions,
+      inclusionsEs: updatedInclusionsEs,
+      exclusions: updatedExclusions,
+      exclusionsEs: updatedExclusionsEs,
+      packageSnapshot: updatedSnapshot,
+      packageSnapshotEs: updatedSnapshotEs,
+    }));
+  };
+
+  const handleApplyOptionalPreset = (preset: OptionalExtraPreset) => {
+    if (preset.id.startsWith('afternoon-departure')) {
+      handleSetDepartureOption('afternoon_with_lunch');
+      return;
+    }
+
+    const existing = formData.lineItems.find(
+      (item) => item.description.toLowerCase().trim() === preset.description.toLowerCase().trim()
+    );
+    if (existing) {
+      return;
+    }
+
+    const qty = calculateLineQuantity(
+      preset.pricingBasis,
+      formData.travelers,
+      formData.nights,
+      formData.cabinsCount,
+      1,
+      1
+    );
+
+    const newItem: LineItem = {
+      id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      description: preset.description,
+      descriptionEs: preset.descriptionEs,
+      pricingBasis: preset.pricingBasis,
+      quantity: qty,
+      unitPrice: preset.unitPrice,
+      total: qty * preset.unitPrice,
+      vehicleCount: 1,
+    };
+
+    setFormData((prev) => ({
+      ...prev,
+      lineItems: [...prev.lineItems, newItem],
+    }));
+  };
+
   const handleRemoveLineItem = (index: number) => {
     if (formData.pricingMode === 'custom_itemized' && formData.lineItems.length <= 1) {
       alert('A custom itemized quotation must contain at least one line item.');
       return;
     }
+    const removedItem = formData.lineItems[index];
+    const isAfternoon =
+      removedItem.description?.toLowerCase().includes('afternoon') ||
+      removedItem.descriptionEs?.toLowerCase().includes('tarde');
+
+    if (isAfternoon) {
+      handleSetDepartureOption('standard_morning');
+      return;
+    }
+
     const updated = formData.lineItems.filter((_, idx) => idx !== index);
     setFormData((prev) => ({ ...prev, lineItems: updated }));
   };
@@ -855,6 +1105,62 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
         },
       }));
     }
+  };
+
+  // One-click action to refresh narrative from template (removes repeated rate figures like $259/$119)
+  const handleRefreshNarrativeFromTemplate = () => {
+    touchTermsCondition();
+    const currentIsland = (formData.island || '').toLowerCase();
+    const tmpl =
+      PACKAGE_TEMPLATES.find((t) => t.id === formData.packageTemplateId) ||
+      PACKAGE_TEMPLATES.find((t) => currentIsland.includes(t.island.toLowerCase())) ||
+      PACKAGE_TEMPLATES[0];
+
+    if (!tmpl) return;
+
+    setFormData((prev) => {
+      const cleanOverviewEn = tmpl.packageSnapshot.overview;
+      const cleanOverviewEs = tmpl.packageSnapshotEs ? tmpl.packageSnapshotEs.overview : tmpl.packageSnapshot.overview;
+
+      const updated = {
+        ...prev,
+        packageSnapshot: {
+          ...prev.packageSnapshot,
+          overview: cleanOverviewEn,
+        },
+        packageSnapshotEs: {
+          ...(prev.packageSnapshotEs || {
+            overview: '',
+            accommodationDetails: '',
+            mealsByDay: '',
+            groundTransportationDetails: '',
+            boatTransferDetails: '',
+            toursAndActivities: '',
+            otherInclusions: '',
+            optionalExtras: '',
+            exclusions: '',
+            islandSchedule: '',
+            importantInstructions: '',
+          }),
+          overview: cleanOverviewEs,
+        },
+      };
+
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(updated));
+        }
+      } catch (e) {}
+
+      return updated;
+    });
+
+    setSaveSuccessMsg(
+      formData.language === 'es'
+        ? 'Narrativa de experiencia actualizada desde la plantilla oficial (sin tarifas repetidas).'
+        : 'Experience overview narrative refreshed from official template (rates removed).'
+    );
+    setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
   // Array handlers for inclusions / exclusions (bilingual aware)
@@ -1387,15 +1693,25 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
       )}
 
       {/* Package Template Quick Loader Bar */}
-      <div className="bg-[#f7f4ed] border border-[#d8caa8] p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="bg-[#f7f4ed] border border-[#d8caa8] p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-2.5">
           <Sparkles className="w-4 h-4 text-[#c9a96e] shrink-0" />
           <div>
-            <span className="text-xs font-semibold text-[#0e3b2f]">
-              {tr('Package Template Selector:', 'Selector de plantilla de paquete:')}
-            </span>
-            <p className="text-[11px] text-[#687785]">
-              {tr('Populates reusable package content without overwriting customer contact info or travel dates.', 'Rellena contenido reutilizable del paquete sin sobrescribir la información de contacto o fechas de viaje.')}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#0e3b2f]">
+                {tr('Package Template Selector:', 'Selector de plantilla de paquete:')}
+              </span>
+              {activeTemplate && (
+                <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  {isEs && activeTemplate.nameEs ? activeTemplate.nameEs : activeTemplate.name}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-[#687785] mt-0.5">
+              {tr(
+                'Populates destination, itinerary, official rates, and inclusions across all tabs without overwriting customer contact info or travel dates.',
+                'Rellena destino, itinerario, tarifas oficiales e inclusiones en todas las pestañas sin sobrescribir datos de contacto o fechas de viaje.'
+              )}
             </p>
           </div>
         </div>
@@ -1403,7 +1719,7 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
         <select
           value={formData.packageTemplateId || ''}
           onChange={(e) => e.target.value && handleApplyPackageTemplate(e.target.value)}
-          className="text-xs border border-[#cfc7b2] rounded px-3 py-1.5 bg-white text-[#0e3b2f] font-medium focus:outline-none focus:ring-1 focus:ring-[#0e3b2f]"
+          className="text-xs border border-[#cfc7b2] rounded px-3 py-2 bg-white text-[#0e3b2f] font-semibold focus:outline-none focus:ring-1 focus:ring-[#0e3b2f] cursor-pointer shadow-2xs min-w-[240px]"
         >
           <option value="" disabled>
             {tr('-- Select Package Template --', '-- Seleccionar plantilla de paquete --')}
@@ -1417,9 +1733,93 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
       </div>
 
       {templateMsg && (
-        <div className="bg-emerald-50 border border-emerald-300 p-3 rounded-lg text-xs text-emerald-950 flex items-center gap-2 shadow-2xs">
+        <div className="bg-emerald-50 border border-emerald-300 p-3 rounded-lg text-xs text-emerald-950 flex items-center gap-2 shadow-2xs animate-in fade-in duration-200">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{templateMsg}</span>
+          <span className="font-medium">{templateMsg}</span>
+        </div>
+      )}
+
+      {/* Applied Template Summary Card */}
+      {activeTemplate && (
+        <div className="bg-white border border-[#c9a96e]/50 rounded-lg p-3.5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-md bg-[#0e3b2f]/10 text-[#0e3b2f] shrink-0 mt-0.5">
+              <Layers className="w-4 h-4 text-[#0e3b2f]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-serif font-bold text-sm text-[#0e3b2f]">
+                  {isEs && activeTemplate.nameEs ? activeTemplate.nameEs : activeTemplate.name}
+                </span>
+                <span className="font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-[#f2ece0] text-[#0e3b2f] border border-[#d8caa8]">
+                  {formData.island || activeTemplate.island}
+                </span>
+                <span
+                  className={`font-mono text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                    formData.pricingStatus === 'Rates to Be Confirmed'
+                      ? 'bg-amber-50 text-amber-900 border-amber-300'
+                      : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                  }`}
+                >
+                  {formData.pricingStatus === 'Rates to Be Confirmed'
+                    ? tr('Rates to Be Confirmed', 'Tarifas por confirmar')
+                    : tr('Official Approved Rates', 'Tarifas oficiales aprobadas')}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3.5 text-[11px] text-[#52606d] mt-2 flex-wrap">
+                <span className="flex items-center gap-1">
+                  <DollarSign className="w-3.5 h-3.5 text-[#c9a96e]" />
+                  <strong className="text-[#1c242c]">
+                    {formData.pricingStatus === 'Rates to Be Confirmed'
+                      ? tr('Rates on Request ($0 / $0 base)', 'Tarifas a consultar ($0 / $0 base)')
+                      : formData.pricingMode === 'single_total'
+                      ? `$${formData.totalPackagePrice.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${tr('total package', 'paquete total')}`
+                      : `$${formData.firstNightRate} ${tr('1st night', '1ra noche')} / $${formData.additionalNightRate} ${tr('add’l nights', 'noches adic.')}`}
+                  </strong>
+                </span>
+
+                <span className="border-l border-[#e5dec9] pl-3 flex items-center gap-1">
+                  <span className="text-[#687785]">{tr('Bathroom:', 'Baño:')}</span>
+                  <strong className="text-[#1c242c]">
+                    {formData.bathroomType === 'Private'
+                      ? (isEs ? 'Privado' : 'Private')
+                      : (isEs ? 'Compartido' : 'Shared')}
+                  </strong>
+                </span>
+
+                <span className="border-l border-[#e5dec9] pl-3 flex items-center gap-1">
+                  <span className="text-[#687785]">{tr('Transfers:', 'Traslados:')}</span>
+                  <strong className="text-[#1c242c]">
+                    {formData.groundTransportation === 'Private' ? 'Private 4×4' : 'Shared 4×4'} + {formData.boatTransfers === 'Private' ? 'Private Boat' : 'Shared Boat'}
+                  </strong>
+                </span>
+
+                <span className="border-l border-[#e5dec9] pl-3 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-[#c9a96e]" />
+                  <span className="text-[#687785]">{tr('Departure:', 'Salida:')}</span>
+                  <strong className="text-[#1c242c]">
+                    {formData.departureOption === 'afternoon_with_lunch'
+                      ? tr('Afternoon (+Lunch)', 'Tarde (+Almuerzo)')
+                      : tr('Standard Morning', 'Matutina estándar')}
+                  </strong>
+                </span>
+
+                <span className="border-l border-[#e5dec9] pl-3 flex items-center gap-1 text-[#687785]">
+                  <span>{formData.inclusions?.length || 0} {tr('inclusions', 'inclusiones')}</span>
+                  <span>•</span>
+                  <span>{formData.exclusions?.length || 0} {tr('exclusions', 'exclusiones')}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{tr('Template Active', 'Plantilla activa')}</span>
+            </span>
+          </div>
         </div>
       )}
 
@@ -1812,6 +2212,94 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                 </span>
               </div>
             )}
+
+            {/* Departure Day Timing & Afternoon Checkout Selector */}
+            <div className="bg-[#FAF8F5] p-4 rounded-lg border border-[#C8AC75]/50 shadow-2xs space-y-3 mt-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#C8AC75]/30 pb-2">
+                <div>
+                  <h4 className="text-xs font-serif font-bold text-[#0E3B2F] uppercase tracking-wider flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-[#C8AC75]" />
+                    <span>{tr('Departure Day Schedule & Timing', 'Horario y logística del día de salida')}</span>
+                  </h4>
+                  <p className="text-[11px] text-[#52606d]">
+                    {tr('Select standard morning departure or optional afternoon departure with lunch.', 'Seleccione salida matutina estándar o salida opcional por la tarde con almuerzo.')}
+                  </p>
+                </div>
+                <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200 self-start sm:self-auto">
+                  {formData.departureOption === 'afternoon_with_lunch'
+                    ? tr('Afternoon Departure (+Lunch)', 'Salida por la tarde (+Almuerzo)')
+                    : tr('Standard Morning Departure', 'Salida matutina estándar')}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                {/* Option A: Standard Morning */}
+                <label
+                  onClick={() => handleSetDepartureOption('standard_morning')}
+                  className={`p-3.5 rounded-lg border cursor-pointer transition-all flex items-start gap-3 ${
+                    (formData.departureOption || 'standard_morning') === 'standard_morning'
+                      ? 'bg-white border-[#0E3B2F] ring-2 ring-[#0E3B2F]/20 shadow-xs'
+                      : 'bg-white/60 border-[#e0d6c1] hover:bg-white hover:border-[#0E3B2F]/40'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="departureOptionTab1"
+                    checked={(formData.departureOption || 'standard_morning') === 'standard_morning'}
+                    onChange={() => handleSetDepartureOption('standard_morning')}
+                    className="mt-0.5 text-[#0E3B2F] focus:ring-[#0E3B2F]"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <strong className="text-[#0E3B2F] font-semibold text-xs">
+                        {tr('Option A: Standard Morning Departure', 'Opción A: Salida matutina estándar')}
+                      </strong>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
+                        {tr('Included ($0)', 'Incluido ($0)')}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#52606d] leading-relaxed">
+                      {tr('Departure after breakfast. Returns to Panama City approx. 12:00–1:00 PM. No lunch included on departure day.', 'Salida después del desayuno. Retorno a Ciudad de Panamá aprox. 12:00–1:00 PM. Sin almuerzo el día de salida.')}
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option B: Afternoon Departure with Lunch */}
+                <label
+                  onClick={() => handleSetDepartureOption('afternoon_with_lunch')}
+                  className={`p-3.5 rounded-lg border cursor-pointer transition-all flex items-start gap-3 ${
+                    formData.departureOption === 'afternoon_with_lunch'
+                      ? 'bg-white border-[#0E3B2F] ring-2 ring-[#0E3B2F]/20 shadow-xs'
+                      : 'bg-white/60 border-[#e0d6c1] hover:bg-white hover:border-[#0E3B2F]/40'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="departureOptionTab1"
+                    checked={formData.departureOption === 'afternoon_with_lunch'}
+                    onChange={() => handleSetDepartureOption('afternoon_with_lunch')}
+                    className="mt-0.5 text-[#0E3B2F] focus:ring-[#0E3B2F]"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <strong className="text-[#0E3B2F] font-semibold text-xs">
+                        {tr('Option B: Afternoon Departure with Lunch', 'Opción B: Salida por la tarde con almuerzo')}
+                      </strong>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 font-semibold border border-amber-200">
+                        {formData.island.toLowerCase().includes('guasirdub')
+                          ? tr('Included ($0)', 'Incluido ($0)')
+                          : formData.island.toLowerCase().includes('franklin')
+                          ? '+$25 / person'
+                          : '+$35 / person'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#52606d] leading-relaxed">
+                      {tr('Cabin checkout at 08:00 AM (luggage stored securely). Island departure approx. 03:00 PM with farewell lunch included. Arrives in Panama City approx. 7:30–8:00 PM.', 'Entrega de cabaña a las 08:00 AM (equipaje guardado de forma segura). Salida de la isla aprox. 03:00 PM con almuerzo de despedida incluido. Llega a Ciudad de Panamá aprox. 7:30–8:00 PM.')}
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
           </div>
 
           {/* Internal Notes Card */}
@@ -1860,11 +2348,54 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
             </div>
           </div>
 
+          {/* Rate check in overview — one click clean button */}
+          {(() => {
+            const currentOverview = (formData.language === 'es' ? formData.packageSnapshotEs?.overview : formData.packageSnapshot?.overview) || '';
+            const hasRepeatedRates = /\$\d+|\b259\b|\b119\b/.test(currentOverview);
+            if (!hasRepeatedRates) return null;
+            return (
+              <div className="bg-amber-50 border border-amber-300 rounded p-3 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-semibold text-amber-950">
+                      {tr('Notice: Experience overview contains repeated rate figures', 'Aviso: La descripción de la experiencia contiene tarifas repetidas')}
+                    </strong>
+                    <span className="text-[11px] text-amber-800">
+                      {tr(
+                        'Official quotation guidelines require pricing to appear solely in the quotation breakdown table below, not inside narrative text.',
+                        'Las directrices oficiales requieren que los precios aparezcan únicamente en la tabla de desglose inferior, no en el texto narrativo.'
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefreshNarrativeFromTemplate}
+                  className="px-3 py-1.5 bg-amber-200 hover:bg-amber-300 text-amber-950 font-semibold rounded text-xs shrink-0 self-start sm:self-auto transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-800" />
+                  <span>{tr('Clean Narrative from Template', 'Limpiar narrativa desde plantilla')}</span>
+                </button>
+              </div>
+            );
+          })()}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
             <div>
               <label className="block text-[#0e3b2f] font-semibold mb-1 flex items-center justify-between">
                 <span>{tr('Experience Overview', 'Descripción general de la experiencia')}</span>
-                <span className="text-[10px] text-[#8a98a5]">{formData.language === 'es' ? 'ES' : 'EN'}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRefreshNarrativeFromTemplate}
+                    className="text-[10px] text-[#0e3b2f] hover:underline font-mono bg-[#f0eae0] px-1.5 py-0.5 rounded cursor-pointer"
+                    title={tr('Reset narrative text to official clean template without rates', 'Restablecer narrativa a la plantilla oficial limpia sin tarifas')}
+                  >
+                    ↺ {tr('Refresh Narrative', 'Actualizar narrativa')}
+                  </button>
+                  <span className="text-[10px] text-[#8a98a5]">{formData.language === 'es' ? 'ES' : 'EN'}</span>
+                </div>
               </label>
               <textarea
                 rows={3}
@@ -2178,8 +2709,112 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#0e3b2f] hover:bg-[#155243] text-white rounded transition-colors self-start sm:self-auto cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 text-[#c9a96e]" />
-                    <span>{tr('Add Optional Extra', 'Agregar servicio opcional')}</span>
+                    <span>{tr('Add Custom Extra', 'Agregar extra personalizado')}</span>
                   </button>
+                </div>
+
+                {/* Departure Day Timing Selector within Tab 3 Pricing */}
+                <div className="bg-[#FAF8F5] p-3.5 rounded-lg border border-[#C8AC75]/50 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-[#C8AC75]/30 pb-1.5">
+                    <span className="text-xs font-serif font-bold text-[#0E3B2F] uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-[#C8AC75]" />
+                      <span>{tr('Departure Schedule Timing & Lunch Option', 'Horario de salida y opción de almuerzo')}</span>
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200 self-start sm:self-auto">
+                      {formData.departureOption === 'afternoon_with_lunch'
+                        ? tr('Afternoon Departure (+Lunch Active)', 'Salida por la tarde (+Almuerzo activo)')
+                        : tr('Standard Morning (No Surcharge)', 'Salida matutina estándar (Sin recargo)')}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleSetDepartureOption('standard_morning')}
+                      className={`p-2.5 rounded border text-left flex items-center justify-between transition-all cursor-pointer ${
+                        (formData.departureOption || 'standard_morning') === 'standard_morning'
+                          ? 'bg-white border-[#0E3B2F] ring-1 ring-[#0E3B2F] shadow-2xs'
+                          : 'bg-white/60 border-[#e0d6c1] hover:bg-white'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <strong className="block text-[#0E3B2F] text-xs">
+                          {tr('Standard Morning Departure', 'Salida matutina estándar')}
+                        </strong>
+                        <span className="block text-[11px] text-[#687785]">
+                          {tr('Departs after breakfast (city approx. 12:00–1:00 PM)', 'Sale tras desayuno (ciudad aprox. 12:00–1:00 PM)')}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200 shrink-0 ml-2">
+                        $0 / included
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSetDepartureOption('afternoon_with_lunch')}
+                      className={`p-2.5 rounded border text-left flex items-center justify-between transition-all cursor-pointer ${
+                        formData.departureOption === 'afternoon_with_lunch'
+                          ? 'bg-white border-[#0E3B2F] ring-1 ring-[#0E3B2F] shadow-2xs'
+                          : 'bg-white/60 border-[#e0d6c1] hover:bg-white'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <strong className="block text-[#0E3B2F] text-xs">
+                          {tr('Afternoon Departure w/ Lunch', 'Salida por la tarde con almuerzo')}
+                        </strong>
+                        <span className="block text-[11px] text-[#687785]">
+                          {tr('Departs 3:00 PM w/ lunch (checkout 8:00 AM)', 'Sale 3:00 PM c/ almuerzo (cabaña 8:00 AM)')}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 font-semibold border border-amber-200 shrink-0 ml-2">
+                        {formData.island.toLowerCase().includes('guasirdub')
+                          ? '$0'
+                          : formData.island.toLowerCase().includes('franklin')
+                          ? '+$25/pax'
+                          : '+$35/pax'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Add Presets Bar */}
+                <div className="bg-[#FAF8F5] p-3 rounded-lg border border-[#e5dec9] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-mono font-semibold uppercase text-[#0E3B2F] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#C8AC75]" />
+                      <span>{tr('Quick-Add Island Extra Presets', 'Preajustes rápidos de extras de isla')}</span>
+                    </span>
+                    <span className="text-[10px] text-[#687785]">
+                      {tr(`Verified for ${formData.island || 'Current Island'}`, `Verificado para ${formData.island || 'Isla actual'}`)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {getOptionalExtraPresetsForIsland(formData.island).map((preset) => {
+                      const isAlreadyAdded = formData.lineItems.some(
+                        (it) => it.description.toLowerCase().trim() === preset.description.toLowerCase().trim()
+                      );
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handleApplyOptionalPreset(preset)}
+                          disabled={isAlreadyAdded && !preset.id.startsWith('afternoon')}
+                          className={`px-2.5 py-1.5 rounded text-xs font-medium border flex items-center gap-1.5 transition-all cursor-pointer ${
+                            isAlreadyAdded
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold'
+                              : 'bg-white text-[#0E3B2F] border-[#cfc7b2] hover:border-[#0E3B2F] hover:bg-[#f7f4ed]'
+                          }`}
+                          title={isAlreadyAdded ? tr('Active in quote', 'Activo en cotización') : tr('Click to add', 'Clic para agregar')}
+                        >
+                          <span className={isAlreadyAdded ? 'text-emerald-600 font-bold' : 'text-[#C8AC75] font-bold'}>
+                            {isAlreadyAdded ? '✓' : '+'}
+                          </span>
+                          <span>{isEs ? preset.labelEs : preset.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {formData.lineItems.length === 0 ? (
@@ -2205,13 +2840,24 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                           <tr key={item.id || index} className="hover:bg-[#faf8f5]">
                             <td className="py-3 px-3 text-center text-[#687785] font-mono">{index + 1}</td>
                             <td className="py-3 px-3">
-                              <input
-                                type="text"
-                                value={item.description}
-                                onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                                placeholder={tr('e.g. Afternoon departure w/ lunch, Lobster upgrade...', 'p. ej. Salida por la tarde c/ almuerzo, mejora de langosta...')}
-                                className="w-full px-2.5 py-1.5 border border-[#cfc7b2] rounded text-xs bg-white"
-                              />
+                              <div className="space-y-1">
+                                <input
+                                  type="text"
+                                  value={item.description}
+                                  onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                                  placeholder={tr('Description (English)', 'Descripción (Inglés)')}
+                                  className="w-full px-2.5 py-1.5 border border-[#cfc7b2] rounded text-xs bg-white"
+                                />
+                                {isEs && (
+                                  <input
+                                    type="text"
+                                    value={item.descriptionEs || ''}
+                                    onChange={(e) => handleLineItemChange(index, 'descriptionEs', e.target.value)}
+                                    placeholder="Descripción en español (opcional)"
+                                    className="w-full px-2.5 py-1 border border-[#e5dec9] rounded text-[11px] bg-[#faf8f5] text-[#0e3b2f]"
+                                  />
+                                )}
+                              </div>
                               <span className="block text-[10px] text-[#687785] mt-1 font-mono">
                                 {getPricingBasisExplanation(item)}
                               </span>
@@ -3033,6 +3679,78 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                   <GitBranch className="w-3.5 h-3.5 text-[#c9a96e]" />
                 )}
                 <span>{isSubmittingRevision ? tr('Creating…', 'Creando…') : tr(`Confirm Create Revision ${nextRevRef}`, `Confirmar creación de revisión ${nextRevRef}`)}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Switch Package Template Confirmation Modal */}
+      {pendingTemplateSwitch && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-[#d8caa8] max-w-md w-full p-6 space-y-4 text-left animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-full bg-[#f2ece0] text-[#0e3b2f] shrink-0 mt-0.5">
+                <Sparkles className="w-5 h-5 text-[#c9a96e]" />
+              </div>
+              <div>
+                <h3 className="font-serif text-base font-semibold text-[#0e3b2f]">
+                  {tr('Switch Package Template', 'Cambiar plantilla de paquete')}
+                </h3>
+                <p className="text-xs text-[#52606d] mt-1">
+                  {tr(
+                    `You selected "${pendingTemplateSwitch.templateName}". This quotation currently has ${formData.lineItems?.length || 0} active line item(s) / optional extra(s).`,
+                    `Ha seleccionado "${pendingTemplateSwitch.templateName}". Esta cotización tiene actualmente ${formData.lineItems?.length || 0} concepto(s) activo(s) / extra(s) opcional(es).`
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#faf8f5] p-3.5 rounded-lg border border-[#e5dec9] text-xs space-y-2 text-[#1c242c]">
+              <div className="font-semibold text-[#0e3b2f]">
+                {tr('Choose how to apply this template:', 'Elija cómo aplicar esta plantilla:')}
+              </div>
+              <ul className="space-y-1.5 text-[#52606d] text-[11px] list-disc pl-4">
+                <li>
+                  <strong className="text-[#1c242c]">{tr('Reset Line Items:', 'Restablecer conceptos:')}</strong>{' '}
+                  {tr('Clears existing extras to start fresh with clean template defaults.', 'Elimina los extras existentes para comenzar de cero con los valores de la plantilla.')}
+                </li>
+                <li>
+                  <strong className="text-[#1c242c]">{tr('Keep Line Items:', 'Conservar conceptos:')}</strong>{' '}
+                  {tr('Updates island, rates, cabin, and package inclusions while preserving your custom extras.', 'Actualiza isla, tarifas, cabaña e inclusiones conservando sus extras personalizados.')}
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPendingTemplateSwitch(null)}
+                className="w-full sm:w-auto px-3.5 py-2 text-xs font-medium text-[#52606d] hover:text-[#1c242c] hover:bg-[#f2ece0] rounded transition-colors cursor-pointer"
+              >
+                {tr('Cancel', 'Cancelar')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const tId = pendingTemplateSwitch.templateId;
+                  setPendingTemplateSwitch(null);
+                  executeApplyPackageTemplate(tId, false);
+                }}
+                className="w-full sm:w-auto px-3.5 py-2 text-xs font-medium bg-[#f0eae0] hover:bg-[#e6dece] text-[#0e3b2f] border border-[#cfc7b2] rounded transition-colors cursor-pointer"
+              >
+                {tr('Keep Line Items & Apply', 'Conservar conceptos y aplicar')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const tId = pendingTemplateSwitch.templateId;
+                  setPendingTemplateSwitch(null);
+                  executeApplyPackageTemplate(tId, true);
+                }}
+                className="w-full sm:w-auto px-3.5 py-2 text-xs font-semibold bg-[#0e3b2f] hover:bg-[#155243] text-white rounded transition-colors shadow-xs cursor-pointer"
+              >
+                {tr('Reset Line Items & Apply', 'Restablecer y aplicar')}
               </button>
             </div>
           </div>

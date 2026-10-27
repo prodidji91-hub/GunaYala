@@ -251,7 +251,7 @@ export default function App() {
         {/* 6. The Guna Experience: Authentic & Respectful Indigenous Cultural Storytelling */}
         <GunaStory currentLang={currentLang} />
 
-        {/* 8. What Travelers Say: Real Google Social Proof (5.0 Rating · 54 Reviews) */}
+        {/* 7. What Travelers Say: Real Google Social Proof (5.0 Rating · 54 Reviews) */}
         <Reviews currentLang={currentLang} />
 
         {/* 9. Essential Island FAQ */}

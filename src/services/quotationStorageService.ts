@@ -7,6 +7,7 @@ import {
   PricingBasis,
   TermsStatus,
   StructuredPackageSnapshot,
+  DepartureOption,
 } from '../types/quotation';
 import { PACKAGE_TEMPLATES } from '../data/packageTemplates';
 import { SAMPLE_DESTINATION_PHOTOS } from '../data/samplePhotos';
@@ -372,6 +373,13 @@ export function normalizeQuotation(q: any): Quotation {
   // Check for outdated legacy text without overwriting user data
   const outdatedInfo = getOutdatedFieldsInfo(q);
 
+  const departureOption: DepartureOption = q.departureOption || (
+    lineItems.some((i: any) => 
+      (i.description?.toLowerCase().includes('afternoon') || i.descriptionEs?.toLowerCase().includes('tarde')) && 
+      (i.unitPrice > 0 || i.total > 0)
+    ) ? 'afternoon_with_lunch' : 'standard_morning'
+  );
+
   return {
     ...q,
     language: q.language === 'es' ? 'es' : 'en',
@@ -382,6 +390,7 @@ export function normalizeQuotation(q: any): Quotation {
     revisionNote,
     nights,
     travelers,
+    departureOption,
     cabinsCount: q.cabinsCount || 1,
     bathroomType: q.bathroomType || 'Private',
     bathroomTypeEs: q.bathroomTypeEs || (q.bathroomType === 'Private' ? 'Privado' : 'Compartido'),
@@ -1107,3 +1116,126 @@ class QuotationStorageService {
 }
 
 export const quotationStorageService = new QuotationStorageService();
+
+/**
+ * Dynamic accommodation summary formatting helper:
+ * E.g., "2 travelers / 1 Private Beach Cabin / Private bathroom"
+ * In Spanish: "2 viajeros / 1 Cabaña Privada de Playa / Baño privado"
+ */
+export function formatAccommodationSummary(
+  q: {
+    travelers?: number;
+    cabinsCount?: number;
+    cabinCategory?: string;
+    cabinCategoryEs?: string;
+    bathroomType?: string;
+    bathroomTypeEs?: string;
+  },
+  lang: 'en' | 'es' = 'en'
+): string {
+  const travelers = Math.max(1, q.travelers || 1);
+  const cabins = Math.max(1, q.cabinsCount || 1);
+  const catEn = q.cabinCategory || 'Private Beach Cabin';
+  const catEs = q.cabinCategoryEs || catEn;
+  const bathEn = q.bathroomType || 'Private';
+  const bathEs = q.bathroomTypeEs || (bathEn === 'Private' ? 'privado' : 'compartido');
+
+  if (lang === 'es') {
+    const travText = `${travelers} ${travelers === 1 ? 'viajero' : 'viajeros'}`;
+    const cabText = `${cabins} ${catEs}`;
+    const bathText = `Baño ${bathEs.toLowerCase()}`;
+    return `${travText} / ${cabText} / ${bathText}`;
+  }
+
+  const travText = `${travelers} ${travelers === 1 ? 'traveler' : 'travelers'}`;
+  const cabText = `${cabins} ${catEn}`;
+  const bathText = `${bathEn} bathroom`;
+  return `${travText} / ${cabText} / ${bathText}`;
+}
+
+export interface OptionalExtraPreset {
+  id: string;
+  label: string;
+  labelEs: string;
+  description: string;
+  descriptionEs: string;
+  unitPrice: number;
+  pricingBasis: PricingBasis;
+  badge?: string;
+}
+
+export function getOptionalExtraPresetsForIsland(islandName?: string): OptionalExtraPreset[] {
+  const island = (islandName || '').toLowerCase();
+
+  const presets: OptionalExtraPreset[] = [];
+
+  // 1. Afternoon Departure (if applicable)
+  if (island.includes('guasirdub')) {
+    // Guasirdub already has afternoon departure & lunch included in base package
+  } else if (island.includes('franklin')) {
+    presets.push({
+      id: 'afternoon-departure-franklin',
+      label: 'Afternoon Departure w/ Lunch ($25/pax)',
+      labelEs: 'Salida por la tarde c/ almuerzo ($25/pax)',
+      description: 'Optional Afternoon Island Departure with Lunch (approx. 03:00 PM)',
+      descriptionEs: 'Salida opcional por la tarde con almuerzo incluido (aprox. 03:00 PM)',
+      unitPrice: 25,
+      pricingBasis: 'per_person_total',
+      badge: '$25/pax',
+    });
+  } else {
+    // Chichime, Perro Chico, Yansailadub, default
+    presets.push({
+      id: 'afternoon-departure-standard',
+      label: 'Afternoon Departure w/ Lunch ($35/pax)',
+      labelEs: 'Salida por la tarde c/ almuerzo ($35/pax)',
+      description: 'Optional Afternoon Island Departure with Lunch (approx. 03:00 PM)',
+      descriptionEs: 'Salida opcional por la tarde con almuerzo incluido (aprox. 03:00 PM)',
+      unitPrice: 35,
+      pricingBasis: 'per_person_total',
+      badge: '$35/pax',
+    });
+  }
+
+  // 2. Fresh Lobster Upgrade
+  presets.push({
+    id: 'lobster-upgrade',
+    label: 'Seasonal Lobster Lunch Upgrade ($20/pax)',
+    labelEs: 'Mejora con almuerzo de langosta ($20/pax)',
+    description: 'Seasonal Fresh Lobster Lunch Upgrade (subject to availability)',
+    descriptionEs: 'Mejora opcional con almuerzo de langosta fresca de temporada (sujeto a disponibilidad)',
+    unitPrice: 20,
+    pricingBasis: 'per_person_total',
+    badge: '+$20/pax',
+  });
+
+  // 3. Suburban Hotel Pickup / Drop-off
+  presets.push({
+    id: 'suburban-pickup',
+    label: 'Suburban Pickup/Drop-off (Playa Bonita, Gamboa) ($20/pax)',
+    labelEs: 'Recogida/retorno suburbano (Playa Bonita, Gamboa) ($20/pax)',
+    description: 'Pickup / Drop-off Outside Central Panama City (Westin Playa Bonita, Dreams, Gamboa)',
+    descriptionEs: 'Recogida / retorno fuera del centro de Ciudad de Panamá (Westin Playa Bonita, Dreams, Gamboa)',
+    unitPrice: 20,
+    pricingBasis: 'per_person_total',
+    badge: '+$20/pax',
+  });
+
+  // 4. Cultural tour (strictly Franklin Island)
+  if (island.includes('franklin')) {
+    presets.push({
+      id: 'cultural-visit',
+      label: 'Guna Cultural Community Visit ($35/pax)',
+      labelEs: 'Visita cultural a comunidad guna ($35/pax)',
+      description: 'Guided Guna Cultural Community & Mola Workshop Excursion',
+      descriptionEs: 'Excursión guiada a comunidad guna y taller tradicional de molas',
+      unitPrice: 35,
+      pricingBasis: 'per_person_total',
+      badge: '+$35/pax',
+    });
+  }
+
+  // Note: Private 4x4 Transportation is Price on Request (no unverified flat-rate preset)
+
+  return presets;
+}

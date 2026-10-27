@@ -22,12 +22,15 @@ import {
   RotateCcw,
   CheckCircle2,
   GitBranch,
+  Clock,
+  DollarSign,
 } from 'lucide-react';
 import {
   quotationStorageService,
   getOutdatedFieldsInfo,
   extractRootReference,
   generateNextRevisionReference,
+  formatAccommodationSummary,
 } from '../../services/quotationStorageService';
 import { getPhotoBadgeInfo } from '../../data/samplePhotos';
 
@@ -307,17 +310,129 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
     ? quotation.inclusionsEs
     : quotation.inclusions;
 
-  const exclusions = lang === 'es' && quotation.exclusionsEs && quotation.exclusionsEs.length > 0
+  const rawExclusions = lang === 'es' && quotation.exclusionsEs && quotation.exclusionsEs.length > 0
     ? quotation.exclusionsEs
     : quotation.exclusions;
+
+  const isAfternoonSelected =
+    quotation.departureOption === 'afternoon_with_lunch' ||
+    Boolean(quotation.lineItems && quotation.lineItems.some((it) =>
+      it.description?.toLowerCase().includes('afternoon') ||
+      it.descriptionEs?.toLowerCase().includes('tarde')
+    ));
+
+  // Exclusions: strictly genuine excluded costs and services (never optional upgrade ads)
+  const isUpgradeItem = (text: string) => {
+    const lower = text.toLowerCase();
+    return (
+      lower.startsWith('optional') ||
+      lower.startsWith('opción') ||
+      lower.startsWith('mejora') ||
+      lower.includes('afternoon departure') ||
+      lower.includes('salida por la tarde') ||
+      lower.includes('lobster lunch') ||
+      lower.includes('almuerzo de langosta') ||
+      lower.includes('pickup/drop-off outside') ||
+      lower.includes('recogida o retorno fuera') ||
+      lower.includes('private 4×4') ||
+      lower.includes('transporte privado') ||
+      lower.includes('cultural visit') ||
+      lower.includes('visita cultural')
+    );
+  };
+
+  const filteredExclusions = rawExclusions.filter((exc) => !isUpgradeItem(exc));
+
+  // Available upgrades: optional services that may be requested, without implying purchase
+  const islandLower = (quotation.island || '').toLowerCase();
+  const availableUpgrades: { en: string; es: string }[] = [];
+
+  if (!islandLower.includes('guasirdub') && !isAfternoonSelected) {
+    if (islandLower.includes('franklin')) {
+      availableUpgrades.push({
+        en: 'Optional afternoon island departure until 3:00 PM w/ lunch: USD $25/pax (cabin checkout 8:00 AM)',
+        es: 'Salida opcional por la tarde hasta las 3:00 PM con almuerzo: USD $25/pax (entrega de cabaña 8:00 AM)',
+      });
+    } else {
+      availableUpgrades.push({
+        en: 'Optional afternoon island departure until 3:00 PM w/ lunch: USD $35/pax (cabin checkout 8:00 AM)',
+        es: 'Salida opcional por la tarde hasta las 3:00 PM con almuerzo: USD $35/pax (entrega de cabaña 8:00 AM)',
+      });
+    }
+  }
+
+  const hasLobster = quotation.lineItems && quotation.lineItems.some(
+    (it) => it.description?.toLowerCase().includes('lobster') || it.descriptionEs?.toLowerCase().includes('langosta')
+  );
+  if (!hasLobster) {
+    availableUpgrades.push({
+      en: 'Seasonal fresh lobster lunch upgrade: From USD $20/pax (subject to local fisherman catch)',
+      es: 'Mejora con almuerzo de langosta fresca de temporada: Desde USD $20/pax (sujeto a pesca del día)',
+    });
+  }
+
+  const hasSuburban = quotation.lineItems && quotation.lineItems.some(
+    (it) => it.description?.toLowerCase().includes('suburban') || it.description?.toLowerCase().includes('playa bonita') || it.descriptionEs?.toLowerCase().includes('suburbano') || it.descriptionEs?.toLowerCase().includes('playa bonita')
+  );
+  if (!hasSuburban) {
+    availableUpgrades.push({
+      en: 'Suburban hotel pickup/drop-off (Playa Bonita, Dreams, Gamboa): USD $20/pax',
+      es: 'Recogida/retorno fuera del centro (Playa Bonita, Dreams, Gamboa): USD $20/pax',
+    });
+  }
+
+  if (islandLower.includes('franklin')) {
+    const hasCultural = quotation.lineItems && quotation.lineItems.some(
+      (it) => it.description?.toLowerCase().includes('cultural') || it.descriptionEs?.toLowerCase().includes('cultural')
+    );
+    if (!hasCultural) {
+      availableUpgrades.push({
+        en: 'Guided Guna cultural community visit & Mola workshop: USD $35/pax',
+        es: 'Visita cultural guiada a comunidad guna y taller tradicional de molas: USD $35/pax',
+      });
+    }
+  }
+
+  availableUpgrades.push({
+    en: 'Private 4×4 SUV transportation upgrade: Price on Request',
+    es: 'Transporte terrestre privado en SUV 4×4: Precio a consultar',
+  });
+
+  // Dynamic Departure Schedule according to selected option and island
+  const getDepartureScheduleText = (): string => {
+    if (islandLower.includes('guasirdub')) {
+      if (lang === 'es') {
+        return '5:00 AM – 5:45 AM recogida en hotel de Ciudad de Panamá hacia Cartí. Salida de Guasirdub: el horario extendido de salida por la tarde con almuerzo de despedida está incluido (entrega de cabaña a las 8:00 AM con equipaje custodiado; salida en lancha ~2:00–3:00 PM). Llegada estimada a Ciudad de Panamá: 7:00–7:30 PM.';
+      }
+      return '5:00 AM – 5:45 AM hotel pickup in Panama City to Cartí Port. Guasirdub departure: extended afternoon departure with farewell lunch is included (cabin checkout by 8:00 AM with luggage securely stored; boat departure ~2:00–3:00 PM). Estimated arrival in Panama City: 7:00–7:30 PM.';
+    }
+
+    if (isAfternoonSelected) {
+      const costText = islandLower.includes('franklin') ? '$25/persona' : '$35/persona';
+      const costTextEn = islandLower.includes('franklin') ? '$25/person' : '$35/person';
+      if (lang === 'es') {
+        return `5:00 AM – 5:45 AM recogida en hotel de Ciudad de Panamá. Salida opcional por la tarde (${costText}, almuerzo incluido): entrega de cabaña a las 8:00 AM con equipaje custodiado de forma segura; salida de la isla en lancha aprox. 3:00 PM. Llegada estimada a Ciudad de Panamá: 7:30–8:00 PM.`;
+      }
+      return `5:00 AM – 5:45 AM hotel pickup in Panama City. Optional afternoon departure (${costTextEn}, lunch included): cabin checkout by 8:00 AM with luggage securely stored; boat departs island ~3:00 PM. Estimated arrival in Panama City: 7:30–8:00 PM.`;
+    }
+
+    // Standard morning departure
+    if (lang === 'es') {
+      return '5:00 AM – 5:45 AM recogida en hotel de Ciudad de Panamá. Retorno matutino estándar: salida de la isla en lancha tras el desayuno (~8:00–8:30 AM). Desayuno del día de salida incluido. Llegada estimada a Ciudad de Panamá: 12:00–1:00 PM.';
+    }
+    return '5:00 AM – 5:45 AM hotel pickup in Panama City. Standard morning departure: departs the island after breakfast (~8:00–8:30 AM boat departure). Departure-day breakfast included. Estimated arrival in Panama City: 12:00–1:00 PM.';
+  };
 
   const experienceName = lang === 'es' ? (quotation.experienceEs || quotation.experience || 'Experiencia Nocturna en Isla') : (quotation.experience || 'Island Overnight Experience');
   const cabinCategoryName = lang === 'es' ? (quotation.cabinCategoryEs || quotation.cabinCategory || 'Cabaña Estándar') : (quotation.cabinCategory || 'Standard Cabaña');
 
+  // Photography: ONLY verified photographs authenticated by Petra for this destination
+  const verifiedPhotos = (quotation.selectedPhotos || []).filter((p) => p.verificationStatus === 'Confirmed by Petra');
+
   const conditionsTitle =
     quotation.termsStatus === 'Approved by Petra'
       ? l.bookingConditionsTerms
-      : l.draftConditions;
+      : (lang === 'es' ? 'Condiciones de Reserva — Borrador Pendiente de Aprobación por Petra' : 'Booking Conditions & Policies — Informational Draft');
 
   const isRatesPending =
     quotation.pricingStatus === 'Rates to Be Confirmed' ||
@@ -532,7 +647,9 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
           {/* Quotation Metadata Box */}
           <div className="bg-white p-5 rounded-lg border border-[#e5dec9] shadow-sm space-y-2 text-right self-start sm:w-64 font-mono text-xs shrink-0">
             <div className="text-xs uppercase font-semibold text-[#0e3b2f] tracking-wider pb-1 border-b border-[#f0eae0]">
-              Official Quotation
+              {quotation.termsStatus === 'Approved by Petra'
+                ? (lang === 'es' ? 'Cotización Oficial' : 'Official Quotation')
+                : (lang === 'es' ? 'Cotización (Borrador)' : 'Official Quotation (Draft)')}
             </div>
             <div className="pt-1">
               <span className="text-[#687785] text-[11px] block">Reference Code:</span>
@@ -551,6 +668,25 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             </div>
           </div>
         </div>
+
+        {/* Draft Safety Notice Banner when terms are not yet approved by Petra */}
+        {quotation.termsStatus !== 'Approved by Petra' && (
+          <div className="bg-amber-50 border-y border-amber-300 px-6 py-3 text-xs text-amber-900 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-semibold block text-amber-950 uppercase tracking-wide">
+                {lang === 'es'
+                  ? 'BORRADOR DE PROPUESTA — TÉRMINOS Y CONDICIONES PENDIENTES DE VALIDACIÓN'
+                  : 'PROPOSAL DRAFT — TERMS & CONDITIONS PENDING OPERATOR APPROVAL'}
+              </strong>
+              <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                {lang === 'es'
+                  ? 'Esta propuesta presenta el itinerario y presupuesto estimado. Los términos contractuales definitivos, programa de pagos y políticas de cancelación están pendientes de validación formal por Petra antes de la reserva.'
+                  : 'This document presents an estimated itinerary and quotation. Contractual booking terms, payment schedule, and cancellation policies are subject to formal confirmation by Petra prior to booking confirmation.'}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Customer & Trip Overview Grid (YOUR BOOKING DETAILS) */}
         <div className="p-8 sm:p-10 space-y-8">
@@ -578,10 +714,10 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                   {quotation.island}
                 </span>
                 <span className="block text-[11px] text-[#52606d] mt-1">
-                  Experience: {quotation.experience || 'Island Overnight Experience'}
+                  {lang === 'es' ? 'Experiencia:' : 'Experience:'} {experienceName}
                 </span>
                 <span className="block text-[11px] text-[#52606d]">
-                  Number of Travellers: {quotation.travelers}
+                  {lang === 'es' ? 'Alojamiento:' : 'Accommodation:'} {formatAccommodationSummary(quotation, lang)}
                 </span>
               </div>
 
@@ -701,8 +837,8 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                           <td className="py-3.5 px-4 font-medium text-[#1c242c]">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-emerald-700 font-bold">+</span>
-                              <span>{item.description}</span>
-                              <span className="text-[10px] text-emerald-800 font-mono bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">Optional Extra</span>
+                              <span>{lang === 'es' && item.descriptionEs ? item.descriptionEs : item.description}</span>
+                              <span className="text-[10px] text-emerald-800 font-mono bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">{lang === 'es' ? 'Servicio Opcional' : 'Optional Extra'}</span>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-center text-[#52606d] font-mono">
@@ -741,8 +877,8 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                           <td className="py-3.5 px-4 font-medium text-[#1c242c]">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-emerald-700 font-bold">+</span>
-                              <span>{item.description}</span>
-                              <span className="text-[10px] text-emerald-800 font-mono bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">Optional Extra</span>
+                              <span>{lang === 'es' && item.descriptionEs ? item.descriptionEs : item.description}</span>
+                              <span className="text-[10px] text-emerald-800 font-mono bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">{lang === 'es' ? 'Servicio Opcional' : 'Optional Extra'}</span>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-center text-[#52606d] font-mono">
@@ -808,99 +944,254 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             </div>
           </div>
 
-          {/* Unified WHAT'S INCLUDED Section */}
-          <div className="space-y-4 pt-2">
-            <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider border-b border-[#e5dec9] pb-2 flex items-center gap-2">
-              <Compass className="w-4 h-4 text-[#c9a96e]" />
-              <span>WHAT'S INCLUDED</span>
-            </h3>
-
-            {/* Included Services List */}
-            <div className="bg-[#f4f8f6] p-5 rounded-lg border border-[#c1ded3] space-y-3">
-              <h4 className="text-xs font-serif font-bold text-[#0e3b2f] uppercase tracking-wider flex items-center gap-1.5 border-b border-[#c1ded3] pb-2">
-                <Check className="w-4 h-4 text-emerald-600" />
-                <span>Included Services & Summary</span>
-              </h4>
-              <ul className="space-y-2 text-xs text-[#283e35]">
-                {quotation.inclusions.map((inc, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-emerald-600 font-bold shrink-0">✓</span>
-                    <span>{inc}</span>
-                  </li>
-                ))}
-              </ul>
+          {/* SECTION A: INCLUDED SERVICES (Midnight Green / Emerald Palette) */}
+          <div className="bg-[#f4f8f6] p-6 rounded-lg border border-[#c1ded3] space-y-4">
+            <div className="border-b border-[#c1ded3] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>{lang === 'es' ? 'A. SERVICIOS INCLUIDOS' : 'A. INCLUDED SERVICES'}</span>
+              </h3>
+              <span className="text-[11px] font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 self-start sm:self-auto">
+                {lang === 'es' ? 'Paquete Todo Incluido en Isla' : 'All-Inclusive Island Package'}
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-[#2d3a45]">
-              {snapshot.accommodationDetails && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Accommodation & Bathroom</strong>
-                  <p className="leading-relaxed">Category: {quotation.cabinCategory} ({quotation.cabinsCount} unit, {quotation.bathroomType} Bathroom). {snapshot.accommodationDetails}</p>
-                </div>
-              )}
+            <p className="text-xs text-[#283e35] leading-relaxed">
+              {lang === 'es'
+                ? 'Todos los servicios esenciales de alojamiento en cabaña, traslados ida y vuelta, comidas diarias según el itinerario y excursiones de arrecife incluidas:'
+                : 'All essential island cabaña accommodations, round-trip transportation, daily meals as per itinerary, and reef excursions included:'}
+            </p>
 
-              {snapshot.mealsByDay && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Meals by Day</strong>
-                  <p className="leading-relaxed">{snapshot.mealsByDay}</p>
-                </div>
-              )}
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-[#283e35]">
+              {inclusions.map((inc, i) => (
+                <li key={i} className="flex items-start gap-2 bg-white/70 p-2.5 rounded border border-[#c1ded3]/60">
+                  <span className="text-emerald-600 font-bold shrink-0 mt-0.5">✓</span>
+                  <span className="leading-relaxed">{inc}</span>
+                </li>
+              ))}
+            </ul>
 
-              {snapshot.groundTransportationDetails && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Ground Transportation</strong>
-                  <p className="leading-relaxed">Type: {quotation.groundTransportation}. {snapshot.groundTransportationDetails}</p>
-                </div>
-              )}
+            {/* Confirmed service specification cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-xs">
+              <div className="bg-white p-3 rounded border border-[#c1ded3] space-y-1">
+                <span className="text-[10px] uppercase font-mono tracking-wider text-[#687785] block">
+                  {lang === 'es' ? 'Alojamiento Confirmado' : 'Confirmed Accommodation'}
+                </span>
+                <p className="font-semibold text-[#0e3b2f]">{formatAccommodationSummary(quotation, lang)}</p>
+              </div>
 
-              {snapshot.boatTransferDetails && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Boat Transfers</strong>
-                  <p className="leading-relaxed">Type: {quotation.boatTransfers}. {snapshot.boatTransferDetails}</p>
-                </div>
-              )}
+              <div className="bg-white p-3 rounded border border-[#c1ded3] space-y-1">
+                <span className="text-[10px] uppercase font-mono tracking-wider text-[#687785] block">
+                  {lang === 'es' ? 'Transporte Terrestre 4x4' : 'Ground 4x4 Transport'}
+                </span>
+                <p className="font-semibold text-[#0e3b2f]">
+                  {quotation.groundTransportation === 'Private'
+                    ? (lang === 'es' ? 'SUV 4x4 Privado Exclusivo' : 'Private Exclusive 4x4 SUV')
+                    : (lang === 'es' ? 'Vehículo 4x4 Compartido' : 'Shared 4x4 Vehicle')}
+                </p>
+              </div>
 
-              {snapshot.toursAndActivities && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Included Tours & Activities</strong>
-                  <p className="leading-relaxed">{snapshot.toursAndActivities}</p>
-                </div>
-              )}
+              <div className="bg-white p-3 rounded border border-[#c1ded3] space-y-1">
+                <span className="text-[10px] uppercase font-mono tracking-wider text-[#687785] block">
+                  {lang === 'es' ? 'Traslado en Bote' : 'Boat Transfer'}
+                </span>
+                <p className="font-semibold text-[#0e3b2f]">
+                  {quotation.boatTransfers === 'Private'
+                    ? (lang === 'es' ? 'Lancha Rápida Privada' : 'Private Speedboat')
+                    : (lang === 'es' ? 'Lancha Rápida Compartida' : 'Shared Island Water Taxi')}
+                </p>
+              </div>
 
-              {snapshot.islandSchedule && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Island Schedule & Timing</strong>
-                  <p className="leading-relaxed">{snapshot.islandSchedule}</p>
-                </div>
-              )}
-
-              {snapshot.importantInstructions && (
-                <div className="bg-[#faf8f5] p-4 rounded border border-[#e5dec9] space-y-1">
-                  <strong className="block text-[#0e3b2f] font-semibold">Important Travel Instructions</strong>
-                  <p className="leading-relaxed">{snapshot.importantInstructions}</p>
-                </div>
-              )}
+              <div className="bg-white p-3 rounded border border-[#c1ded3] space-y-1">
+                <span className="text-[10px] uppercase font-mono tracking-wider text-[#687785] block">
+                  {lang === 'es' ? 'Plan de Comidas' : 'Daily Meal Plan'}
+                </span>
+                <p className="font-semibold text-[#0e3b2f]">
+                  {isAfternoonSelected
+                    ? (lang === 'es' ? 'Desayuno, Almuerzo y Cena + Almuerzo Salida' : 'Breakfast, Lunch, Dinner + Departure Lunch')
+                    : (lang === 'es' ? 'Desayuno, Almuerzo y Cena (Salida Desayuno)' : 'Breakfast, Lunch, Dinner (Departure Breakfast)')}
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* What Is Excluded */}
-          <div className="bg-[#fff8f8] p-5 rounded-lg border border-[#f0c2c2] space-y-3">
-            <h4 className="text-xs font-serif font-bold text-[#802424] uppercase tracking-wider flex items-center gap-1.5 border-b border-[#f0c2c2] pb-2">
-              <AlertCircle className="w-4 h-4 text-[#a84444]" />
-              <span>What Is Excluded (Cash Required on Site)</span>
-            </h4>
+          {/* SECTION B: EXCLUSIONS (Muted Red / Rose Palette) */}
+          <div className="bg-[#fff8f8] p-6 rounded-lg border border-[#f0c2c2] space-y-4">
+            <div className="border-b border-[#f0c2c2] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="text-sm font-serif font-bold text-[#802424] uppercase tracking-wider flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-[#a84444]" />
+                <span>{lang === 'es' ? 'B. SERVICIOS NO INCLUIDOS' : 'B. EXCLUSIONS'}</span>
+              </h3>
+              <span className="text-[11px] font-mono text-[#802424] bg-red-50 px-2 py-0.5 rounded border border-[#f0c2c2] self-start sm:self-auto">
+                {lang === 'es' ? 'Efectivo Requerido en Sitio' : 'Cash Required on Site'}
+              </span>
+            </div>
+
+            <p className="text-xs text-[#522b2b] leading-relaxed">
+              {lang === 'es'
+                ? 'Los siguientes conceptos no están cubiertos en el costo de la cotización y deben ser cancelados en efectivo directamente en el destino:'
+                : 'The following expenses are not covered by this quotation package and must be paid in cash at the destination:'}
+            </p>
+
             <ul className="space-y-2 text-xs text-[#522b2b]">
-              {quotation.exclusions.map((exc, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="text-[#a84444] font-bold shrink-0">✕</span>
-                  <span>{exc}</span>
+              {filteredExclusions.map((exc, i) => (
+                <li key={i} className="flex items-start gap-2 bg-white/60 p-2.5 rounded border border-[#f0c2c2]/60">
+                  <span className="text-[#a84444] font-bold shrink-0 mt-0.5">✕</span>
+                  <span className="leading-relaxed">{exc}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          {/* Attached Photos Gallery */}
-          {quotation.selectedPhotos && quotation.selectedPhotos.length > 0 && (
+          {/* SECTION C: OPTIONAL EXTRAS & UPGRADES (Blue / Slate-Cyan Palette) */}
+          {((quotation.lineItems && quotation.lineItems.length > 0) || availableUpgrades.length > 0) && (
+            <div className="bg-[#f0f7ff] p-6 rounded-lg border border-[#bae6fd] space-y-4">
+              <div className="border-b border-[#bae6fd] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="text-sm font-serif font-bold text-[#0369a1] uppercase tracking-wider flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#0284c7]" />
+                  <span>{lang === 'es' ? 'C. SERVICIOS ADICIONALES Y MEJORAS OPCIONALES' : 'C. OPTIONAL EXTRAS & UPGRADES'}</span>
+                </h3>
+                {quotation.lineItems && quotation.lineItems.length > 0 ? (
+                  <span className="text-[11px] font-mono text-[#0369a1] bg-[#e0f2fe] px-2 py-0.5 rounded border border-[#bae6fd] self-start sm:self-auto">
+                    {quotation.lineItems.length} {lang === 'es' ? (quotation.lineItems.length === 1 ? 'servicio seleccionado' : 'servicios seleccionados') : (quotation.lineItems.length === 1 ? 'selected extra' : 'selected extras')}
+                  </span>
+                ) : null}
+              </div>
+
+              {quotation.lineItems && quotation.lineItems.length > 0 && (
+                <>
+                  <p className="text-xs text-[#0369a1] leading-relaxed">
+                    {lang === 'es'
+                      ? 'Los siguientes servicios adicionales personalizados han sido seleccionados e incorporados al precio total de su propuesta:'
+                      : 'The following customized optional add-on services have been selected and are included in your total proposal price:'}
+                  </p>
+
+                  <div className="border border-[#bae6fd] rounded overflow-hidden bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#e0f2fe] text-[#0369a1] font-mono text-[11px] uppercase border-b border-[#bae6fd]">
+                        <tr>
+                          <th className="py-2.5 px-4 font-semibold">{lang === 'es' ? 'Descripción del Servicio' : 'Service Description'}</th>
+                          <th className="py-2.5 px-4 font-semibold text-center w-24">{lang === 'es' ? 'Cantidad' : 'Quantity'}</th>
+                          <th className="py-2.5 px-4 font-semibold text-right w-32">{lang === 'es' ? 'Tarifa (USD)' : 'Unit Price (USD)'}</th>
+                          <th className="py-2.5 px-4 font-semibold text-right w-36">{lang === 'es' ? 'Total (USD)' : 'Line Total (USD)'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#e0f2fe]">
+                        {quotation.lineItems.map((item, idx) => (
+                          <tr key={item.id || idx} className="hover:bg-[#f0f9ff]">
+                            <td className="py-3 px-4 font-medium text-[#1e293b]">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[#0284c7] font-bold">+</span>
+                                <span>{lang === 'es' && item.descriptionEs ? item.descriptionEs : item.description}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center text-[#475569] font-mono">{item.quantity}</td>
+                            <td className="py-3 px-4 text-right text-[#475569] font-mono tabular-nums">${item.unitPrice.toFixed(2)}</td>
+                            <td className="py-3 px-4 text-right font-mono font-semibold text-[#0369a1] tabular-nums">${item.total.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {/* Available Upgrades Subsection */}
+              {availableUpgrades.length > 0 && (
+                <div className="bg-white p-4 rounded border border-[#bae6fd] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-xs font-serif font-bold text-[#0369a1] uppercase tracking-wider">
+                      {lang === 'es' ? '✦ Mejoras Opcionales Disponibles (No incluidas en la cotización)' : '✦ Available Optional Upgrades (Not included in quotation)'}
+                    </strong>
+                    <span className="text-[10px] text-sky-800 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded font-mono">
+                      {lang === 'es' ? 'Precios de referencia' : 'Reference rates'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    {lang === 'es'
+                      ? 'Las siguientes opciones pueden ser añadidas a solicitud. No forman parte del total de esta cotización hasta ser confirmadas:'
+                      : 'The following optional upgrades may be requested prior to departure. They are not included in this quotation total until confirmed:'}
+                  </p>
+                  <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1 text-xs text-slate-700">
+                    {availableUpgrades.map((upg, idx) => (
+                      <li key={idx} className="flex items-start gap-2 bg-[#f8fbff] p-2.5 rounded border border-[#bae6fd]/60">
+                        <span className="text-sky-600 font-bold shrink-0 mt-0.5">•</span>
+                        <span className="leading-relaxed">{lang === 'es' ? upg.es : upg.en}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SECTION D: IMPORTANT TRAVEL INFORMATION (Champagne / Ivory Palette) */}
+          <div className="bg-[#faf8f5] p-6 rounded-lg border border-[#c8ac75]/50 space-y-4">
+            <div className="border-b border-[#c8ac75]/30 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider flex items-center gap-2">
+                <Compass className="w-4 h-4 text-[#c8ac75]" />
+                <span>{lang === 'es' ? 'D. INFORMACIÓN IMPORTANTE DEL VIAJE' : 'D. IMPORTANT TRAVEL INFORMATION'}</span>
+              </h3>
+              <span className="text-[11px] font-mono text-[#0e3b2f] bg-[#f5eedd] px-2 py-0.5 rounded border border-[#c8ac75]/50 self-start sm:self-auto">
+                {lang === 'es' ? 'Guía del Viajero Guna Yala' : 'Guna Yala Traveler Guide'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-[#2d3a45]">
+              {/* Card 1: Pickup & Departure Schedule */}
+              <div className="bg-white p-4 rounded border border-[#e5dec9] space-y-1.5 shadow-2xs">
+                <strong className="block text-[#0e3b2f] font-semibold flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#c8ac75]" />
+                  <span>{lang === 'es' ? '1. Horarios de Recogida y Retorno' : '1. Pickup & Return Schedule'}</span>
+                </strong>
+                <p className="leading-relaxed text-[#4a5568]">
+                  {getDepartureScheduleText()}
+                </p>
+              </div>
+
+              {/* Card 2: Passport & Border Checkpoint */}
+              <div className="bg-white p-4 rounded border border-[#e5dec9] space-y-1.5 shadow-2xs">
+                <strong className="block text-[#0e3b2f] font-semibold flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#c8ac75]" />
+                  <span>{lang === 'es' ? '2. Pasaporte Original Obligatorio' : '2. Original Passport Required'}</span>
+                </strong>
+                <p className="leading-relaxed text-[#4a5568]">
+                  {lang === 'es'
+                    ? 'Todos los viajeros deben portar su pasaporte físico original (o cédula panameña para nacionales/residentes) para pasar el puesto de control fronterizo del Congreso General Guna. No se aceptan fotocopias ni fotografías en el teléfono celular.'
+                    : 'Every traveler must carry their original physical passport (or Panamanian cédula for nationals/residents) at the Guna General Congress border checkpoint. Digital copies and mobile phone photos are strictly not accepted.'}
+                </p>
+              </div>
+
+              {/* Card 3: Cash Currency in Small Bills */}
+              <div className="bg-white p-4 rounded border border-[#e5dec9] space-y-1.5 shadow-2xs">
+                <strong className="block text-[#0e3b2f] font-semibold flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5 text-[#c8ac75]" />
+                  <span>{lang === 'es' ? '3. Moneda y Efectivo en Billetes Pequeños' : '3. Cash Only & Small Denominations'}</span>
+                </strong>
+                <p className="leading-relaxed text-[#4a5568]">
+                  {lang === 'es'
+                    ? 'En todo el archipiélago de Guna Yala no existen cajeros automáticos (ATM) ni terminales de tarjeta de crédito. Por favor traiga suficiente efectivo en denominaciones pequeñas ($1, $5, $10, $20) para tasas territoriales, bebidas, artesanías tradicionales (molas) y propinas.'
+                    : 'There are no ATMs or credit card terminals anywhere in Guna Yala. Please carry cash in small denominations ($1, $5, $10, $20) for checkpoint entrance fees, drinks, traditional mola artisan crafts, and personal expenses.'}
+                </p>
+              </div>
+
+              {/* Card 4: Luggage & Sea Conditions */}
+              <div className="bg-white p-4 rounded border border-[#e5dec9] space-y-1.5 shadow-2xs">
+                <strong className="block text-[#0e3b2f] font-semibold flex items-center gap-1.5">
+                  <Anchor className="w-3.5 h-3.5 text-[#c8ac75]" />
+                  <span>{lang === 'es' ? '4. Equipaje y Condiciones Marítimas' : '4. Luggage Limit & Weather Advisory'}</span>
+                </strong>
+                <p className="leading-relaxed text-[#4a5568]">
+                  {lang === 'es'
+                    ? 'Recomendamos 1 bolso o mochila mediana de tela suave por persona debido a la capacidad de carga en los vehículos 4x4 y lanchas. Las excursiones de snorkel y visitas a piscinas naturales operan sujetas a condiciones de viento, marea y seguridad marítima.'
+                    : 'We recommend 1 medium soft-sided duffle bag or backpack per traveler due to cargo space in 4x4s and island boats. Snorkeling excursions and sandbar visits operate subject to wind, tide, and maritime safety conditions.'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Attached Photos Gallery — Only Petra-Confirmed Authentic Photos */}
+          {verifiedPhotos.length > 0 && (
             <div className="space-y-3 pt-4 border-t border-[#ebdcb8] print:break-inside-avoid">
               <h3 className="text-sm font-serif font-bold text-[#0e3b2f] uppercase tracking-wider flex items-center gap-2">
                 <Anchor className="w-4 h-4 text-[#c9a96e]" />
@@ -908,7 +1199,7 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {quotation.selectedPhotos.map((photo) => {
+                {verifiedPhotos.map((photo) => {
                   const badgeInfo = getPhotoBadgeInfo(photo);
                   return (
                     <div
@@ -926,16 +1217,6 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
                             e.target.parentNode.innerHTML = '<div class="p-4 text-xs text-center text-red-600 bg-red-50 h-full flex items-center justify-center">Temporary upload unavailable. Please re-upload image.</div>';
                           }}
                         />
-                        {badgeInfo.type === 'unverified_upload' && (
-                          <span className="absolute bottom-2 left-2 text-[10px] bg-black/80 text-amber-200 px-2 py-0.5 rounded backdrop-blur-sm font-medium">
-                            Photo — destination/accommodation unverified.
-                          </span>
-                        )}
-                        {badgeInfo.type === 'demo_illustration' && (
-                          <span className="absolute bottom-2 left-2 text-[10px] bg-black/80 text-amber-200 px-2 py-0.5 rounded backdrop-blur-sm font-medium">
-                            Demo illustration — not an actual destination or accommodation photo.
-                          </span>
-                        )}
                         {badgeInfo.type === 'verified' && (
                           <span className="absolute bottom-2 left-2 text-[10px] bg-emerald-900/90 text-emerald-200 px-2 py-0.5 rounded backdrop-blur-sm font-medium">
                             Confirmed photo — verified by Petra
@@ -961,6 +1242,14 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
               <ShieldCheck className="w-4 h-4 text-[#c9a96e]" />
               <span>{conditionsTitle}</span>
             </h3>
+
+            {quotation.termsStatus !== 'Approved by Petra' && (
+              <p className="text-[11px] text-amber-800 italic bg-amber-50 p-2.5 rounded border border-amber-200">
+                {lang === 'es'
+                  ? 'Nota: Estos términos son un borrador informativo para revisión previa. La confirmación formal de la reserva estará sujeta a la aprobación de términos y condiciones definitivos por parte de Petra.'
+                  : 'Note: These booking terms are an informational draft for preliminary review. Formal reservation confirmation remains subject to definitive terms approved by Petra.'}
+              </p>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[#45525f]">
               <div>
@@ -1012,6 +1301,11 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             </div>
             <div className="text-[11px] font-mono">
               Quotation Ref: <span className="font-bold text-[#0e3b2f]">{quotation.reference}</span>
+              {quotation.termsStatus !== 'Approved by Petra' && (
+                <span className="text-amber-800 font-semibold ml-2">
+                  {lang === 'es' ? '[BORRADOR INFORMATIVO]' : '[INFORMATIONAL DRAFT]'}
+                </span>
+              )}
             </div>
           </div>
         </div>

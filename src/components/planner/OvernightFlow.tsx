@@ -461,33 +461,35 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
                 <label htmlFor="overnight-terms-chk" className="cursor-pointer select-none">
                   {isEs ? (
                     <>
-                      He leído y reconozco los{' '}
+                      He leído y acepto los{' '}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.preventDefault();
-                          window.dispatchEvent(new CustomEvent('open-terms', { detail: 'overnight' }));
+                          window.history.pushState({}, '', '/terms-and-conditions/overnight');
+                          window.dispatchEvent(new Event('popstate'));
                         }}
                         className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
                       >
-                        Términos y Condiciones de Estadía Nocturna
+                        Términos y condiciones
                       </button>
-                      . *
+                      {' '}aplicables a mi solicitud de reserva.
                     </>
                   ) : (
                     <>
-                      I have read and acknowledge the{' '}
+                      I have read and agree to the{' '}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.preventDefault();
-                          window.dispatchEvent(new CustomEvent('open-terms', { detail: 'overnight' }));
+                          window.history.pushState({}, '', '/terms-and-conditions/overnight');
+                          window.dispatchEvent(new Event('popstate'));
                         }}
                         className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
                       >
-                        Overnight Stay Terms & Conditions
+                        Terms & Conditions
                       </button>
-                      . *
+                      {' '}applicable to my booking request.
                     </>
                   )}
                 </label>

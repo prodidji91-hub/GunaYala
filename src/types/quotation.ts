@@ -54,6 +54,7 @@ export interface StructuredPackageSnapshot {
 
 export type PricingMode = 'first_night_additional' | 'single_total' | 'custom_itemized';
 export type QuotationPricingStatus = 'Rates to Be Confirmed' | 'Priced Quotation';
+export type DepartureOption = 'standard_morning' | 'afternoon_with_lunch';
 
 export interface Quotation {
   id: string;
@@ -86,6 +87,7 @@ export interface Quotation {
   groundTransportation: TransportOption;
   boatTransfers: TransportOption;
   transportationReviewFlag?: boolean;
+  departureOption?: DepartureOption;
 
   internalNotes: string;
   

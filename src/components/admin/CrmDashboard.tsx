@@ -194,23 +194,41 @@ export const CrmDashboard: React.FC<CrmDashboardProps> = ({
     }
   };
 
-  // Filtered lists
-  const filteredInquiries = inquiries.filter((inq) => {
-    const matchesSearch =
-      inq.experience_interest.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inq.customer?.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inq.customer?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inq.customer?.whatsapp?.includes(searchQuery);
+  const getLocalTodayStr = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
-    if (!matchesSearch) return false;
+  const todayStr = getLocalTodayStr();
 
-    if (statusFilter === 'All') return true;
-    if (statusFilter === 'FollowUpsDue') {
-      const today = new Date().toISOString().split('T')[0];
-      return inq.follow_up_date && inq.follow_up_date <= today && !['Completed', 'Lost', 'Cancelled'].includes(inq.pipeline_status);
-    }
-    return inq.pipeline_status === statusFilter;
-  });
+  // Filtered lists with local date comparison and sorting (Overdue first)
+  const filteredInquiries = inquiries
+    .filter((inq) => {
+      const matchesSearch =
+        inq.experience_interest.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inq.customer?.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inq.customer?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inq.customer?.whatsapp?.includes(searchQuery);
+
+      if (!matchesSearch) return false;
+
+      if (statusFilter === 'All') return true;
+      if (statusFilter === 'FollowUpsDue') {
+        return inq.follow_up_date && inq.follow_up_date <= todayStr && !['Completed', 'Lost', 'Cancelled'].includes(inq.pipeline_status);
+      }
+      return inq.pipeline_status === statusFilter;
+    })
+    .sort((a, b) => {
+      const dateA = a.follow_up_date;
+      const dateB = b.follow_up_date;
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return dateA.localeCompare(dateB);
+    });
 
   const filteredCustomers = customers.filter(
     (c) =>

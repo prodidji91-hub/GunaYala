@@ -10,7 +10,7 @@ interface HeroProps {
   onBookClick?: () => void;
 }
 
-type SoundPanel = 'islands' | 'sailing' | 'culture' | null;
+type SoundPanel = 'islands' | 'sailing' | null;
 
 export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanClick, onBookClick }) => {
   const language = currentLang;
@@ -42,6 +42,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
   const [isPlaying, setIsPlaying] = useState(true);
   const [videoError, setVideoError] = useState(false);
   const [sailingVideoError, setSailingVideoError] = useState(false);
+  const [cultureVideoError, setCultureVideoError] = useState(false);
 
   // Ambient audio states
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
@@ -49,38 +50,45 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const sailingVideoRef = useRef<HTMLVideoElement>(null);
+  const cultureVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Culture video independent audio state
+  const [isCultureMuted, setIsCultureMuted] = useState(true);
+
+  const toggleCultureAudio = () => {
+    if (cultureVideoRef.current) {
+      const nextMuted = !cultureVideoRef.current.muted;
+      cultureVideoRef.current.muted = nextMuted;
+      setIsCultureMuted(nextMuted);
+      if (!nextMuted) {
+        cultureVideoRef.current.play().catch(() => {});
+      }
+    }
+  };
 
   // Ambient audio refs
   const islandsAudioRef = useRef<HTMLAudioElement | null>(null);
   const sailingAudioRef = useRef<HTMLAudioElement | null>(null);
-  const cultureAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const fadeIntervalRef = useRef<number | null>(null);
 
   // Initialize ambient audio elements
   useEffect(() => {
-    const a1 = new Audio('/audio/track1.mp3');
+    const a1 = new Audio('/audio/san-blas-beach.wav');
     a1.loop = true;
     a1.preload = 'auto';
     a1.volume = 0;
     islandsAudioRef.current = a1;
 
-    const a2 = new Audio('/audio/track2.mp3');
+    const a2 = new Audio('/audio/sailing-ambient.mp3');
     a2.loop = true;
     a2.preload = 'auto';
     a2.volume = 0;
     sailingAudioRef.current = a2;
 
-    const a3 = new Audio('/audio/guna-culture-ambient.mp3');
-    a3.loop = true;
-    a3.preload = 'auto';
-    a3.volume = 0;
-    cultureAudioRef.current = a3;
-
     return () => {
       a1.pause();
       a2.pause();
-      a3.pause();
     };
   }, []);
 
@@ -93,13 +101,11 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
     const audioMap: Record<NonNullable<SoundPanel>, HTMLAudioElement | null> = {
       islands: islandsAudioRef.current,
       sailing: sailingAudioRef.current,
-      culture: cultureAudioRef.current,
     };
 
     const targetVolumes: Record<NonNullable<SoundPanel>, number> = {
-      islands: isSoundEnabled && activeSoundPanel === 'islands' ? 0.3 : 0,
-      sailing: isSoundEnabled && activeSoundPanel === 'sailing' ? 0.3 : 0,
-      culture: isSoundEnabled && activeSoundPanel === 'culture' ? 0.3 : 0,
+      islands: isSoundEnabled && activeSoundPanel === 'islands' ? 0.35 : 0,
+      sailing: isSoundEnabled && activeSoundPanel === 'sailing' ? 0.35 : 0,
     };
 
     // Attempt playback if audio enabled
@@ -171,16 +177,39 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
         sailingVideoRef.current.pause();
       }
     }
+    if (cultureVideoRef.current) {
+      if (isPlaying) {
+        cultureVideoRef.current.play().catch(() => setCultureVideoError(true));
+      } else {
+        cultureVideoRef.current.pause();
+      }
+    }
   }, [isPlaying]);
 
   const togglePanelAudio = (panel: SoundPanel) => {
     if (!isSoundEnabled) {
       setIsSoundEnabled(true);
       setActiveSoundPanel(panel);
+      const audio = panel === 'islands' ? islandsAudioRef.current : sailingAudioRef.current;
+      if (audio) {
+        audio.play().catch((err) => {
+          console.warn('Audio play error on user interaction:', err);
+        });
+      }
     } else if (activeSoundPanel === panel) {
       setIsSoundEnabled(false);
+      const audio = panel === 'islands' ? islandsAudioRef.current : sailingAudioRef.current;
+      if (audio) {
+        audio.pause();
+      }
     } else {
       setActiveSoundPanel(panel);
+      const audio = panel === 'islands' ? islandsAudioRef.current : sailingAudioRef.current;
+      if (audio) {
+        audio.play().catch((err) => {
+          console.warn('Audio play error on user interaction:', err);
+        });
+      }
     }
   };
 
@@ -407,21 +436,38 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
 
         {/* PANEL 03 — GUNA CULTURE */}
         <div 
-          onMouseEnter={() => handlePanelHover('culture')}
           className="relative flex-1 group transition-all duration-700 ease-out hover:lg:flex-[1.35] overflow-hidden flex flex-col justify-between min-h-[380px] sm:min-h-[440px] lg:min-h-0"
         >
-          {/* Background Image */}
+          {/* Background Video / Photo Backdrop */}
           <div className="absolute inset-0 z-0 overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-t from-[#040E15]/70 via-[#071722]/20 to-black/10 z-10 pointer-events-none" />
-            <div 
-              className="w-full h-full bg-cover bg-center group-hover:scale-[1.03] transform-gpu transition-transform duration-1000 ease-out brightness-[1.05] saturate-[1.05] contrast-[1.02]"
-              style={{ backgroundImage: `url("/pictures/04 Learn about the Guna Community in San Blas.jpg")` }}
-            />
+            
+            {!cultureVideoError ? (
+              <video
+                ref={cultureVideoRef}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="auto"
+                poster="/pictures/04 Learn about the Guna Community in San Blas.jpg"
+                onError={() => setCultureVideoError(true)}
+                className="w-full h-full object-cover object-center scale-100 group-hover:scale-[1.03] transform-gpu backface-hidden transition-transform duration-1000 ease-out brightness-[1.05] saturate-[1.05]"
+              >
+                <source src="/videos/guna.mp4" type="video/mp4" />
+                Your browser does not support video.
+              </video>
+            ) : (
+              <div 
+                className="w-full h-full bg-cover bg-center group-hover:scale-[1.03] transform-gpu transition-transform duration-1000 ease-out brightness-[1.05] saturate-[1.05] contrast-[1.02]"
+                style={{ backgroundImage: `url("/pictures/04 Learn about the Guna Community in San Blas.jpg")` }}
+              />
+            )}
           </div>
 
           {/* Panel Content Overlay */}
           <div className="relative z-20 h-full p-6 sm:p-8 lg:p-10 flex flex-col justify-between">
-            {/* Top Tag & Control */}
+            {/* Top Tag & Controls */}
             <div className="flex items-center justify-between">
               <div className="inline-flex items-center space-x-2 bg-black/45 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-[#C8AC75]/40 text-xs font-sans uppercase tracking-[0.2em] text-[#C8AC75] shadow-lg">
                 <span className="font-mono font-bold text-[#C8AC75]">{panels.culture.number}</span>
@@ -429,17 +475,17 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 <span>{panels.culture.tag}</span>
               </div>
 
-              {/* Minimal Audio Control Pill for Panel 03 */}
+              {/* Minimal Audio & Video Control Pill for Panel 03 */}
               <div className="flex items-center space-x-2 bg-black/45 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#C8AC75]/30">
                 <button 
-                  onClick={() => togglePanelAudio('culture')} 
+                  onClick={toggleCultureAudio} 
                   className={`flex items-center space-x-1.5 text-xs transition-colors ${
-                    isSoundEnabled && activeSoundPanel === 'culture' ? 'text-[#C8AC75] font-semibold' : 'text-[#F6F2E9]/80 hover:text-[#C8AC75]'
+                    !isCultureMuted ? 'text-[#C8AC75] font-semibold' : 'text-[#F6F2E9]/80 hover:text-[#C8AC75]'
                   }`}
-                  aria-label={isSoundEnabled && activeSoundPanel === 'culture' ? "Mute audio" : "Play Guna Culture soundscape"}
-                  title={isSoundEnabled && activeSoundPanel === 'culture' ? "Mute audio" : "Play Guna Culture soundscape (coastal village & breeze)"}
+                  aria-label={!isCultureMuted ? "Mute audio" : "Unmute audio"}
+                  title={!isCultureMuted ? "Mute original audio" : "Unmute original audio"}
                 >
-                  {isSoundEnabled && activeSoundPanel === 'culture' ? (
+                  {!isCultureMuted ? (
                     <>
                       <Volume2 className="w-3.5 h-3.5 text-[#C8AC75] animate-pulse" />
                       <div className="flex items-end space-x-[2px] h-3">
@@ -454,6 +500,15 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                       <span className="text-[10px] tracking-wider uppercase hidden sm:inline">{language === 'en' ? 'Sound' : 'Audio'}</span>
                     </>
                   )}
+                </button>
+                <div className="w-px h-3 bg-[#C8AC75]/30" />
+                <button 
+                  onClick={() => setIsPlaying(!isPlaying)} 
+                  className="text-[#F6F2E9]/80 hover:text-[#C8AC75] p-0.5 transition-colors"
+                  aria-label={isPlaying ? "Pause video" : "Play video"}
+                  title={isPlaying ? "Pause video" : "Play video"}
+                >
+                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-[#C8AC75]" />}
                 </button>
               </div>
             </div>

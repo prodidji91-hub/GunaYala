@@ -10,6 +10,7 @@ import {
 } from '@react-pdf/renderer';
 import { Quotation, AttachedPhoto } from '../../types/quotation';
 import { getPhotoBadgeInfo } from '../../data/samplePhotos';
+import { formatAccommodationSummary } from '../../services/quotationStorageService';
 
 // 1. Register locally bundled, production-included Nimbus Sans TTF fonts
 Font.register({
@@ -195,12 +196,11 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   incCard: {
-    flex: 1,
     backgroundColor: '#F4F8F6',
     borderWidth: 1,
     borderColor: '#C1DED3',
     borderRadius: 4,
-    padding: 10,
+    padding: 8,
     marginBottom: 8,
   },
   excCard: {
@@ -208,9 +208,209 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F0C2C2',
     borderRadius: 4,
-    padding: 10,
-    marginTop: 8,
+    padding: 8,
     marginBottom: 8,
+  },
+  extrasCard: {
+    backgroundColor: '#F0F7FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 8,
+  },
+  infoCard: {
+    backgroundColor: '#FAF8F5',
+    borderWidth: 1,
+    borderColor: '#C8AC75',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 8,
+  },
+  secHeadingA: {
+    fontSize: 9.5,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#0E3B2F',
+    textTransform: 'uppercase',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#C1DED3',
+    paddingBottom: 3,
+    marginTop: 8,
+    marginBottom: 5,
+    letterSpacing: 0.5,
+    textAlign: 'left',
+  },
+  secHeadingB: {
+    fontSize: 9.5,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#802424',
+    textTransform: 'uppercase',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#F0C2C2',
+    paddingBottom: 3,
+    marginTop: 8,
+    marginBottom: 5,
+    letterSpacing: 0.5,
+    textAlign: 'left',
+  },
+  secHeadingC: {
+    fontSize: 9.5,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#0369A1',
+    textTransform: 'uppercase',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#BAE6FD',
+    paddingBottom: 3,
+    marginTop: 8,
+    marginBottom: 5,
+    letterSpacing: 0.5,
+    textAlign: 'left',
+  },
+  secHeadingD: {
+    fontSize: 9.5,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#0E3B2F',
+    textTransform: 'uppercase',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#C8AC75',
+    paddingBottom: 3,
+    marginTop: 8,
+    marginBottom: 5,
+    letterSpacing: 0.5,
+    textAlign: 'left',
+  },
+  specGrid: {
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 5,
+  },
+  specCol: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#C1DED3',
+    borderRadius: 3,
+    padding: 4,
+  },
+  specLbl: {
+    fontSize: 6,
+    color: '#687785',
+    textTransform: 'uppercase',
+    marginBottom: 1.5,
+    letterSpacing: 0.3,
+  },
+  specVal: {
+    fontSize: 7,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#0E3B2F',
+    lineHeight: 1.2,
+  },
+  tableExtras: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 3,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  thExtrasHead: {
+    flexDirection: 'row',
+    backgroundColor: '#E0F2FE',
+    borderBottomWidth: 1,
+    borderBottomColor: '#BAE6FD',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  thExtrasDesc: { flex: 3, fontSize: 7, fontFamily: 'NimbusSans', fontWeight: 'bold', color: '#0369A1', textTransform: 'uppercase' },
+  thExtrasQty: { flex: 1, fontSize: 7, fontFamily: 'NimbusSans', fontWeight: 'bold', color: '#0369A1', textAlign: 'center', textTransform: 'uppercase' },
+  thExtrasRate: { flex: 1, fontSize: 7, fontFamily: 'NimbusSans', fontWeight: 'bold', color: '#0369A1', textAlign: 'right', textTransform: 'uppercase' },
+  thExtrasTotal: { flex: 1, fontSize: 7, fontFamily: 'NimbusSans', fontWeight: 'bold', color: '#0369A1', textAlign: 'right', textTransform: 'uppercase' },
+  tdExtrasRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0F2FE',
+    paddingVertical: 3.5,
+    paddingHorizontal: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  tdExtrasDesc: { flex: 3, fontSize: 7, color: '#1E293B', lineHeight: 1.2 },
+  tdExtrasQty: { flex: 1, fontSize: 7, color: '#475569', textAlign: 'center' },
+  tdExtrasRate: { flex: 1, fontSize: 7, color: '#475569', textAlign: 'right' },
+  tdExtrasTotal: { flex: 1, fontSize: 7, fontFamily: 'NimbusSans', fontWeight: 'bold', color: '#0369A1', textAlign: 'right' },
+  infoGrid: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 5,
+  },
+  infoBox: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5DEC9',
+    borderRadius: 3,
+    padding: 5,
+  },
+  infoTitle: {
+    fontSize: 7.5,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#0E3B2F',
+    marginBottom: 2,
+  },
+  infoText: {
+    fontSize: 6.8,
+    color: '#4A5568',
+    lineHeight: 1.3,
+  },
+  draftNoticeBanner: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#D97706',
+    borderRadius: 4,
+    padding: 7,
+    marginBottom: 8,
+  },
+  draftNoticeTitle: {
+    fontSize: 7.5,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#92400E',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  draftNoticeText: {
+    fontSize: 6.8,
+    color: '#78350F',
+    marginTop: 1.5,
+    lineHeight: 1.25,
+  },
+  availableUpgradesBox: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 3,
+    padding: 5,
+    marginTop: 5,
+  },
+  availableUpgradesTitle: {
+    fontSize: 7,
+    fontFamily: 'NimbusSans',
+    fontWeight: 'bold',
+    color: '#0369A1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  availableUpgradeItem: {
+    fontSize: 6.8,
+    color: '#334155',
+    marginBottom: 1.5,
+    lineHeight: 1.2,
   },
   alertNotice: {
     backgroundColor: '#FEF3C7',
@@ -521,6 +721,17 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
     optionalExtra: lang === 'es' ? 'Servicio Opcional' : 'Optional Extra',
     packageSubtotal: lang === 'es' ? 'Subtotal del Paquete' : 'Package Subtotal',
     grandTotal: lang === 'es' ? 'Gran Total' : 'Grand Total',
+    sectionA: lang === 'es' ? 'A. SERVICIOS INCLUIDOS' : 'A. INCLUDED SERVICES',
+    allInclusivePackage: lang === 'es' ? 'Paquete Todo Incluido en Isla' : 'All-Inclusive Island Package',
+    sectionB: lang === 'es' ? 'B. SERVICIOS NO INCLUIDOS' : 'B. EXCLUSIONS',
+    cashRequiredOnSite: lang === 'es' ? 'Efectivo Requerido en Sitio' : 'Cash Required on Site',
+    sectionC: lang === 'es' ? 'C. SERVICIOS ADICIONALES SELECCIONADOS' : 'C. SELECTED OPTIONAL EXTRAS',
+    sectionD: lang === 'es' ? 'D. INFORMACIÓN IMPORTANTE DEL VIAJE' : 'D. IMPORTANT TRAVEL INFORMATION',
+    travelerGuide: lang === 'es' ? 'Guía del Viajero Guna Yala' : 'Guna Yala Traveler Guide',
+    pickupScheduleTitle: lang === 'es' ? '1. Horarios de Recogida y Retorno' : '1. Pickup & Return Schedule',
+    passportTitle: lang === 'es' ? '2. Pasaporte Original Obligatorio' : '2. Original Passport Required',
+    cashTitle: lang === 'es' ? '3. Moneda y Efectivo en Billetes Pequeños' : '3. Cash Only & Small Denominations',
+    luggageTitle: lang === 'es' ? '4. Equipaje y Condiciones Marítimas' : '4. Luggage Limit & Weather Advisory',
     whatsIncluded: lang === 'es' ? 'QUÉ INCLUYE' : "WHAT'S INCLUDED",
     includedServicesSummary: lang === 'es' ? 'Servicios Incluidos y Resumen' : 'Included Services & Summary',
     experienceOverview: lang === 'es' ? 'Descripción de la Experiencia' : 'Experience Overview',
@@ -571,16 +782,126 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
     ? quotation.exclusionsEs
     : quotation.exclusions;
 
+  const isAfternoonSelected =
+    quotation.departureOption === 'afternoon_with_lunch' ||
+    Boolean(quotation.lineItems && quotation.lineItems.some(
+      (it) => it.description?.toLowerCase().includes('afternoon') || it.descriptionEs?.toLowerCase().includes('tarde')
+    ));
+
+  // Exclusions: strictly genuine excluded costs and services (never optional upgrade ads)
+  const isUpgradeItem = (text: string) => {
+    const lower = text.toLowerCase();
+    return (
+      lower.startsWith('optional') ||
+      lower.startsWith('opción') ||
+      lower.startsWith('mejora') ||
+      lower.includes('afternoon departure') ||
+      lower.includes('salida por la tarde') ||
+      lower.includes('lobster lunch') ||
+      lower.includes('almuerzo de langosta') ||
+      lower.includes('pickup/drop-off outside') ||
+      lower.includes('recogida o retorno fuera') ||
+      lower.includes('private 4×4') ||
+      lower.includes('transporte privado') ||
+      lower.includes('cultural visit') ||
+      lower.includes('visita cultural')
+    );
+  };
+
+  const filteredExclusions = exclusions.filter((exc) => !isUpgradeItem(exc));
+
+  // Available upgrades: optional services that may be requested, without implying purchase
+  const islandLower = (quotation.island || '').toLowerCase();
+  const availableUpgrades: { en: string; es: string }[] = [];
+
+  if (!islandLower.includes('guasirdub') && !isAfternoonSelected) {
+    if (islandLower.includes('franklin')) {
+      availableUpgrades.push({
+        en: 'Optional afternoon island departure until 3:00 PM w/ lunch: USD $25/pax (cabin checkout 8:00 AM)',
+        es: 'Salida opcional por la tarde hasta las 3:00 PM con almuerzo: USD $25/pax (entrega de cabaña 8:00 AM)',
+      });
+    } else {
+      availableUpgrades.push({
+        en: 'Optional afternoon island departure until 3:00 PM w/ lunch: USD $35/pax (cabin checkout 8:00 AM)',
+        es: 'Salida opcional por la tarde hasta las 3:00 PM con almuerzo: USD $35/pax (entrega de cabaña 8:00 AM)',
+      });
+    }
+  }
+
+  const hasLobster = quotation.lineItems && quotation.lineItems.some(
+    (it) => it.description?.toLowerCase().includes('lobster') || it.descriptionEs?.toLowerCase().includes('langosta')
+  );
+  if (!hasLobster) {
+    availableUpgrades.push({
+      en: 'Seasonal fresh lobster lunch upgrade: From USD $20/pax (subject to local fisherman catch)',
+      es: 'Mejora con almuerzo de langosta fresca de temporada: Desde USD $20/pax (sujeto a pesca del día)',
+    });
+  }
+
+  const hasSuburban = quotation.lineItems && quotation.lineItems.some(
+    (it) => it.description?.toLowerCase().includes('suburban') || it.description?.toLowerCase().includes('playa bonita') || it.descriptionEs?.toLowerCase().includes('suburbano') || it.descriptionEs?.toLowerCase().includes('playa bonita')
+  );
+  if (!hasSuburban) {
+    availableUpgrades.push({
+      en: 'Suburban hotel pickup/drop-off (Playa Bonita, Dreams, Gamboa): USD $20/pax',
+      es: 'Recogida/retorno fuera del centro (Playa Bonita, Dreams, Gamboa): USD $20/pax',
+    });
+  }
+
+  if (islandLower.includes('franklin')) {
+    const hasCultural = quotation.lineItems && quotation.lineItems.some(
+      (it) => it.description?.toLowerCase().includes('cultural') || it.descriptionEs?.toLowerCase().includes('cultural')
+    );
+    if (!hasCultural) {
+      availableUpgrades.push({
+        en: 'Guided Guna cultural community visit & Mola workshop: USD $35/pax',
+        es: 'Visita cultural guiada a comunidad guna y taller tradicional de molas: USD $35/pax',
+      });
+    }
+  }
+
+  availableUpgrades.push({
+    en: 'Private 4×4 SUV transportation upgrade: Price on Request',
+    es: 'Transporte terrestre privado en SUV 4×4: Precio a consultar',
+  });
+
+  // Dynamic Departure Schedule according to selected option and island
+  const getDepartureScheduleText = (): string => {
+    if (islandLower.includes('guasirdub')) {
+      if (lang === 'es') {
+        return '5:00 AM – 5:45 AM recogida en hotel de Ciudad de Panamá hacia Cartí. Salida de Guasirdub: el horario extendido de salida por la tarde con almuerzo de despedida está incluido (entrega de cabaña a las 8:00 AM con equipaje custodiado; salida en lancha ~2:00–3:00 PM). Llegada estimada a Ciudad de Panamá: 7:00–7:30 PM.';
+      }
+      return '5:00 AM – 5:45 AM hotel pickup in Panama City to Cartí Port. Guasirdub departure: extended afternoon departure with farewell lunch is included (cabin checkout by 8:00 AM with luggage securely stored; boat departure ~2:00–3:00 PM). Estimated arrival in Panama City: 7:00–7:30 PM.';
+    }
+
+    if (isAfternoonSelected) {
+      const costText = islandLower.includes('franklin') ? '$25/persona' : '$35/persona';
+      const costTextEn = islandLower.includes('franklin') ? '$25/person' : '$35/person';
+      if (lang === 'es') {
+        return `5:00 AM – 5:45 AM recogida en hotel de Ciudad de Panamá. Salida opcional por la tarde (${costText}, almuerzo incluido): entrega de cabaña a las 8:00 AM con equipaje custodiado de forma segura; salida de la isla en lancha aprox. 3:00 PM. Llegada estimada a Ciudad de Panamá: 7:30–8:00 PM.`;
+      }
+      return `5:00 AM – 5:45 AM hotel pickup in Panama City. Optional afternoon departure (${costTextEn}, lunch included): cabin checkout by 8:00 AM with luggage securely stored; boat departs island ~3:00 PM. Estimated arrival in Panama City: 7:30–8:00 PM.`;
+    }
+
+    // Standard morning departure
+    if (lang === 'es') {
+      return '5:00 AM – 5:45 AM recogida en hotel de Ciudad de Panamá. Retorno matutino estándar: salida de la isla en lancha tras el desayuno (~8:00–8:30 AM). Desayuno del día de salida incluido. Llegada estimada a Ciudad de Panamá: 12:00–1:00 PM.';
+    }
+    return '5:00 AM – 5:45 AM hotel pickup in Panama City. Standard morning departure: departs the island after breakfast (~8:00–8:30 AM boat departure). Departure-day breakfast included. Estimated arrival in Panama City: 12:00–1:00 PM.';
+  };
+
   const experienceName = lang === 'es' ? (quotation.experienceEs || quotation.experience || 'Experiencia Nocturna en Isla') : (quotation.experience || 'Island Overnight Experience');
   const cabinCategoryName = lang === 'es' ? (quotation.cabinCategoryEs || quotation.cabinCategory || 'Cabaña Estándar') : (quotation.cabinCategory || 'Standard Cabaña');
 
+  // Photography: ONLY verified photographs authenticated by Petra for this destination
   const displayPhotos = preparedPhotos || quotation.selectedPhotos || [];
+  const verifiedPhotos = displayPhotos.filter((p) => p.verificationStatus === 'Confirmed by Petra');
 
   // Conditions Title
   const conditionsHeading =
     quotation.termsStatus === 'Approved by Petra'
       ? l.bookingConditionsTerms
-      : l.draftConditions;
+      : (lang === 'es' ? 'Condiciones de Reserva — Borrador Pendiente de Aprobación por Petra' : 'Booking Conditions & Policies — Informational Draft');
 
   const isRatesPending =
     quotation.pricingStatus === 'Rates to Be Confirmed' ||
@@ -606,7 +927,11 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
           </View>
 
           <View style={styles.metaBox}>
-            <Text style={styles.metaHeader}>{l.officialQuotation}</Text>
+            <Text style={styles.metaHeader}>
+              {quotation.termsStatus === 'Approved by Petra'
+                ? l.officialQuotation
+                : (lang === 'es' ? 'Cotización (Borrador)' : 'Official Quotation (Draft)')}
+            </Text>
             <Text style={styles.metaRow}>{l.reference}: <Text style={styles.metaVal}>{quotation.reference}</Text></Text>
             {quotation.revisionLetter && (
               <Text style={styles.metaRow}>Revision: <Text style={styles.metaVal}>Rev {quotation.revisionLetter}</Text></Text>
@@ -615,6 +940,22 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
             <Text style={styles.metaRow}>{l.validThrough}: <Text style={styles.metaVal}>{formatDate(quotation.expiryDate)}</Text></Text>
           </View>
         </View>
+
+        {/* Draft Safety Notice Banner when terms are not yet approved by Petra */}
+        {quotation.termsStatus !== 'Approved by Petra' && (
+          <View style={styles.draftNoticeBanner} wrap={false}>
+            <Text style={styles.draftNoticeTitle}>
+              {lang === 'es'
+                ? 'BORRADOR DE PROPUESTA — TÉRMINOS Y CONDICIONES PENDIENTES DE VALIDACIÓN'
+                : 'PROPOSAL DRAFT — TERMS & CONDITIONS PENDING OPERATOR APPROVAL'}
+            </Text>
+            <Text style={styles.draftNoticeText}>
+              {lang === 'es'
+                ? 'Esta propuesta presenta el itinerario y presupuesto estimado. Los términos contractuales definitivos, programa de pagos y políticas de cancelación están pendientes de validación formal por Petra antes de la reserva.'
+                : 'This document presents an estimated itinerary and quotation. Contractual booking terms, payment schedule, and cancellation policies are subject to formal confirmation by Petra prior to booking confirmation.'}
+            </Text>
+          </View>
+        )}
 
         {/* Guest & Trip Parameters Box (YOUR BOOKING DETAILS) */}
         <View style={styles.guestBox} wrap={false}>
@@ -634,7 +975,7 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
               <Text style={styles.lbl}>{l.destinationIslandExp}</Text>
               <Text style={styles.val}>{quotation.island}</Text>
               <Text style={styles.subVal}>{l.experience}: {experienceName}</Text>
-              <Text style={styles.subVal}>{l.numberOfTravellers}: {quotation.travelers}</Text>
+              <Text style={styles.subVal}>{lang === 'es' ? 'Alojamiento' : 'Accommodation'}: {formatAccommodationSummary(quotation, lang)}</Text>
             </View>
 
             <View style={styles.col}>
@@ -701,7 +1042,7 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
                 {/* Optional Add-on Line Items */}
                 {quotation.lineItems && quotation.lineItems.length > 0 && quotation.lineItems.map((item, idx) => (
                   <View style={idx % 2 === 0 ? styles.tableRow : styles.tableRowAlt} key={item.id || idx}>
-                    <Text style={styles.tdDesc}>+ {item.description} ({l.optionalExtra})</Text>
+                    <Text style={styles.tdDesc}>+ {lang === 'es' && item.descriptionEs ? item.descriptionEs : item.description} ({l.optionalExtra})</Text>
                     <Text style={styles.tdQty}>{item.quantity}</Text>
                     <Text style={styles.tdRate}>${item.unitPrice.toFixed(2)}</Text>
                     <Text style={styles.tdTotal}>${item.total.toFixed(2)}</Text>
@@ -721,7 +1062,7 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
                 {/* Optional Add-on Line Items */}
                 {quotation.lineItems && quotation.lineItems.length > 0 && quotation.lineItems.map((item, idx) => (
                   <View style={idx % 2 === 0 ? styles.tableRowAlt : styles.tableRow} key={item.id || idx}>
-                    <Text style={styles.tdDesc}>+ {item.description} ({l.optionalExtra})</Text>
+                    <Text style={styles.tdDesc}>+ {lang === 'es' && item.descriptionEs ? item.descriptionEs : item.description} ({l.optionalExtra})</Text>
                     <Text style={styles.tdQty}>{item.quantity}</Text>
                     <Text style={styles.tdRate}>${item.unitPrice.toFixed(2)}</Text>
                     <Text style={styles.tdTotal}>${item.total.toFixed(2)}</Text>
@@ -761,85 +1102,137 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
           </View>
         </View>
 
-        {/* Unified WHAT'S INCLUDED Section */}
-        <Text style={styles.sectionHeading}>{l.whatsIncluded}</Text>
+        {/* SECTION A: INCLUDED SERVICES */}
+        <View wrap={false}>
+          <Text style={styles.secHeadingA}>{l.sectionA}</Text>
+          <View style={styles.incCard}>
+            <Text style={styles.cardTitle}>{l.allInclusivePackage}</Text>
+            {inclusions.map((inc, i) => (
+              <Text key={i} style={styles.listItem}>✓ {inc}</Text>
+            ))}
 
-        <View style={styles.incCard} wrap={false}>
-          <Text style={styles.cardTitle}>{l.includedServicesSummary}</Text>
-          {inclusions.map((inc, i) => (
-            <Text key={i} style={styles.listItem}>✓ {inc}</Text>
-          ))}
+            {/* Specification Grid */}
+            <View style={styles.specGrid}>
+              <View style={styles.specCol}>
+                <Text style={styles.specLbl}>{lang === 'es' ? 'Alojamiento' : 'Accommodation'}</Text>
+                <Text style={styles.specVal}>{formatAccommodationSummary(quotation, lang)}</Text>
+              </View>
+              <View style={styles.specCol}>
+                <Text style={styles.specLbl}>{lang === 'es' ? 'Transporte 4x4' : '4x4 Ground Transport'}</Text>
+                <Text style={styles.specVal}>{quotation.groundTransportation}</Text>
+              </View>
+              <View style={styles.specCol}>
+                <Text style={styles.specLbl}>{lang === 'es' ? 'Traslado Bote' : 'Boat Transfer'}</Text>
+                <Text style={styles.specVal}>{quotation.boatTransfers}</Text>
+              </View>
+              <View style={styles.specCol}>
+                <Text style={styles.specLbl}>{lang === 'es' ? 'Plan de Comidas' : 'Meal Plan'}</Text>
+                <Text style={styles.specVal}>{lang === 'es' ? 'Pensión Completa (D, A, C)' : 'Full Board (B, L, D)'}</Text>
+              </View>
+            </View>
+          </View>
         </View>
 
-        {snapshot.accommodationDetails ? (
-          <View style={styles.card} wrap={false}>
-            <Text style={styles.cardTitle}>{l.accommodationBathroom}</Text>
-            <Text style={styles.cardText}>{l.category}: {cabinCategoryName} ({quotation.cabinsCount} {lang === 'es' ? (quotation.cabinsCount === 1 ? 'unidad' : 'unidades') : (quotation.cabinsCount === 1 ? 'unit' : 'units')}, {quotation.bathroomType} {l.bathroom}). {snapshot.accommodationDetails}</Text>
+        {/* SECTION B: EXCLUSIONS */}
+        <View wrap={false}>
+          <Text style={styles.secHeadingB}>{l.sectionB}</Text>
+          <View style={styles.excCard}>
+            <Text style={styles.cardTitle}>{l.cashRequiredOnSite}</Text>
+            {filteredExclusions.map((exc, i) => (
+              <Text key={i} style={styles.excListItem}>✕ {exc}</Text>
+            ))}
+          </View>
+        </View>
+
+        {/* SECTION C: OPTIONAL EXTRAS & UPGRADES */}
+        {(quotation.lineItems && quotation.lineItems.length > 0) || availableUpgrades.length > 0 ? (
+          <View wrap={false}>
+            <Text style={styles.secHeadingC}>{l.sectionC}</Text>
+            {quotation.lineItems && quotation.lineItems.length > 0 && (
+              <View style={styles.extrasCard}>
+                <View style={styles.tableExtras}>
+                  <View style={styles.thExtrasHead}>
+                    <Text style={styles.thExtrasDesc}>{lang === 'es' ? 'Servicio / Extra Seleccionado' : 'Selected Service / Extra'}</Text>
+                    <Text style={styles.thExtrasQty}>{lang === 'es' ? 'Cant.' : 'Qty'}</Text>
+                    <Text style={styles.thExtrasRate}>{lang === 'es' ? 'Tarifa' : 'Rate'}</Text>
+                    <Text style={styles.thExtrasTotal}>{lang === 'es' ? 'Total' : 'Total'}</Text>
+                  </View>
+                  {quotation.lineItems.map((item, idx) => (
+                    <View style={styles.tdExtrasRow} key={item.id || idx}>
+                      <Text style={styles.tdExtrasDesc}>• {lang === 'es' && item.descriptionEs ? item.descriptionEs : item.description}</Text>
+                      <Text style={styles.tdExtrasQty}>{item.quantity}</Text>
+                      <Text style={styles.tdRate}>${item.unitPrice.toFixed(2)}</Text>
+                      <Text style={styles.tdExtrasTotal}>${item.total.toFixed(2)}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {availableUpgrades.length > 0 && (
+              <View style={[styles.availableUpgradesBox, quotation.lineItems && quotation.lineItems.length > 0 ? { marginTop: 4 } : { marginTop: 0 }]}>
+                <Text style={styles.availableUpgradesTitle}>
+                  {lang === 'es'
+                    ? '✦ Mejoras Opcionales Disponibles (No incluidas en el total de la cotización):'
+                    : '✦ Available Optional Upgrades (Not included in quotation total):'}
+                </Text>
+                {availableUpgrades.map((upg, idx) => (
+                  <Text key={idx} style={styles.availableUpgradeItem}>
+                    • {lang === 'es' ? upg.es : upg.en}
+                  </Text>
+                ))}
+              </View>
+            )}
           </View>
         ) : null}
 
-        <View style={styles.grid2} wrap={false}>
-          {snapshot.mealsByDay ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{l.mealsByDay}</Text>
-              <Text style={styles.cardText}>{snapshot.mealsByDay}</Text>
+        {/* SECTION D: IMPORTANT TRAVEL INFORMATION */}
+        <View wrap={false}>
+          <Text style={styles.secHeadingD}>{l.sectionD}</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.infoGrid}>
+              <View style={styles.infoBox}>
+                <Text style={styles.infoTitle}>{l.pickupScheduleTitle}</Text>
+                <Text style={styles.infoText}>
+                  {getDepartureScheduleText()}
+                </Text>
+              </View>
+              <View style={styles.infoBox}>
+                <Text style={styles.infoTitle}>{l.passportTitle}</Text>
+                <Text style={styles.infoText}>
+                  {lang === 'es'
+                    ? 'Pasaporte físico original (o cédula panameña) OBLIGATORIO en el control fronterizo Guna. Fotos o copias estrictamente rechazadas.'
+                    : 'Original physical passport (or Panamanian cédula) REQUIRED at the Guna border checkpoint. Digital copies or photos rejected.'}
+                </Text>
+              </View>
             </View>
-          ) : null}
-
-          {snapshot.groundTransportationDetails ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{l.groundTransportation}</Text>
-              <Text style={styles.cardText}>{lang === 'es' ? 'Tipo' : 'Type'}: {quotation.groundTransportation}. {snapshot.groundTransportationDetails}</Text>
+            <View style={styles.infoGrid}>
+              <View style={styles.infoBox}>
+                <Text style={styles.infoTitle}>{l.cashTitle}</Text>
+                <Text style={styles.infoText}>
+                  {lang === 'es'
+                    ? 'Sin cajeros ni tarjetas en las islas. Traer efectivo USD en billetes pequeños ($1, $5, $10, $20) para impuesto ($22 extranjero, $7 residente) y bebidas.'
+                    : 'No ATMs or cards on islands. Bring USD cash in small bills ($1, $5, $10, $20) for entry tax ($22 foreigner, $7 resident) and beverages.'}
+                </Text>
+              </View>
+              <View style={styles.infoBox}>
+                <Text style={styles.infoTitle}>{l.luggageTitle}</Text>
+                <Text style={styles.infoText}>
+                  {lang === 'es'
+                    ? 'Límite estricto de 1 equipaje de mano / mochila por pasajero por espacio en SUV 4x4 y lancha. Llevar protector solar y bolsa impermeable.'
+                    : 'Strict limit of 1 standard carry-on / backpack per guest due to 4x4 SUV and boat capacity. Bring sunscreen and waterproof bag.'}
+                </Text>
+              </View>
             </View>
-          ) : null}
+          </View>
         </View>
 
-        <View style={styles.grid2} wrap={false}>
-          {snapshot.boatTransferDetails ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{l.boatTransfers}</Text>
-              <Text style={styles.cardText}>{lang === 'es' ? 'Tipo' : 'Type'}: {quotation.boatTransfers}. {snapshot.boatTransferDetails}</Text>
-            </View>
-          ) : null}
-
-          {snapshot.toursAndActivities ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{l.includedToursActivities}</Text>
-              <Text style={styles.cardText}>{snapshot.toursAndActivities}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.grid2} wrap={false}>
-          {snapshot.islandSchedule ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{l.islandScheduleTiming}</Text>
-              <Text style={styles.cardText}>{snapshot.islandSchedule}</Text>
-            </View>
-          ) : null}
-
-          {snapshot.importantInstructions ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{l.importantTravelInstructions}</Text>
-              <Text style={styles.cardText}>{snapshot.importantInstructions}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        {/* What Is Excluded */}
-        <View style={styles.excCard} wrap={false}>
-          <Text style={styles.cardTitle}>{l.whatIsExcluded}</Text>
-          {exclusions.map((exc, i) => (
-            <Text key={i} style={styles.excListItem}>✕ {exc}</Text>
-          ))}
-        </View>
-
-        {/* Destination Photos Gallery */}
-        {displayPhotos.length > 0 ? (
+        {/* Destination Photos Gallery — Only Petra-Confirmed Authentic Photos */}
+        {verifiedPhotos.length > 0 ? (
           <View wrap={false}>
             <Text style={styles.sectionHeading}>{l.destinationVisualShowcase}</Text>
             <View style={styles.photoContainer}>
-              {displayPhotos.map((photo) => {
+              {verifiedPhotos.map((photo) => {
                 const badgeInfo = getPhotoBadgeInfo(photo);
                 return (
                   <View style={styles.photoCard} key={photo.id} wrap={false}>
@@ -848,15 +1241,7 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
                     ) : null}
                     <Text style={styles.photoTitle}>{photo.title}</Text>
                     <Text style={styles.photoCaption}>{photo.caption}</Text>
-                    {badgeInfo.type === 'unverified_upload' ? (
-                      <Text style={styles.unverifiedBadge}>
-                        Photo — destination/accommodation unverified.
-                      </Text>
-                    ) : badgeInfo.type === 'demo_illustration' ? (
-                      <Text style={styles.unverifiedBadge}>
-                        Demo illustration — not an actual destination or accommodation photo.
-                      </Text>
-                    ) : badgeInfo.type === 'verified' ? (
+                    {badgeInfo.type === 'verified' ? (
                       <Text style={styles.verifiedBadge}>
                         Confirmed photo — verified by Petra
                       </Text>
@@ -871,6 +1256,13 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
         {/* Booking Terms & Conditions Container */}
         <View style={styles.conditionsBox} wrap={false}>
           <Text style={styles.cardTitle}>{conditionsHeading}</Text>
+          {quotation.termsStatus !== 'Approved by Petra' && (
+            <Text style={{ fontSize: 7.5, color: '#92400E', fontStyle: 'italic', marginBottom: 6 }}>
+              {lang === 'es'
+                ? 'Nota: Estos términos son un borrador informativo para revisión previa. La confirmación formal de la reserva estará sujeta a la aprobación de términos y condiciones definitivos por parte de Petra.'
+                : 'Note: These booking terms are an informational draft for preliminary review. Formal reservation confirmation remains subject to definitive terms approved by Petra.'}
+            </Text>
+          )}
           <Text style={styles.cardText}>
             <Text style={{ fontFamily: 'NimbusSans', fontWeight: 'bold' }}>{lang === 'es' ? '1. Programa de Pagos y Depósito: ' : '1. Payment Schedule & Deposit: '}</Text>
             {getCombinedPayAndDeposit(
@@ -907,7 +1299,7 @@ export const QuotationPdfDocument: React.FC<QuotationPdfDocumentProps> = ({
         {/* Executive Footer on Every Page */}
         <View style={styles.fixedFooter} fixed>
           <Text style={styles.fixedFooterLabel}>
-            {l.officialProposalFooter} (REF: {quotation.reference})
+            {l.officialProposalFooter} (REF: {quotation.reference}){quotation.termsStatus === 'Approved by Petra' ? '' : (lang === 'es' ? ' [BORRADOR INFORMATIVO]' : ' [INFORMATIONAL DRAFT]')}
           </Text>
           <Text
             style={styles.fixedFooterPage}
