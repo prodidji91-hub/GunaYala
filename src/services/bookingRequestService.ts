@@ -114,19 +114,20 @@ export class BookingRequestService {
 
         const resData = await response.json();
 
-        if (!response.ok || !resData.success) {
-          throw new Error(resData.error || `Server error (${response.status})`);
+        if (!response.ok || !resData.success || !resData.dbSaved || !resData.bookingReference) {
+          throw new Error(
+            resData.error ||
+              `Booking persistence could not be verified by server (${response.status}).`
+          );
         }
 
-        if (resData.success && resData.bookingReference) {
-          return {
-            success: true,
-            bookingReference: resData.bookingReference,
-            status: resData.status || 'request_received',
-            idempotentReplay: Boolean(resData.idempotentReplay),
-            message: resData.message || 'Booking request submitted successfully.',
-          };
-        }
+        return {
+          success: true,
+          bookingReference: resData.bookingReference,
+          status: resData.status || 'request_received',
+          idempotentReplay: Boolean(resData.idempotentReplay),
+          message: resData.message || 'Booking request submitted successfully.',
+        };
       } catch (err: any) {
         console.warn(`[BookingRequestService] Attempt on ${endpoint} failed:`, err.message);
         lastError = err.message || 'Network error';
