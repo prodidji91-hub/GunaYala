@@ -12,13 +12,13 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ currentLang, onPlanClick }) 
   const t = TRANSLATIONS[currentLang];
 
   return (
-    <section className="py-24 sm:py-32 bg-[#0B2924] text-[#F6F2E9] relative overflow-hidden border-t border-[#C8AC75]/25">
+    <section className="py-24 sm:py-32 bg-[#173D36] text-[#FAF8F2] relative overflow-hidden border-t border-[#C5A46B]/30">
       {/* Background ambient light */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] bg-[#153B49]/40 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] bg-[#55B8B3]/15 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-7">
-        <div className="inline-flex items-center gap-2 text-xs font-sans font-semibold uppercase tracking-[0.25em] text-[#C8AC75]">
-          <Sparkles className="w-3.5 h-3.5 text-[#C8AC75]" />
+        <div className="inline-flex items-center gap-2 text-xs font-sans font-semibold uppercase tracking-[0.25em] text-[#C5A46B]">
+          <Sparkles className="w-3.5 h-3.5 text-[#55B8B3]" />
           <span>Direct Guna Hospitality · San Blas Islands</span>
         </div>
 
@@ -26,16 +26,16 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ currentLang, onPlanClick }) 
           {t.finalCta.headline}
         </h2>
 
-        <p className="text-sm sm:text-base md:text-lg text-[#F6F2E9]/85 max-w-2xl mx-auto leading-relaxed font-sans font-light">
+        <p className="text-sm sm:text-base md:text-lg text-white/90 max-w-2xl mx-auto leading-relaxed font-sans font-light">
           {t.finalCta.subtitle}
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
           <button
             onClick={onPlanClick}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 py-4 px-8 text-xs font-sans font-semibold tracking-[0.16em] uppercase text-[#0B2924] bg-[#C8AC75] hover:bg-[#dfc38d] rounded-full shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 focus:outline-none"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 py-4 px-8 text-xs font-sans font-semibold tracking-[0.16em] uppercase text-[#173D36] bg-[#C5A46B] hover:bg-[#dfc38d] rounded-full shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 focus:outline-none cursor-pointer"
           >
-            <Calendar className="w-4 h-4 text-[#0B2924]" />
+            <Calendar className="w-4 h-4 text-[#173D36]" />
             <span>{t.finalCta.planTripBtn}</span>
           </button>
 
@@ -43,9 +43,9 @@ export const FinalCta: React.FC<FinalCtaProps> = ({ currentLang, onPlanClick }) 
             href="https://wa.me/50764443649"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 py-4 px-7 text-xs font-sans font-medium tracking-[0.16em] uppercase text-[#F6F2E9] hover:text-[#C8AC75] bg-white/10 hover:bg-white/15 border border-[#C8AC75]/40 rounded-full backdrop-blur-md transition-all duration-300 hover:scale-102 active:scale-95 focus:outline-none"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 py-4 px-7 text-xs font-sans font-medium tracking-[0.16em] uppercase text-white hover:text-[#C5A46B] bg-white/10 hover:bg-white/15 border border-[#C5A46B]/40 rounded-full backdrop-blur-md transition-all duration-300 hover:scale-102 active:scale-95 focus:outline-none cursor-pointer"
           >
-            <MessageCircle className="w-4 h-4 text-[#C8AC75]" />
+            <MessageCircle className="w-4 h-4 text-[#C5A46B]" />
             <span>{t.finalCta.whatsappDirectBtn}</span>
           </a>
         </div>

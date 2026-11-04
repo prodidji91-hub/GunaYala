@@ -744,22 +744,22 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
   };
 
   return (
-    <section id="islands" className="bg-[#06121e] text-[#f6f2e9] py-12 sm:py-16 md:py-20 px-4 sm:px-6 md:px-8 relative overflow-hidden border-t border-[#1e3a5f]/60">
+    <section id="islands" className="bg-[#F0E7D8] text-[#173D36] py-12 sm:py-16 md:py-20 px-4 sm:px-6 md:px-8 relative overflow-hidden border-t border-[#E2D2BB]">
       <div className="max-w-7xl mx-auto space-y-5 sm:space-y-6 md:space-y-7">
         {/* ========================================================
             1. SECTION HEADER
            ======================================================== */}
         <div className="text-center space-y-2 sm:space-y-2.5 max-w-3xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-[#c8ac75]/15 border border-[#c8ac75]/40 text-[#c8ac75] text-[11px] font-mono uppercase tracking-[0.25em]">
-            <Compass className="w-3.5 h-3.5 text-[#c8ac75]" />
+          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-[#FAF8F2] border border-[#E2D2BB] text-[#173D36] text-[11px] font-mono uppercase tracking-[0.25em] shadow-xs">
+            <Compass className="w-3.5 h-3.5 text-[#55B8B3]" />
             <span>{isEs ? 'Colección de Islas Oficial' : 'Official Island Collection'}</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif text-[#f6f2e9] tracking-tight">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif text-[#173D36] tracking-tight">
             DISCOVER THE ISLANDS OF GUNA YALA
           </h2>
 
-          <p className="text-sm sm:text-base text-[#cbd5e1] font-light leading-relaxed max-w-2xl mx-auto">
+          <p className="text-sm sm:text-base text-[#53645E] font-light leading-relaxed max-w-2xl mx-auto">
             {isEs
               ? 'Siete experiencias insulares extraordinarias, cada una con su propio carácter, belleza natural y hospitalidad local.'
               : 'Seven extraordinary island experiences, each with its own character, natural beauty, and local hospitality.'}
@@ -776,13 +776,13 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
               <button
                 key={isl.id}
                 onClick={() => handleSelectIsland(idx)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-mono uppercase tracking-wider transition-all shrink-0 border ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-mono uppercase tracking-wider transition-all shrink-0 border cursor-pointer ${
                   isSelected
-                    ? 'bg-[#c8ac75] text-[#06121e] border-[#c8ac75] font-bold shadow-md scale-102 ring-2 ring-[#c8ac75]/40'
-                    : 'bg-[#091b2e]/90 text-[#94a3b8] border-[#1e3a5f] hover:text-white hover:border-[#c8ac75]/50'
+                    ? 'bg-[#173D36] text-white border-[#173D36] font-bold shadow-md scale-102 ring-2 ring-[#55B8B3]/40'
+                    : 'bg-white/80 text-[#173D36] border-[#E2D2BB] hover:bg-white hover:border-[#55B8B3]'
                 }`}
               >
-                <div className="w-5 h-5 rounded-md overflow-hidden border border-white/20 shrink-0">
+                <div className="w-5 h-5 rounded-md overflow-hidden border border-black/10 shrink-0">
                   <img src={isl.image} alt={isl.name} className="w-full h-full object-cover" />
                 </div>
                 <span>{isl.name}</span>
@@ -792,13 +792,13 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
         </div>
 
         {/* ========================================================
-            3. MAIN INTERACTIVE ISLAND DISPLAY PANEL (DESIGN 03)
+            3. MAIN INTERACTIVE ISLAND DISPLAY PANEL
            ======================================================== */}
-        <div className="bg-[#091b2e]/90 rounded-3xl border border-[#1e3a5f] p-5 sm:p-7 md:p-8 shadow-2xl space-y-6 relative overflow-hidden">
+        <div className="bg-white rounded-3xl border border-[#E2D2BB] p-5 sm:p-7 md:p-8 shadow-md space-y-6 relative overflow-hidden">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
             {/* LEFT: Cinematic Destination Photograph */}
             <div className="lg:col-span-7 space-y-4">
-              <div className="relative aspect-[16/10] sm:aspect-[16/9] rounded-2xl overflow-hidden border border-[#c8ac75]/30 bg-[#06121e] shadow-2xl group">
+              <div className="relative aspect-[16/10] sm:aspect-[16/9] rounded-2xl overflow-hidden border border-[#E2D2BB] bg-[#FAF8F2] shadow-md group">
                 <img
                   key={currentIsland.id}
                   src={currentIsland.image}
@@ -806,14 +806,14 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
                   className="w-full h-full object-cover transition-all duration-700 animate-in fade-in zoom-in-95 group-hover:scale-105"
                   loading="eager"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
 
                 {/* Verification Status Badge */}
                 <div className="absolute top-4 left-4 z-10">
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-widest backdrop-blur-md border ${
                     currentIsland.isVerifiedImage
-                      ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/40'
-                      : 'bg-amber-950/80 text-amber-300 border-amber-500/40'
+                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                      : 'bg-amber-950/80 text-amber-200 border-amber-500/40'
                   }`}>
                     <Sparkles className="w-3 h-3" />
                     <span>{currentIsland.isVerifiedImage ? (isEs ? 'Fotografía Verificada' : 'Verified Photo') : (isEs ? 'Muestra Preliminar' : 'Preview Media')}</span>
@@ -821,20 +821,20 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
                 </div>
 
                 {/* Island Overlay Title */}
-                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs font-mono text-[#c8ac75] bg-black/65 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10">
+                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs font-mono text-[#C5A46B] bg-black/65 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/20">
                   <span className="font-serif text-sm font-semibold text-white">{currentIsland.title}</span>
                   <span>Guna Yala · San Blas</span>
                 </div>
               </div>
 
               {/* Documented Starting Rate Strip */}
-              <div className="p-4 rounded-2xl bg-[#06121e]/90 border border-[#c8ac75]/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono">
-                <div className="flex items-center gap-2 text-[#c8ac75]">
-                  <Sparkles className="w-4 h-4" />
-                  <span>{isEs ? 'Tarifa Documentada:' : 'Documented Rate:'}</span>
-                  <span className="text-white font-bold text-sm">{currentIsland.firstNightRate[currentLang]}</span>
+              <div className="p-4 rounded-2xl bg-[#FAF8F2] border border-[#E2D2BB] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono">
+                <div className="flex items-center gap-2 text-[#C5A46B]">
+                  <Sparkles className="w-4 h-4 text-[#55B8B3]" />
+                  <span className="text-[#173D36] font-semibold">{isEs ? 'Tarifa Documentada:' : 'Documented Rate:'}</span>
+                  <span className="text-[#173D36] font-bold text-sm">{currentIsland.firstNightRate[currentLang]}</span>
                 </div>
-                <div className="text-[#94a3b8] text-[11px]">
+                <div className="text-[#53645E] text-[11px]">
                   {currentIsland.additionalNightRate[currentLang]}
                 </div>
               </div>
@@ -843,41 +843,41 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
             {/* RIGHT: Detailed Information Panel */}
             <div className="lg:col-span-5 space-y-6">
               <div className="space-y-2">
-                <div className="text-xs font-mono uppercase tracking-widest text-[#c8ac75]">
+                <div className="text-xs font-mono uppercase tracking-widest text-[#C5A46B] font-semibold">
                   {currentIsland.name} (Guna Yala)
                 </div>
-                <h3 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">
+                <h3 className="text-3xl sm:text-4xl font-serif text-[#173D36] tracking-tight">
                   {currentIsland.title}
                 </h3>
-                <p className="text-base font-serif italic text-[#c8ac75]">
+                <p className="text-base font-serif italic text-[#C5A46B]">
                   {currentIsland.subtitle[currentLang]}
                 </p>
               </div>
 
-              <div className="h-px w-20 bg-[#c8ac75]" />
+              <div className="h-px w-20 bg-[#C5A46B]" />
 
-              <p className="text-sm text-[#cbd5e1] font-light leading-relaxed">
+              <p className="text-sm text-[#53645E] font-light leading-relaxed">
                 {currentIsland.description[currentLang]}
               </p>
 
-              <div className="p-4 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-1">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-[#c8ac75] block font-semibold">
+              <div className="p-4 rounded-2xl bg-[#FAF8F2] border border-[#E2D2BB] space-y-1">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-[#C5A46B] block font-semibold">
                   {isEs ? 'Alojamiento Incluido:' : 'Included Accommodation:'}
                 </span>
-                <p className="text-xs text-white font-medium">
+                <p className="text-xs text-[#173D36] font-medium">
                   {currentIsland.accommodation[currentLang]}
                 </p>
               </div>
 
               {/* Interactive Highlights List */}
               <div className="space-y-2 pt-2">
-                <span className="text-xs font-mono uppercase tracking-widest text-[#c8ac75] block">
+                <span className="text-xs font-mono uppercase tracking-widest text-[#C5A46B] block font-semibold">
                   {isEs ? 'Aspectos Destacados de la Isla:' : 'Key Island Highlights:'}
                 </span>
                 <div className="space-y-1.5">
                   {currentIsland.highlights[currentLang].map((hl, hIdx) => (
-                    <div key={hIdx} className="flex items-start gap-2 text-xs text-[#cbd5e1]">
-                      <Check className="w-4 h-4 text-[#c8ac75] shrink-0 mt-0.5" />
+                    <div key={hIdx} className="flex items-start gap-2 text-xs text-[#53645E]">
+                      <Check className="w-4 h-4 text-[#55B8B3] shrink-0 mt-0.5" />
                       <span>{hl}</span>
                     </div>
                   ))}
@@ -886,7 +886,7 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
 
               {/* Optional Cultural Activity Note if Present */}
               {currentIsland.optionalActivity && (
-                <div className="p-3 rounded-xl bg-[#c8ac75]/10 border border-[#c8ac75]/30 text-xs text-[#c8ac75]">
+                <div className="p-3 rounded-xl bg-[#FAF8F2] border border-[#E2D2BB] text-xs text-[#173D36]">
                   {currentIsland.optionalActivity[currentLang]}
                 </div>
               )}
@@ -895,10 +895,10 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
               <div className="pt-2">
                 <button
                   onClick={() => onOpenPlanner?.('overnight', currentIsland.name)}
-                  className="w-full py-4 px-6 rounded-2xl bg-[#c8ac75] hover:bg-[#d4af37] text-[#06121e] font-mono font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xl hover:shadow-[#c8ac75]/20"
+                  className="w-full py-4 px-6 rounded-2xl bg-[#173D36] hover:bg-[#1f5047] text-white font-mono font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-md hover:scale-[1.01] cursor-pointer"
                 >
                   <span>{isEs ? 'SOLICITAR ESTA EXPERIENCIA' : 'REQUEST THIS EXPERIENCE'}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4 text-[#C5A46B]" />
                 </button>
               </div>
             </div>
@@ -907,35 +907,35 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
           {/* ========================================================
               4. EXPANDABLE PACKAGE DETAILS ACCORDION
              ======================================================== */}
-          <div className="border-t border-[#1e3a5f] pt-6">
+          <div className="border-t border-[#E2D2BB] pt-6">
             <button
               onClick={() => setIsPackageExpanded(!isPackageExpanded)}
-              className="w-full py-3 px-4 rounded-2xl bg-[#06121e] border border-[#1e3a5f] hover:border-[#c8ac75]/50 flex items-center justify-between text-xs font-mono text-[#c8ac75] uppercase tracking-wider transition-all"
+              className="w-full py-3 px-4 rounded-2xl bg-[#FAF8F2] border border-[#E2D2BB] hover:border-[#55B8B3] flex items-center justify-between text-xs font-mono text-[#173D36] uppercase tracking-wider transition-all cursor-pointer"
             >
               <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-[#c8ac75]" />
+                <Layers className="w-4 h-4 text-[#55B8B3]" />
                 <span>
                   {isEs
                     ? `Ver Detalles del Paquete y Logística para ${currentIsland.name}`
                     : `View Package Details & Logistics for ${currentIsland.name}`}
                 </span>
               </div>
-              {isPackageExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              {isPackageExpanded ? <ChevronUp className="w-4 h-4 text-[#173D36]" /> : <ChevronDown className="w-4 h-4 text-[#173D36]" />}
             </button>
 
             {isPackageExpanded && (
-              <div className="mt-4 p-6 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-6 text-xs text-[#cbd5e1] font-light animate-in fade-in duration-300">
+              <div className="mt-4 p-6 rounded-2xl bg-[#FAF8F2] border border-[#E2D2BB] space-y-6 text-xs text-[#53645E] font-light animate-in fade-in duration-300">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Included Services */}
                   <div className="space-y-2">
-                    <h4 className="font-mono text-xs text-[#c8ac75] uppercase tracking-wider font-semibold flex items-center gap-1.5">
-                      <Check className="w-4 h-4 text-emerald-400" />
+                    <h4 className="font-mono text-xs text-[#173D36] uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-600" />
                       <span>{isEs ? 'Lo Que Incluye El Paquete' : 'What is Included'}</span>
                     </h4>
                     <ul className="space-y-1.5 pl-2">
                       {currentIsland.packageInclusions.included[currentLang].map((inc, iIdx) => (
                         <li key={iIdx} className="flex items-start gap-2">
-                          <span className="text-emerald-400 font-bold">•</span>
+                          <span className="text-emerald-600 font-bold">•</span>
                           <span>{inc}</span>
                         </li>
                       ))}
@@ -944,14 +944,14 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
 
                   {/* Excluded Services & Cash Notes */}
                   <div className="space-y-2">
-                    <h4 className="font-mono text-xs text-[#c8ac75] uppercase tracking-wider font-semibold flex items-center gap-1.5">
-                      <X className="w-4 h-4 text-amber-400" />
+                    <h4 className="font-mono text-xs text-[#173D36] uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <X className="w-4 h-4 text-amber-600" />
                       <span>{isEs ? 'Lo Que NO Incluye / Gastos en Efectivo' : 'What is Not Included / Cash Fees'}</span>
                     </h4>
                     <ul className="space-y-1.5 pl-2">
                       {currentIsland.packageInclusions.excluded[currentLang].map((exc, eIdx) => (
                         <li key={eIdx} className="flex items-start gap-2">
-                          <span className="text-amber-400 font-bold">•</span>
+                          <span className="text-amber-600 font-bold">•</span>
                           <span>{exc}</span>
                         </li>
                       ))}
@@ -960,26 +960,26 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
                 </div>
 
                 {/* Transportation & Meals Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-[#1e3a5f] pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-[#E2D2BB] pt-4">
                   <div className="space-y-1">
-                    <span className="font-mono text-[10px] text-[#c8ac75] uppercase tracking-wider block font-semibold flex items-center gap-1">
-                      <Car className="w-3.5 h-3.5" />
+                    <span className="font-mono text-[10px] text-[#C5A46B] uppercase tracking-wider block font-semibold flex items-center gap-1">
+                      <Car className="w-3.5 h-3.5 text-[#55B8B3]" />
                       <span>{isEs ? 'Transporte' : 'Transportation'}</span>
                     </span>
                     <p className="text-[11px] leading-relaxed">{currentIsland.packageInclusions.transportation[currentLang]}</p>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="font-mono text-[10px] text-[#c8ac75] uppercase tracking-wider block font-semibold flex items-center gap-1">
-                      <Utensils className="w-3.5 h-3.5" />
+                    <span className="font-mono text-[10px] text-[#C5A46B] uppercase tracking-wider block font-semibold flex items-center gap-1">
+                      <Utensils className="w-3.5 h-3.5 text-[#55B8B3]" />
                       <span>{isEs ? 'Alimentación' : 'Meals'}</span>
                     </span>
                     <p className="text-[11px] leading-relaxed">{currentIsland.packageInclusions.meals[currentLang]}</p>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="font-mono text-[10px] text-[#c8ac75] uppercase tracking-wider block font-semibold flex items-center gap-1">
-                      <Ship className="w-3.5 h-3.5" />
+                    <span className="font-mono text-[10px] text-[#C5A46B] uppercase tracking-wider block font-semibold flex items-center gap-1">
+                      <Ship className="w-3.5 h-3.5 text-[#55B8B3]" />
                       <span>{isEs ? 'Excursiones' : 'Excursions'}</span>
                     </span>
                     <p className="text-[11px] leading-relaxed">{currentIsland.packageInclusions.excursions[currentLang]}</p>
@@ -987,8 +987,8 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
                 </div>
 
                 {/* Required Confirmation Notice */}
-                <div className="p-3.5 rounded-xl bg-[#0b2438] border border-[#1e3a5f] flex items-start gap-2.5 text-[11px] text-[#94a3b8]">
-                  <ShieldAlert className="w-4 h-4 text-[#c8ac75] shrink-0 mt-0.5" />
+                <div className="p-3.5 rounded-xl bg-white border border-[#E2D2BB] flex items-start gap-2.5 text-[11px] text-[#53645E]">
+                  <ShieldAlert className="w-4 h-4 text-[#C5A46B] shrink-0 mt-0.5" />
                   <p>
                     {isEs
                       ? 'Entrada al territorio de Guna Yala: USD $22 por visitante extranjero de 10 años o más, o USD $7 para ciudadanos y residentes panameños. Se paga en efectivo en el puesto de control. Esta tarifa no está incluida en el precio del paquete.'
@@ -1001,44 +1001,44 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
         </div>
 
         {/* ========================================================
-            5. DAY TOURS INTEGRATION STRIP (PHASE 5)
+            5. DAY TOURS INTEGRATION STRIP
            ======================================================== */}
-        <div className="p-8 rounded-3xl bg-gradient-to-r from-[#0b2438] via-[#091b2e] to-[#0b2438] border border-[#c8ac75]/40 shadow-2xl space-y-6">
+        <div className="p-8 rounded-3xl bg-white border border-[#E2D2BB] shadow-md space-y-6">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-[#c8ac75]">
-                <Sun className="w-4 h-4" />
+              <div className="inline-flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-[#C5A46B] font-semibold">
+                <Sun className="w-4 h-4 text-[#55B8B3]" />
                 <span>{isEs ? 'Opciones de Pasadías (Day Tours)' : 'Official Day Tour Packages'}</span>
               </div>
-              <h3 className="text-2xl font-serif text-white mt-1">
+              <h3 className="text-2xl font-serif text-[#173D36] mt-1">
                 {isEs ? '¿Prefieres Visitar San Blas en Pasadía de Un Día?' : 'Prefer a Single Day Caribbean Excursion?'}
               </h3>
             </div>
 
-            <span className="text-[11px] font-mono text-[#c8ac75] italic">
+            <span className="text-[11px] font-mono text-[#53645E] italic">
               {isEs ? 'Precios sujeto a confirmación final de Petra' : 'Provisional rates subject to Petra’s approval'}
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Day Tour Panama City */}
-            <div className="p-6 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-4">
+            <div className="p-6 rounded-2xl bg-[#FAF8F2] border border-[#E2D2BB] space-y-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#38bdf8]">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#55B8B3] font-semibold">
                     {isEs ? 'Pasadía Completo con Traslado' : 'Full Day Tour with Transport'}
                   </span>
-                  <h4 className="text-lg font-serif text-white font-medium">
+                  <h4 className="text-lg font-serif text-[#173D36] font-medium">
                     {isEs ? 'Pasadía desde Ciudad de Panamá' : 'Day Tour from Panama City'}
                   </h4>
                 </div>
                 <div className="text-right font-mono">
-                  <div className="text-lg font-bold text-[#c8ac75]">USD 145</div>
-                  <div className="text-[10px] text-[#94a3b8]">{isEs ? '/ persona' : '/ person'}</div>
+                  <div className="text-lg font-bold text-[#173D36]">USD 145</div>
+                  <div className="text-[10px] text-[#53645E]">{isEs ? '/ persona' : '/ person'}</div>
                 </div>
               </div>
 
-              <p className="text-xs text-[#cbd5e1] leading-relaxed">
+              <p className="text-xs text-[#53645E] leading-relaxed">
                 {isEs
                   ? 'Incluye transporte 4x4 ida y vuelta desde Ciudad de Panamá, recorrido en lancha, visita a 2 islas, Piscina Natural, almuerzo con 1 bebida, equipo de snorkel y guía guna.'
                   : 'Includes round-trip 4x4 transport from Panama City, boat excursion, 2 islands, Natural Pool, lunch with 1 drink, snorkeling equipment, and Guna guide.'}
@@ -1046,30 +1046,30 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
 
               <button
                 onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Panama City')}
-                className="w-full py-2.5 rounded-xl bg-[#0e7490] hover:bg-[#0284c7] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+                className="w-full py-2.5 rounded-xl bg-[#173D36] hover:bg-[#1f5047] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all cursor-pointer shadow-xs"
               >
                 {isEs ? 'SOLICITAR PASADÍA COMPLETO' : 'REQUEST FULL DAY TOUR'}
               </button>
             </div>
 
             {/* Day Tour Port */}
-            <div className="p-6 rounded-2xl bg-[#06121e] border border-[#1e3a5f] space-y-4">
+            <div className="p-6 rounded-2xl bg-[#FAF8F2] border border-[#E2D2BB] space-y-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#38bdf8]">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#55B8B3] font-semibold">
                     {isEs ? 'Pasadía Marítimo Desde Puerto' : 'Maritime Day Tour from Port'}
                   </span>
-                  <h4 className="text-lg font-serif text-white font-medium">
+                  <h4 className="text-lg font-serif text-[#173D36] font-medium">
                     {isEs ? 'Pasadía desde Puerto Cartí' : 'Day Tour from Guna Yala Port'}
                   </h4>
                 </div>
                 <div className="text-right font-mono">
-                  <div className="text-lg font-bold text-[#c8ac75]">USD 69</div>
-                  <div className="text-[10px] text-[#94a3b8]">{isEs ? '/ persona' : '/ person'}</div>
+                  <div className="text-lg font-bold text-[#173D36]">USD 69</div>
+                  <div className="text-[10px] text-[#53645E]">{isEs ? '/ persona' : '/ person'}</div>
                 </div>
               </div>
 
-              <p className="text-xs text-[#cbd5e1] leading-relaxed">
+              <p className="text-xs text-[#53645E] leading-relaxed">
                 {isEs
                   ? 'Incluye excursión en lancha compartida desde Puerto Cartí, visita a 2 islas, Piscina Natural, almuerzo con 1 bebida, equipo de snorkel y guía guna. (No incluye traslado terrestre).'
                   : 'Includes shared boat excursion from Cartí Port, 2 islands, Natural Pool, lunch with 1 drink, snorkeling gear, and Guna guide. (Ground transfer excluded).'}
@@ -1077,7 +1077,7 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
 
               <button
                 onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Guna Yala Port')}
-                className="w-full py-2.5 rounded-xl bg-[#0e7490] hover:bg-[#0284c7] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+                className="w-full py-2.5 rounded-xl bg-[#173D36] hover:bg-[#1f5047] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all cursor-pointer shadow-xs"
               >
                 {isEs ? 'SOLICITAR PASADÍA DESDE PUERTO' : 'REQUEST PORT DAY TOUR'}
               </button>

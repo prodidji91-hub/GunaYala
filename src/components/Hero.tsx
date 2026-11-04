@@ -45,8 +45,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
   const [cultureVideoError, setCultureVideoError] = useState(false);
 
   // Ambient audio states
-  const [isSoundEnabled, setIsSoundEnabled] = useState(false);
-  const [activeSoundPanel, setActiveSoundPanel] = useState<SoundPanel>('islands');
+  const [activeSoundPanel, setActiveSoundPanel] = useState<SoundPanel>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const sailingVideoRef = useRef<HTMLVideoElement>(null);
@@ -66,100 +65,23 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
     }
   };
 
-  // Ambient audio refs
+  // Ambient audio refs (bound to DOM audio elements)
   const islandsAudioRef = useRef<HTMLAudioElement | null>(null);
   const sailingAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const fadeIntervalRef = useRef<number | null>(null);
-
-  // Initialize ambient audio elements
+  // Stop ambient audio on component unmount
   useEffect(() => {
-    const a1 = new Audio('/audio/san-blas-beach.wav');
-    a1.loop = true;
-    a1.preload = 'auto';
-    a1.volume = 0;
-    islandsAudioRef.current = a1;
-
-    const a2 = new Audio('/audio/sailing-ambient.mp3');
-    a2.loop = true;
-    a2.preload = 'auto';
-    a2.volume = 0;
-    sailingAudioRef.current = a2;
-
     return () => {
-      a1.pause();
-      a2.pause();
+      if (islandsAudioRef.current) {
+        islandsAudioRef.current.pause();
+        islandsAudioRef.current.currentTime = 0;
+      }
+      if (sailingAudioRef.current) {
+        sailingAudioRef.current.pause();
+        sailingAudioRef.current.currentTime = 0;
+      }
     };
   }, []);
-
-  // Smooth crossfade management for audio soundscapes
-  useEffect(() => {
-    if (fadeIntervalRef.current) {
-      window.clearInterval(fadeIntervalRef.current);
-    }
-
-    const audioMap: Record<NonNullable<SoundPanel>, HTMLAudioElement | null> = {
-      islands: islandsAudioRef.current,
-      sailing: sailingAudioRef.current,
-    };
-
-    const targetVolumes: Record<NonNullable<SoundPanel>, number> = {
-      islands: isSoundEnabled && activeSoundPanel === 'islands' ? 0.35 : 0,
-      sailing: isSoundEnabled && activeSoundPanel === 'sailing' ? 0.35 : 0,
-    };
-
-    // Attempt playback if audio enabled
-    if (isSoundEnabled) {
-      Object.entries(audioMap).forEach(([key, audio]) => {
-        if (audio) {
-          const target = targetVolumes[key as NonNullable<SoundPanel>];
-          if (target > 0 && audio.paused) {
-            audio.play().catch((err) => {
-              console.warn('Audio playback prevented by browser policy:', err);
-            });
-          }
-        }
-      });
-    }
-
-    // Step-by-step smooth volume transition
-    fadeIntervalRef.current = window.setInterval(() => {
-      let allSettled = true;
-
-      (Object.keys(audioMap) as Array<NonNullable<SoundPanel>>).forEach((key) => {
-        const audio = audioMap[key];
-        if (!audio) return;
-
-        const target = targetVolumes[key];
-        const current = audio.volume;
-        const step = 0.08;
-
-        if (Math.abs(current - target) > step) {
-          allSettled = false;
-          if (current < target) {
-            audio.volume = Math.min(target, current + step);
-          } else {
-            audio.volume = Math.max(target, current - step);
-          }
-        } else {
-          audio.volume = target;
-          if (target === 0 && !audio.paused) {
-            audio.pause();
-          }
-        }
-      });
-
-      if (allSettled && fadeIntervalRef.current) {
-        window.clearInterval(fadeIntervalRef.current);
-      }
-    }, 40);
-
-    return () => {
-      if (fadeIntervalRef.current) {
-        window.clearInterval(fadeIntervalRef.current);
-      }
-    };
-  }, [isSoundEnabled, activeSoundPanel]);
 
   // Handle video playback
   useEffect(() => {
@@ -186,36 +108,73 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
     }
   }, [isPlaying]);
 
-  const togglePanelAudio = (panel: SoundPanel) => {
-    if (!isSoundEnabled) {
-      setIsSoundEnabled(true);
-      setActiveSoundPanel(panel);
-      const audio = panel === 'islands' ? islandsAudioRef.current : sailingAudioRef.current;
-      if (audio) {
-        audio.play().catch((err) => {
-          console.warn('Audio play error on user interaction:', err);
+  // Synchronous ambient audio controller bound directly to user gesture event stack
+  const togglePanelAudio = (panel: 'islands' | 'sailing') => {
+    const nextPanel = activeSoundPanel === panel ? null : panel;
+    setActiveSoundPanel(nextPanel);
+
+    const islandsAudio = islandsAudioRef.current;
+    const sailingAudio = sailingAudioRef.current;
+
+    if (nextPanel === 'islands') {
+      if (sailingAudio) {
+        sailingAudio.pause();
+        sailingAudio.currentTime = 0;
+      }
+      if (islandsAudio) {
+        islandsAudio.muted = false; // Explicitly ensure audio element is NOT muted
+        islandsAudio.volume = 1.0;  // Set initial volume to 1.0 per requirement
+        if (islandsAudio.readyState === 0) {
+          islandsAudio.load();
+        }
+        islandsAudio.play().then(() => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Hero Audio Debug] Playing Island Escape (Balanced V2):', {
+              src: islandsAudio.currentSrc,
+              muted: islandsAudio.muted,
+              volume: islandsAudio.volume,
+              readyState: islandsAudio.readyState,
+              paused: islandsAudio.paused,
+            });
+          }
+        }).catch((err) => {
+          console.error('[Hero Audio Error] Island Escape playback blocked/failed:', err, islandsAudio?.currentSrc);
         });
       }
-    } else if (activeSoundPanel === panel) {
-      setIsSoundEnabled(false);
-      const audio = panel === 'islands' ? islandsAudioRef.current : sailingAudioRef.current;
-      if (audio) {
-        audio.pause();
+    } else if (nextPanel === 'sailing') {
+      if (islandsAudio) {
+        islandsAudio.pause();
+        islandsAudio.currentTime = 0;
+      }
+      if (sailingAudio) {
+        sailingAudio.muted = false; // Explicitly ensure audio element is NOT muted
+        sailingAudio.volume = 0.7;  // Set comfortable volume
+        if (sailingAudio.readyState === 0) {
+          sailingAudio.load();
+        }
+        sailingAudio.play().then(() => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Hero Audio Debug] Playing Sailing Adventures:', {
+              src: sailingAudio.currentSrc,
+              muted: sailingAudio.muted,
+              volume: sailingAudio.volume,
+              readyState: sailingAudio.readyState,
+              paused: sailingAudio.paused,
+            });
+          }
+        }).catch((err) => {
+          console.error('[Hero Audio Error] Sailing Adventures playback blocked/failed:', err, sailingAudio?.currentSrc);
+        });
       }
     } else {
-      setActiveSoundPanel(panel);
-      const audio = panel === 'islands' ? islandsAudioRef.current : sailingAudioRef.current;
-      if (audio) {
-        audio.play().catch((err) => {
-          console.warn('Audio play error on user interaction:', err);
-        });
+      if (islandsAudio) {
+        islandsAudio.pause();
+        islandsAudio.currentTime = 0;
       }
-    }
-  };
-
-  const handlePanelHover = (panel: SoundPanel) => {
-    if (isSoundEnabled) {
-      setActiveSoundPanel(panel);
+      if (sailingAudio) {
+        sailingAudio.pause();
+        sailingAudio.currentTime = 0;
+      }
     }
   };
 
@@ -238,7 +197,6 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
         
         {/* PANEL 01 — THE ISLANDS */}
         <div 
-          onMouseEnter={() => handlePanelHover('islands')}
           className="relative flex-1 group transition-all duration-700 ease-out hover:lg:flex-[1.35] border-b-2 lg:border-b-0 lg:border-r-2 border-[#C8AC75] overflow-hidden flex flex-col justify-between min-h-[380px] sm:min-h-[440px] lg:min-h-0"
         >
           {/* Background Video / Photo Backdrop */}
@@ -283,12 +241,12 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 <button 
                   onClick={() => togglePanelAudio('islands')} 
                   className={`flex items-center space-x-1.5 text-xs transition-colors ${
-                    isSoundEnabled && activeSoundPanel === 'islands' ? 'text-[#C8AC75] font-semibold' : 'text-[#F6F2E9]/80 hover:text-[#C8AC75]'
+                    activeSoundPanel === 'islands' ? 'text-[#C8AC75] font-semibold' : 'text-[#F6F2E9]/80 hover:text-[#C8AC75]'
                   }`}
-                  aria-label={isSoundEnabled && activeSoundPanel === 'islands' ? "Mute audio" : "Play Islands soundscape"}
-                  title={isSoundEnabled && activeSoundPanel === 'islands' ? "Mute audio" : "Play Islands soundscape (ocean waves & tropical birds)"}
+                  aria-label={activeSoundPanel === 'islands' ? "Mute audio" : "Play Islands soundscape"}
+                  title={activeSoundPanel === 'islands' ? "Mute audio" : "Play Island Escape soundscape"}
                 >
-                  {isSoundEnabled && activeSoundPanel === 'islands' ? (
+                  {activeSoundPanel === 'islands' ? (
                     <>
                       <Volume2 className="w-3.5 h-3.5 text-[#C8AC75] animate-pulse" />
                       <div className="flex items-end space-x-[2px] h-3">
@@ -337,7 +295,6 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
 
         {/* PANEL 02 — SAILING */}
         <div 
-          onMouseEnter={() => handlePanelHover('sailing')}
           className="relative flex-1 group transition-all duration-700 ease-out hover:lg:flex-[1.35] border-b-2 lg:border-b-0 lg:border-r-2 border-[#C8AC75] overflow-hidden flex flex-col justify-between min-h-[380px] sm:min-h-[440px] lg:min-h-0"
         >
           {/* Background Video / Photo Backdrop */}
@@ -382,12 +339,12 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 <button 
                   onClick={() => togglePanelAudio('sailing')} 
                   className={`flex items-center space-x-1.5 text-xs transition-colors ${
-                    isSoundEnabled && activeSoundPanel === 'sailing' ? 'text-[#C8AC75] font-semibold' : 'text-[#F6F2E9]/80 hover:text-[#C8AC75]'
+                    activeSoundPanel === 'sailing' ? 'text-[#C8AC75] font-semibold' : 'text-[#F6F2E9]/80 hover:text-[#C8AC75]'
                   }`}
-                  aria-label={isSoundEnabled && activeSoundPanel === 'sailing' ? "Mute audio" : "Play Sailing soundscape"}
-                  title={isSoundEnabled && activeSoundPanel === 'sailing' ? "Mute audio" : "Play Sailing soundscape (ocean breeze & water splashes)"}
+                  aria-label={activeSoundPanel === 'sailing' ? "Mute audio" : "Play Sailing soundscape"}
+                  title={activeSoundPanel === 'sailing' ? "Mute audio" : "Play Sailing Adventures soundscape"}
                 >
-                  {isSoundEnabled && activeSoundPanel === 'sailing' ? (
+                  {activeSoundPanel === 'sailing' ? (
                     <>
                       <Volume2 className="w-3.5 h-3.5 text-[#C8AC75] animate-pulse" />
                       <div className="flex items-end space-x-[2px] h-3">
@@ -574,22 +531,38 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
           </div>
 
           <div className="flex items-center space-x-3 justify-center md:justify-start">
-            <Music className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${isSoundEnabled ? 'text-[#C8AC75] animate-pulse' : 'text-[#C8AC75]/60'}`} />
+            <Music className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${activeSoundPanel ? 'text-[#C8AC75] animate-pulse' : 'text-[#C8AC75]/60'}`} />
             <div>
               <div className="text-[11px] sm:text-xs text-[#C8AC75] uppercase tracking-wider font-semibold">
-                {isSoundEnabled 
-                  ? (language === 'en' ? `Audio: ${activeSoundPanel === 'islands' ? 'Islands' : activeSoundPanel === 'sailing' ? 'Sailing' : 'Culture'}` : `Audio: ${activeSoundPanel === 'islands' ? 'Islas' : activeSoundPanel === 'sailing' ? 'Navegación' : 'Cultura'}`)
+                {activeSoundPanel 
+                  ? (language === 'en' ? `Audio: ${activeSoundPanel === 'islands' ? 'Island Escape' : 'Sailing Adventures'}` : `Audio: ${activeSoundPanel === 'islands' ? 'Escapada de Isla' : 'Aventuras de Navegación'}`)
                   : (language === 'en' ? 'Ambient Soundscapes' : 'Sonidos Ambientales')}
               </div>
               <div className="text-[10px] sm:text-xs text-[#F6F2E9]/80 font-light">
-                {isSoundEnabled
-                  ? (language === 'en' ? 'Hover panels to switch soundscapes' : 'Pasa el cursor para cambiar sonido')
-                  : (language === 'en' ? 'Click sound button to enable audio' : 'Haz clic en el botón de audio para activar')}
+                {activeSoundPanel
+                  ? (language === 'en' ? 'Click active sound button to stop soundtrack' : 'Haz clic para detener el audio')
+                  : (language === 'en' ? 'Click sound button to play soundtrack' : 'Haz clic en el botón de audio para activar')}
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Hidden HTML5 Audio Elements for Ambient Soundscapes */}
+      <audio
+        ref={islandsAudioRef}
+        src="/audio/Island_Escape_Tropical_Birds_Waves_Music_Balanced_V2.mp3"
+        loop
+        preload="auto"
+        onError={(e) => console.error('[Hero Audio Error] Island Escape audio load error:', e)}
+      />
+      <audio
+        ref={sailingAudioRef}
+        src="/audio/escapesound.mp3"
+        loop
+        preload="auto"
+        onError={(e) => console.error('[Hero Audio Error] Sailing Adventures audio load error:', e)}
+      />
     </div>
   );
 };

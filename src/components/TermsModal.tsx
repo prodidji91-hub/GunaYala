@@ -23,24 +23,24 @@ export const TermsModal: React.FC<TermsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fadeIn">
-      <div className="bg-[#FAF8F5] border border-[#C8AC75]/40 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-[#FAF8F2] border border-[#E2D2BB] rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         
         {/* Header */}
-        <div className="bg-[#061815] text-[#FAF8F5] px-6 py-4 flex items-center justify-between border-b border-[#C8AC75]/20 shrink-0">
+        <div className="bg-[#173D36] text-[#FAF8F2] px-6 py-4 flex items-center justify-between border-b border-[#C5A46B]/30 shrink-0">
           <div className="flex items-center gap-2.5">
-            <Shield className="w-5 h-5 text-[#C8AC75]" />
+            <Shield className="w-5 h-5 text-[#C5A46B]" />
             <div>
               <h2 className="font-serif text-lg text-white font-medium">
                 {isEs ? 'Términos y Condiciones Oficiales' : 'Official Terms & Conditions'}
               </h2>
-              <span className="text-[10px] font-mono text-[#C8AC75]">
+              <span className="text-[10px] font-mono text-[#C5A46B]">
                 {isEs ? 'Actualizado: 18 de Octubre, 2026' : 'Effective Date: October 18, 2026'}
               </span>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-[#FAF8F5] transition-colors"
+            className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-[#FAF8F2] transition-colors cursor-pointer"
             title="Close"
           >
             <X className="w-5 h-5" />
@@ -48,27 +48,27 @@ export const TermsModal: React.FC<TermsModalProps> = ({
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-[#E2D8C5] bg-[#F2ECE0] shrink-0">
+        <div className="flex border-b border-[#E2D2BB] bg-[#F0E7D8] shrink-0">
           <button
             onClick={() => setActiveTab('day-trip')}
-            className={`flex-1 py-3 px-4 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 flex items-center justify-center gap-2 ${
+            className={`flex-1 py-3 px-4 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === 'day-trip'
-                ? 'border-[#061815] text-[#061815] bg-white'
-                : 'border-transparent text-[#64748b] hover:text-[#06121e]'
+                ? 'border-[#173D36] text-[#173D36] bg-white'
+                : 'border-transparent text-[#53645E] hover:text-[#173D36]'
             }`}
           >
-            <FileText className="w-3.5 h-3.5 text-[#C8AC75]" />
+            <FileText className="w-3.5 h-3.5 text-[#55B8B3]" />
             <span>{isEs ? 'Tour de Día Compartido (Day Tour)' : 'Shared Day Tour Terms'}</span>
           </button>
           <button
             onClick={() => setActiveTab('overnight')}
-            className={`flex-1 py-3 px-4 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 flex items-center justify-center gap-2 ${
+            className={`flex-1 py-3 px-4 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === 'overnight'
-                ? 'border-[#061815] text-[#061815] bg-white'
-                : 'border-transparent text-[#64748b] hover:text-[#06121e]'
+                ? 'border-[#173D36] text-[#173D36] bg-white'
+                : 'border-transparent text-[#53645E] hover:text-[#173D36]'
             }`}
           >
-            <FileText className="w-3.5 h-3.5 text-[#C8AC75]" />
+            <FileText className="w-3.5 h-3.5 text-[#55B8B3]" />
             <span>{isEs ? 'Estadía Nocturna (Overnight Stay)' : 'Overnight Stay Terms'}</span>
           </button>
         </div>

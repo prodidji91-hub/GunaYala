@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Language, Experience } from '../../types';
 import { EXPERIENCES_DATA } from '../../data/experiences';
 import { VisualAsset } from '../../pictures';
+import { bookingRequestService } from '../../services/bookingRequestService';
 import {
   Moon,
   Clock,
@@ -16,6 +17,7 @@ import {
   Sparkles,
   Info,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 
 interface OvernightFlowProps {
@@ -54,6 +56,9 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
   const [notes, setNotes] = useState<string>('');
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [assignedBookingRef, setAssignedBookingRef] = useState<string>('');
+  const [idempotencyKey] = useState<string>(() => bookingRequestService.generateIdempotencyKey());
 
   const validateInquiry = () => {
     const errors: { [key: string]: string } = {};
@@ -64,14 +69,50 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmitInquiry = (e: React.FormEvent) => {
+  const handleSubmitInquiry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!termsAccepted) {
       alert(isEs ? 'Debe aceptar los Términos y Condiciones para continuar.' : 'Please acknowledge the Terms & Conditions to proceed.');
       return;
     }
     if (validateInquiry()) {
-      setStep('submitted');
+      setIsSubmitting(true);
+      try {
+        const result = await bookingRequestService.submitBookingRequest({
+          idempotencyKey,
+          bookingType: 'overnight',
+          customerName: fullName,
+          customerEmail: email,
+          customerPhone: phone,
+          experienceTitle: selectedExperience.title[currentLang],
+          targetDate,
+          nights,
+          adults,
+          children,
+          accommodationPreference:
+            cabanaStyle === 'rustic'
+              ? 'Traditional Beachfront Cabana'
+              : cabanaStyle === 'private'
+              ? 'Private Room with Bath'
+              : 'Boat Cabin',
+          specialNotes: notes,
+          termsAccepted: true,
+          termsVersion: '2026-10-18',
+          customerLanguage: currentLang,
+        });
+
+        if (result.success && result.bookingReference) {
+          setAssignedBookingRef(result.bookingReference);
+          setStep('submitted');
+        } else {
+          alert(result.error || (isEs ? 'Error al procesar su solicitud. Intente nuevamente.' : 'Error submitting booking request. Please try again.'));
+        }
+      } catch (err: any) {
+        console.error('[OvernightFlow Error] Submission failed:', err);
+        alert(err?.message || (isEs ? 'Error al procesar su solicitud. Intente nuevamente.' : 'Error submitting booking request. Please try again.'));
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -495,6 +536,16 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
                 </label>
               </div>
 
+              {/* Explicit Pre-Submission Notice */}
+              <div className="p-3.5 bg-[#FEFCE8] border border-[#FEF08A] rounded-xl text-xs text-[#854D0E] flex items-start gap-2.5">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-[#A16207]" />
+                <span className="leading-relaxed">
+                  {isEs
+                    ? 'Su reserva aún no está confirmada. Verificaremos la disponibilidad con la isla y nos pondremos en contacto con usted para indicarle los siguientes pasos y detalles de pago.'
+                    : 'Your reservation is not yet confirmed. We will check availability with the island and contact you with the next steps and payment details.'}
+                </span>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                 <button
                   type="button"
@@ -506,13 +557,24 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
 
                 <button
                   type="submit"
-                  disabled={!termsAccepted}
+                  disabled={!termsAccepted || isSubmitting}
                   className={`w-full sm:w-auto py-3.5 px-8 rounded-xl text-xs uppercase tracking-[0.16em] font-medium transition-all flex items-center justify-center gap-2 shadow-sm ${
-                    termsAccepted ? 'bg-[#06121e] hover:bg-[#1e3a5f] text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    termsAccepted && !isSubmitting
+                      ? 'bg-[#06121e] hover:bg-[#1e3a5f] text-white cursor-pointer'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  <Send className="w-4 h-4" />
-                  <span>{isEs ? 'Enviar Solicitud a Petra' : 'Submit Inquiry to Petra'}</span>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>{isEs ? 'Enviando Solicitud...' : 'Submitting Request...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>{isEs ? 'Enviar solicitud de reserva' : 'Submit Booking Request'}</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -530,18 +592,25 @@ export const OvernightFlow: React.FC<OvernightFlowProps> = ({
           </div>
 
           <h3 className="text-2xl sm:text-3xl font-display font-light text-[#06121e]">
-            {isEs ? 'Solicitud de Estadía Enviada' : 'Overnight Inquiry Received'}
+            {isEs ? 'Solicitud de Reserva Recibida' : 'Booking Request Received'}
           </h3>
+
+          {assignedBookingRef && (
+            <div className="inline-block bg-[#F1F5F9] border border-[#CBD5E1] text-[#0F172A] px-4 py-1.5 rounded-full font-mono font-bold text-sm tracking-wider shadow-xs">
+              {isEs ? 'Código de Referencia:' : 'Booking Reference:'} {assignedBookingRef}
+            </div>
+          )}
 
           <p className="text-sm text-[#475569] font-light leading-relaxed">
             {isEs
-              ? `Gracias ${fullName}. Petra verificará la disponibilidad de cabañas en ${selectedExperience.title.es} para las fechas indicadas y le contactará a la brevedad.`
-              : `Thank you, ${fullName}. Petra is coordinating with local island cabana hosts for ${selectedExperience.title.en} and will reach out with confirmed availability.`}
+              ? `¡Gracias, ${fullName}! Hemos recibido su solicitud de reserva. Su reserva aún no está confirmada. Verificaremos la disponibilidad de cabañas en ${selectedExperience.title.es} y nos pondremos en contacto con usted con los siguientes pasos.`
+              : `Thank you, ${fullName}! Your booking request has been received. Your reservation is not yet confirmed. We will check availability with local island hosts for ${selectedExperience.title.en} and contact you with the next steps.`}
           </p>
 
           <div className="p-5 bg-white rounded-2xl border border-[#e2d8c5] text-left text-xs space-y-2">
-            <div className="font-semibold text-[#06121e] border-b border-[#f1f5f9] pb-2">
-              {isEs ? 'Resumen de su Solicitud:' : 'Summary of Your Inquiry:'}
+            <div className="font-semibold text-[#06121e] border-b border-[#f1f5f9] pb-2 flex justify-between items-center">
+              <span>{isEs ? 'Resumen de su Solicitud:' : 'Summary of Your Request:'}</span>
+              {assignedBookingRef && <span className="font-mono text-[11px] text-[#0e7490]">{assignedBookingRef}</span>}
             </div>
             <div><span className="text-[#64748b]">{isEs ? 'Experiencia:' : 'Experience:'}</span> {selectedExperience.title[currentLang]}</div>
             <div><span className="text-[#64748b]">{isEs ? 'Noches:' : 'Duration:'}</span> {nights} {isEs ? 'Noches' : 'Nights'}</div>

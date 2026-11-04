@@ -20,6 +20,7 @@ import { IslandDesignPreview } from './components/preview/IslandDesignPreview';
 import { EXPERIENCES_DATA } from './data/experiences';
 import { supabase } from './lib/supabase';
 import { TermsModal } from './components/TermsModal';
+import { AudioDiagnosticPanel } from './components/AudioDiagnosticPanel';
 
 const isAuthCallbackUrl = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -203,7 +204,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#faf8f5] text-[#1c242c] selection:bg-[#d8e6dd] selection:text-[#0e3b2f]">
+    <div className="min-h-screen flex flex-col bg-[#FAF8F2] text-[#173D36] selection:bg-[#E2D2BB] selection:text-[#173D36]">
       {/* Top Bar Navigation: Mathematically Centered GUNA YALA + Direct Sub-Navigation */}
       <Navbar
         currentLang={currentLang}
@@ -308,6 +309,9 @@ export default function App() {
         currentLang={currentLang}
         initialTab={termsModalTab}
       />
+
+      {/* Development-Only Audio Diagnostic Panel */}
+      <AudioDiagnosticPanel />
     </div>
   );
 }

@@ -390,25 +390,25 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
   return (
     <section
       id="map"
-      className="py-20 md:py-28 bg-[#06121e] text-white relative overflow-hidden border-t border-[#1e3a5f]/60 scroll-mt-16 selection:bg-[#0e7490] selection:text-white"
+      className="py-20 md:py-28 bg-[#FAF8F2] text-[#173D36] relative overflow-hidden border-t border-[#E2D2BB] scroll-mt-16 selection:bg-[#E2D2BB] selection:text-[#173D36]"
     >
       {/* Dynamic Background Waves & Shimmer Gradients */}
-      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(14,116,144,0.12),transparent_70%)] pointer-events-none blur-3xl animate-pulse duration-10000" />
-      <div className="absolute bottom-0 right-10 w-[500px] h-[500px] bg-[radial-gradient(ellipse_at_center,rgba(2,132,199,0.08),transparent_70%)] pointer-events-none blur-2xl" />
+      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(85,184,179,0.12),transparent_70%)] pointer-events-none blur-3xl" />
+      <div className="absolute bottom-0 right-10 w-[500px] h-[500px] bg-[radial-gradient(ellipse_at_center,rgba(197,164,107,0.15),transparent_70%)] pointer-events-none blur-2xl" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Section Header */}
         <div className="max-w-3xl mb-12 sm:mb-16">
-          <div className="inline-flex items-center gap-2.5 px-3.5 py-1 rounded-full bg-[#092b3e] border border-[#0e7490]/40 text-[#38bdf8] text-[11px] font-mono uppercase tracking-[0.25em] mb-4 shadow-sm">
-            <Compass className="w-3.5 h-3.5 text-[#38bdf8] animate-spin-slow" />
+          <div className="inline-flex items-center gap-2.5 px-3.5 py-1 rounded-full bg-[#F0E7D8] border border-[#E2D2BB] text-[#173D36] text-[11px] font-mono uppercase tracking-[0.25em] mb-4 shadow-xs">
+            <Compass className="w-3.5 h-3.5 text-[#55B8B3]" />
             <span>{isEs ? 'Mapa Interactivo de Navegación' : 'Interactive Archipelago Map'}</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-light text-white tracking-tight leading-tight text-balance">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-light text-[#173D36] tracking-tight leading-tight text-balance">
             {isEs ? 'Descubre las Islas de Guna Yala' : 'Explore the Islands of Guna Yala'}
           </h2>
 
-          <p className="text-base sm:text-lg text-[#94a3b8] font-light mt-4 leading-relaxed max-w-2xl">
+          <p className="text-base sm:text-lg text-[#53645E] font-light mt-4 leading-relaxed max-w-2xl">
             {isEs
               ? 'Estas islas no son solo puntos en un mapa: es una travesía caribeña a través de 365 cayos de coral, cuidados con respeto por la comunidad Guna.'
               : 'These islands are not just points on a map — this is a Caribbean journey across 365 coral cays, protected with care by the Guna community.'}
@@ -418,21 +418,21 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
         {/* Main 2-Column Luxury Composition */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* ========================================================
-              LEFT COLUMN: "THE JOURNEY" TRANSLUCENT GLASS PANEL
+              LEFT COLUMN: "THE JOURNEY" PANEL
              ======================================================== */}
-          <div className="lg:col-span-4 bg-[#091b2e]/85 backdrop-blur-md rounded-3xl border border-[#1e3a5f]/80 p-6 sm:p-8 space-y-6 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-[radial-gradient(circle_at_top_right,rgba(212,175,55,0.08),transparent_70%)] pointer-events-none" />
+          <div className="lg:col-span-4 bg-white rounded-3xl border border-[#E2D2BB] p-6 sm:p-8 space-y-6 shadow-md relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[radial-gradient(circle_at_top_right,rgba(197,164,107,0.1),transparent_70%)] pointer-events-none" />
 
             {/* Panel Header */}
             <div>
-              <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-[#d4af37] font-semibold mb-1 flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3" />
+              <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-[#C5A46B] font-semibold mb-1 flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-[#55B8B3]" />
                 <span>{isEs ? 'Ruta y Logística' : 'Route & Logistics'}</span>
               </div>
-              <h3 className="text-2xl font-display font-light text-white tracking-wide">
+              <h3 className="text-2xl font-display font-light text-[#173D36] tracking-wide">
                 {isEs ? 'EL VIAJE' : 'THE JOURNEY'}
               </h3>
-              <p className="text-xs text-[#94a3b8] font-light mt-1 leading-relaxed">
+              <p className="text-xs text-[#53645E] font-light mt-1 leading-relaxed">
                 {isEs
                   ? 'Desde Ciudad de Panamá por tierra hasta Puerto Cartí, luego navegando entre cayos de coral.'
                   : 'From Panama City overland to Cartí Port, then navigating crystal water routes.'}
@@ -441,8 +441,8 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
 
             {/* Stage Progress Box */}
             <div className="space-y-3 pt-1">
-              <div className="p-3.5 bg-[#06121e]/90 rounded-2xl border border-[#1e3a5f] flex items-start gap-3 relative overflow-hidden">
-                <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#38bdf8]/40 shrink-0 mt-0.5">
+              <div className="p-3.5 bg-[#FAF8F2] rounded-2xl border border-[#E2D2BB] flex items-start gap-3 relative overflow-hidden">
+                <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#55B8B3]/40 shrink-0 mt-0.5">
                   <img
                     src="/pictures/Panama City Skyline at Sunset.png"
                     alt="Panama City Skyline at Sunset"
@@ -450,13 +450,13 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
                   />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-[#38bdf8]">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-[#55B8B3] font-semibold">
                     {isEs ? 'Etapa 1: Traslado Terrestre' : 'Stage 1: Overland Transfer'}
                   </div>
-                  <div className="text-xs font-semibold text-white mt-0.5">
+                  <div className="text-xs font-semibold text-[#173D36] mt-0.5">
                     {isEs ? 'Ciudad de Panamá → Puerto Cartí' : 'Panama City → Cartí Port'}
                   </div>
-                  <div className="text-[11px] text-[#94a3b8] font-light mt-0.5">
+                  <div className="text-[11px] text-[#53645E] font-light mt-0.5">
                     {isEs
                       ? 'Salida desde Ciudad de Panamá en 4x4 SUV (~2.5 hrs por la montaña)'
                       : 'Departure from Panama City in 4x4 SUV (~2.5 hrs through mountains)'}
@@ -464,8 +464,8 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
                 </div>
               </div>
 
-              <div className="p-3.5 bg-[#06121e]/90 rounded-2xl border border-[#1e3a5f] flex items-start gap-3 relative overflow-hidden">
-                <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#d4af37]/40 shrink-0 mt-0.5">
+              <div className="p-3.5 bg-[#FAF8F2] rounded-2xl border border-[#E2D2BB] flex items-start gap-3 relative overflow-hidden">
+                <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#C5A46B]/40 shrink-0 mt-0.5">
                   <img
                     src="/pictures/carti-port.jpg"
                     alt="Cartí Port (Puerto Cartí)"
@@ -473,13 +473,13 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
                   />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-[#d4af37]">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-[#C5A46B] font-semibold">
                     {isEs ? 'Etapa 2: Navegación Marítima' : 'Stage 2: Boat Navigation'}
                   </div>
-                  <div className="text-xs font-semibold text-[#f8fafc] mt-0.5">
+                  <div className="text-xs font-semibold text-[#173D36] mt-0.5">
                     {isEs ? 'Puerto Cartí → Islas de San Blas' : 'Cartí Port → San Blas Islands'}
                   </div>
-                  <div className="text-[11px] text-[#94a3b8] font-light mt-0.5">
+                  <div className="text-[11px] text-[#53645E] font-light mt-0.5">
                     {isEs
                       ? 'Embarque en Puerto Cartí en lancha rápida con capitán guna local'
                       : 'Boarding at Cartí Port on Guna motorboat with local captain'}

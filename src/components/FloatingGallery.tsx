@@ -504,23 +504,23 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
       id="floating-gallery"
       role="region"
       aria-label={isEs ? 'Galería Visual Flotante de San Blas' : 'San Blas Floating Visual Gallery'}
-      className="py-20 md:py-32 bg-[#FAF8F5] border-t border-[#C6A15B]/20 relative overflow-hidden select-none scroll-mt-20"
+      className="py-20 md:py-32 bg-[#FAF8F2] border-t border-[#E2D2BB] relative overflow-hidden select-none scroll-mt-20"
     >
       {/* Editorial Header */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-20 mb-10 md:mb-14">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="max-w-2xl">
-            <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-[#C6A15B] font-semibold mb-3 flex items-center gap-2.5">
-              <span className="w-6 h-px bg-[#C6A15B]" />
-              <Sparkles className="w-3.5 h-3.5 text-[#C6A15B]" />
+            <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-[#C5A46B] font-semibold mb-3 flex items-center gap-2.5">
+              <span className="w-6 h-px bg-[#C5A46B]" />
+              <Sparkles className="w-3.5 h-3.5 text-[#55B8B3]" />
               <span>{isEs ? 'MOMENTOS VISUALES' : 'FLOATING SANCTUARY GALLERY'}</span>
             </div>
 
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-light text-[#06121E] tracking-tight leading-tight text-balance">
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-light text-[#173D36] tracking-tight leading-tight text-balance">
               {isEs ? 'Momentos en el Archipiélago' : 'San Blas Visual Moments'}
             </h2>
 
-            <p className="text-sm sm:text-base text-[#6D7478] mt-3 font-light leading-relaxed">
+            <p className="text-sm sm:text-base text-[#53645E] mt-3 font-light leading-relaxed">
               {isEs
                 ? 'Fotografías reales en rotación orbital suave a lo largo de atolones exteriores, cayos vírgenes y comunidades tradicionales de Guna Yala.'
                 : 'Explore real moments smoothly orbiting across pristine outer atolls, secluded palm cays, and authentic Guna communities.'}
@@ -532,22 +532,22 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
             <button
               onClick={() => setIsMotionPaused((prev) => !prev)}
               aria-label={isMotionPaused ? 'Resume orbital animation' : 'Pause orbital animation'}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/90 border border-[#C6A15B]/30 text-xs font-mono uppercase tracking-wider text-[#06121E] hover:bg-[#F7F3EC] hover:border-[#C6A15B] transition-all duration-300 shadow-xs cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#E2D2BB] text-xs font-mono uppercase tracking-wider text-[#173D36] hover:bg-[#F0E7D8] hover:border-[#55B8B3] transition-all duration-300 shadow-xs cursor-pointer"
             >
               {isMotionPaused ? (
                 <>
-                  <Play className="w-3.5 h-3.5 text-[#0E7490]" />
+                  <Play className="w-3.5 h-3.5 text-[#55B8B3]" />
                   <span>{isEs ? 'Reanudar Órbita' : 'Resume Orbit'}</span>
                 </>
               ) : (
                 <>
-                  <Pause className="w-3.5 h-3.5 text-[#C6A15B]" />
+                  <Pause className="w-3.5 h-3.5 text-[#C5A46B]" />
                   <span>{isEs ? 'Pausar Órbita' : 'Pause Orbit'}</span>
                 </>
               )}
             </button>
 
-            <span className="hidden sm:inline-block px-3 py-1.5 rounded-full bg-[#EFE9DE] text-[#06121E] text-xs font-mono font-medium border border-[#C6A15B]/20">
+            <span className="hidden sm:inline-block px-3 py-1.5 rounded-full bg-[#F0E7D8] text-[#173D36] text-xs font-mono font-medium border border-[#E2D2BB]">
               9 {isEs ? 'Capturas' : 'Moments'}
             </span>
           </div>
@@ -562,27 +562,27 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
         className="relative w-full min-h-[720px] sm:min-h-[820px] md:min-h-[900px] lg:min-h-[980px] max-w-[1440px] mx-auto px-4 overflow-hidden"
       >
         {/* Subtle Ambient Background Gradients */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(198,161,91,0.07),transparent_70%)] pointer-events-none rounded-full blur-3xl" />
-        <div className="absolute top-1/3 right-10 w-[400px] h-[400px] bg-[radial-gradient(ellipse_at_center,rgba(14,116,144,0.05),transparent_70%)] pointer-events-none rounded-full blur-2xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(85,184,179,0.1),transparent_70%)] pointer-events-none rounded-full blur-3xl" />
+        <div className="absolute top-1/3 right-10 w-[400px] h-[400px] bg-[radial-gradient(ellipse_at_center,rgba(197,164,107,0.1),transparent_70%)] pointer-events-none rounded-full blur-2xl" />
 
         {/* CENTER LUXURY FOCAL CARD (Fixed Center Orbit Anchor) */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none w-full max-w-xs sm:max-w-sm md:max-w-md px-4">
-          <div className="backdrop-blur-xl bg-white/85 border border-[#C6A15B]/35 shadow-2xl p-6 sm:p-8 rounded-3xl text-center pointer-events-auto transition-transform duration-500 hover:scale-[1.02] group relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-[radial-gradient(ellipse_at_top_right,rgba(198,161,91,0.15),transparent_70%)] pointer-events-none" />
+          <div className="backdrop-blur-xl bg-white/95 border border-[#E2D2BB] shadow-xl p-6 sm:p-8 rounded-3xl text-center pointer-events-auto transition-transform duration-500 hover:scale-[1.02] group relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[radial-gradient(ellipse_at_top_right,rgba(197,164,107,0.12),transparent_70%)] pointer-events-none" />
 
-            <div className="w-11 h-11 sm:w-12 sm:h-12 mx-auto rounded-2xl bg-[#F7F3EC] border border-[#C6A15B]/40 flex items-center justify-center mb-3 sm:mb-4 text-[#C6A15B] shadow-xs group-hover:scale-110 transition-transform duration-300">
-              <Compass className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 mx-auto rounded-2xl bg-[#F0E7D8] border border-[#E2D2BB] flex items-center justify-center mb-3 sm:mb-4 text-[#173D36] shadow-xs group-hover:scale-110 transition-transform duration-300">
+              <Compass className="w-5 h-5 sm:w-6 sm:h-6 text-[#55B8B3]" />
             </div>
 
-            <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-[#C6A15B] font-semibold mb-2">
+            <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-[#C5A46B] font-semibold mb-2">
               {isEs ? '365 ISLAS • CARIBE AUTÉNTICO' : '365 ISLANDS • PURE CARIBBEAN'}
             </div>
 
-            <h3 className="text-xl sm:text-2xl font-serif font-light text-[#06121E] mb-3 leading-snug">
+            <h3 className="text-xl sm:text-2xl font-serif font-light text-[#173D36] mb-3 leading-snug">
               {isEs ? 'Santuario del Archipiélago Guna' : 'Guna Yala Floating Sanctuary'}
             </h3>
 
-            <p className="text-xs sm:text-sm text-[#6D7478] font-light leading-relaxed mb-5 sm:mb-6">
+            <p className="text-xs sm:text-sm text-[#53645E] font-light leading-relaxed mb-5 sm:mb-6">
               {isEs
                 ? 'Navega flotando a través de las aguas cristalinas y la rica herencia de San Blas.'
                 : 'Smooth editorial perspective across pristine outer barrier reefs, palm cays, and cultural living heritage.'}
@@ -590,10 +590,10 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
 
             <button
               onClick={() => onOpenPlanner && onOpenPlanner()}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#06121E] text-white text-xs font-mono uppercase tracking-wider hover:bg-[#0E7490] transition-colors duration-300 shadow-md cursor-pointer"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#173D36] hover:bg-[#1f5047] text-white text-xs font-mono uppercase tracking-wider transition-colors duration-300 shadow-md cursor-pointer"
             >
               <span>{isEs ? 'Diseñar Mi Viaje' : 'Plan Your Expedition'}</span>
-              <Sparkles className="w-3.5 h-3.5 text-[#C6A15B]" />
+              <Sparkles className="w-3.5 h-3.5 text-[#C5A46B]" />
             </button>
           </div>
         </div>

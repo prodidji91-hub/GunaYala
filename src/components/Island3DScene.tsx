@@ -101,15 +101,15 @@ interface Island3DSceneProps {
 
 export const Island3DScene: React.FC<Island3DSceneProps> = ({ onSelectStoryPoint, activePoint }) => {
   return (
-    <div className="w-full h-[400px] sm:h-[480px] lg:h-[540px] relative rounded-3xl overflow-hidden shadow-2xl border border-[#C8AC75]/40 bg-gradient-to-b from-[#061815] to-[#040E15]">
+    <div className="w-full h-[400px] sm:h-[480px] lg:h-[540px] relative rounded-3xl overflow-hidden shadow-xl border border-[#E2D2BB] bg-gradient-to-b from-[#eef7f6] via-[#FAF8F2] to-[#F0E7D8]">
       <Canvas
         camera={{ position: [0, 3, 6], fov: 50 }}
         dpr={[1, 1.5]}
         gl={{ antialias: true, alpha: true }}
       >
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[5, 8, 5]} intensity={1.5} color="#fffbeb" castShadow />
-        <pointLight position={[-5, 3, -5]} intensity={0.5} color="#22d3ee" />
+        <ambientLight intensity={0.8} />
+        <directionalLight position={[5, 8, 5]} intensity={1.6} color="#fffdf5" castShadow />
+        <pointLight position={[-5, 3, -5]} intensity={0.6} color="#55B8B3" />
 
         <OceanWater />
         <IslandModel />
@@ -131,13 +131,13 @@ export const Island3DScene: React.FC<Island3DSceneProps> = ({ onSelectStoryPoint
           <button
             key={idx}
             onClick={() => onSelectStoryPoint(idx)}
-            className={`px-4 py-2 rounded-full text-xs font-mono uppercase tracking-wider transition-all duration-300 flex items-center gap-2 shadow-lg backdrop-blur-md ${
+            className={`px-4 py-2 rounded-full text-xs font-mono uppercase tracking-wider transition-all duration-300 flex items-center gap-2 shadow-md backdrop-blur-md cursor-pointer ${
               activePoint === idx
-                ? 'bg-[#C8AC75] text-[#040E15] font-bold scale-105 border border-white'
-                : 'bg-black/50 text-[#FAF8F5] border border-[#C8AC75]/40 hover:bg-[#0E3B2F]'
+                ? 'bg-[#173D36] text-white font-bold scale-105 border border-[#55B8B3]'
+                : 'bg-white/80 text-[#173D36] border border-[#E2D2BB] hover:bg-white hover:border-[#55B8B3]'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-[#C8AC75]" />
+            <span className={`w-2 h-2 rounded-full ${activePoint === idx ? 'bg-[#55B8B3]' : 'bg-[#C5A46B]'}`} />
             <span>Pillar 0{idx + 1}</span>
           </button>
         ))}

@@ -49,7 +49,7 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
   const isEs = currentLang === 'es';
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-[#1C242C] selection:bg-[#D8E6DD] selection:text-[#0E3B2F]">
+    <div className="min-h-screen flex flex-col bg-[#FAF8F2] text-[#173D36] selection:bg-[#E2D2BB] selection:text-[#173D36]">
       {/* Navbar */}
       <Navbar
         currentLang={currentLang}
@@ -58,7 +58,7 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
       />
 
       {/* Hero Header */}
-      <section className="bg-[#0E3B2F] text-[#FAF8F5] pt-28 pb-16 px-4 sm:px-6 lg:px-8 border-b-2 border-[#C8AC75]">
+      <section className="bg-[#173D36] text-[#FAF8F2] pt-28 pb-16 px-4 sm:px-6 lg:px-8 border-b-2 border-[#C5A46B]">
         <div className="max-w-5xl mx-auto space-y-4">
           <div className="flex items-center gap-3">
             <button
@@ -69,13 +69,13 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
                   onBackToWebsite();
                 }
               }}
-              className="inline-flex items-center gap-1.5 text-xs font-serif uppercase tracking-widest text-[#C8AC75] hover:text-white transition-colors bg-white/10 px-3 py-1.5 rounded-full border border-[#C8AC75]/30"
+              className="inline-flex items-center gap-1.5 text-xs font-serif uppercase tracking-widest text-[#C5A46B] hover:text-white transition-colors bg-white/10 px-3 py-1.5 rounded-full border border-[#C5A46B]/40 cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>{activePolicy !== 'hub' ? (isEs ? 'Volver a Términos' : 'Back to Hub') : (isEs ? 'Volver al Inicio' : 'Back to Home')}</span>
             </button>
-            <span className="text-[#C8AC75]/40">|</span>
-            <span className="text-xs font-mono text-[#E5DEC9]">
+            <span className="text-[#C5A46B]/40">|</span>
+            <span className="text-xs font-mono text-[#E2D2BB]">
               {isEs ? 'Versión Oficial: 18 de Octubre, 2026' : 'Official Version: October 18, 2026'}
             </span>
           </div>
@@ -83,7 +83,7 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-serif font-normal text-white tracking-wide">
             {isEs ? 'Términos y Condiciones Oficiales' : 'Official Terms & Conditions'}
           </h1>
-          <p className="text-base sm:text-lg text-[#E5DEC9] font-serif italic max-w-2xl">
+          <p className="text-base sm:text-lg text-[#E2D2BB] font-serif italic max-w-2xl">
             {isEs
               ? 'Viaje con claridad. Explore con confianza en la Comarca Guna Yala.'
               : 'Travel with clarity. Explore with confidence in the Guna Yala Comarca.'}
@@ -113,7 +113,7 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
         {activePolicy === 'hub' && (
           <div className="space-y-8 animate-fadeIn">
             <div className="text-center max-w-2xl mx-auto space-y-2">
-              <h2 className="text-2xl font-serif font-bold text-[#0E3B2F]">
+              <h2 className="text-2xl font-serif font-bold text-[#173D36]">
                 {isEs ? 'Seleccione el Documento de Política' : 'Select Policy Document'}
               </h2>
               <p className="text-sm text-[#4A5568]">

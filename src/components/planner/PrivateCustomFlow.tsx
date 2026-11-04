@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Language } from '../../types';
+import { bookingRequestService } from '../../services/bookingRequestService';
 import {
   Sparkles,
   Ship,
@@ -11,6 +12,8 @@ import {
   Check,
   Compass,
   Anchor,
+  Loader2,
+  Info,
 } from 'lucide-react';
 
 interface PrivateCustomFlowProps {
@@ -25,6 +28,9 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
   const isEs = currentLang === 'es';
 
   const [step, setStep] = useState<'form' | 'submitted'>('form');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [assignedBookingRef, setAssignedBookingRef] = useState<string>('');
+  const [idempotencyKey] = useState<string>(() => bookingRequestService.generateIdempotencyKey());
 
   // Form State
   const [charterType, setCharterType] = useState<string>('private-day');
@@ -89,10 +95,39 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (validate()) {
-      setStep('submitted');
+      setIsSubmitting(true);
+      try {
+        const result = await bookingRequestService.submitBookingRequest({
+          idempotencyKey,
+          bookingType: 'private-charter',
+          customerName: fullName,
+          customerEmail: email,
+          customerPhone: phone,
+          experienceTitle: selectedCharterTitle,
+          targetDate: targetDates,
+          adults,
+          children,
+          specialNotes: `Interests: ${interests.join(', ')}. Message: ${message}`,
+          termsAccepted: true,
+          termsVersion: '2026-10-18',
+          customerLanguage: currentLang,
+        });
+
+        if (result.success && result.bookingReference) {
+          setAssignedBookingRef(result.bookingReference);
+          setStep('submitted');
+        } else {
+          alert(result.error || (isEs ? 'Error al enviar la solicitud. Intente de nuevo.' : 'Error submitting request. Please try again.'));
+        }
+      } catch (err: any) {
+        console.error('[PrivateCustomFlow Error] Submission failed:', err);
+        alert(err?.message || (isEs ? 'Error al enviar la solicitud. Intente de nuevo.' : 'Error submitting request. Please try again.'));
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -316,11 +351,15 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
               </div>
             </div>
 
-            <p className="text-[11px] text-[#64748b] italic">
-              {isEs
-                ? 'Las condiciones específicas de reserva se proporcionarán junto con su cotización personalizada.'
-                : 'Specific booking terms will be provided with your personalized quotation.'}
-            </p>
+            {/* Explicit Pre-Submission Notice */}
+            <div className="p-3.5 bg-[#FEFCE8] border border-[#FEF08A] rounded-xl text-xs text-[#854D0E] flex items-start gap-2.5">
+              <Info className="w-4 h-4 shrink-0 mt-0.5 text-[#A16207]" />
+              <span className="leading-relaxed">
+                {isEs
+                  ? 'Su solicitud de chárter privado está sujeta a la verificación de disponibilidad y confirmación de itinerario por parte de Petra. Los detalles de pago se enviarán tras la verificación.'
+                  : 'Your private charter request is subject to availability and custom itinerary confirmation by Petra. Payment details will be issued after availability check.'}
+              </span>
+            </div>
 
             {/* Actions */}
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -334,10 +373,22 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
 
               <button
                 type="submit"
-                className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-[#06121e] hover:bg-[#0f766e] text-white text-xs uppercase tracking-[0.16em] font-medium transition-all flex items-center justify-center gap-2 shadow-sm"
+                disabled={isSubmitting}
+                className={`w-full sm:w-auto py-3.5 px-8 rounded-xl bg-[#06121e] hover:bg-[#0f766e] text-white text-xs uppercase tracking-[0.16em] font-medium transition-all flex items-center justify-center gap-2 shadow-sm ${
+                  isSubmitting ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                }`}
               >
-                <Send className="w-4 h-4" />
-                <span>{isEs ? 'Enviar Solicitud Privada' : 'Submit Private Inquiry'}</span>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>{isEs ? 'Enviando Solicitud...' : 'Submitting Request...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span>{isEs ? 'Enviar Solicitud de Reserva Privada' : 'Submit Private Booking Request'}</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -351,18 +402,25 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
           </div>
 
           <h3 className="text-2xl sm:text-3xl font-display font-light text-[#06121e]">
-            {isEs ? 'Solicitud Privada Recibida' : 'Custom Inquiry Received'}
+            {isEs ? 'Solicitud Privada Recibida' : 'Custom Booking Request Received'}
           </h3>
+
+          {assignedBookingRef && (
+            <div className="inline-block bg-[#F1F5F9] border border-[#CBD5E1] text-[#0F172A] px-4 py-1.5 rounded-full font-mono font-bold text-sm tracking-wider shadow-xs">
+              {isEs ? 'Código de Referencia:' : 'Booking Reference:'} {assignedBookingRef}
+            </div>
+          )}
 
           <p className="text-sm text-[#475569] font-light leading-relaxed">
             {isEs
-              ? `Gracias ${fullName}. Petra revisará su solicitud para ${selectedCharterTitle} y preparará una propuesta detallada adaptada a su grupo.`
-              : `Thank you, ${fullName}. Petra is reviewing your requirements for ${selectedCharterTitle} and will prepare a tailored itinerary proposal.`}
+              ? `¡Gracias, ${fullName}! Hemos recibido su solicitud para ${selectedCharterTitle}. Petra revisará su itinerario y le contactará con la propuesta confirmada.`
+              : `Thank you, ${fullName}! Your private charter request for ${selectedCharterTitle} has been received. Petra will review availability and contact you with the tailored proposal.`}
           </p>
 
           <div className="p-5 bg-white rounded-2xl border border-[#e2d8c5] text-left text-xs space-y-2">
-            <div className="font-semibold text-[#06121e] border-b border-[#f1f5f9] pb-2">
-              {isEs ? 'Detalles de la Solicitud:' : 'Inquiry Summary:'}
+            <div className="font-semibold text-[#06121e] border-b border-[#f1f5f9] pb-2 flex justify-between items-center">
+              <span>{isEs ? 'Detalles de la Solicitud:' : 'Inquiry Summary:'}</span>
+              {assignedBookingRef && <span className="font-mono text-[11px] text-[#0f766e]">{assignedBookingRef}</span>}
             </div>
             <div><span className="text-[#64748b]">{isEs ? 'Tipo:' : 'Type:'}</span> {selectedCharterTitle}</div>
             <div><span className="text-[#64748b]">{isEs ? 'Fechas:' : 'Dates:'}</span> {targetDates || (isEs ? 'Flexible' : 'Flexible')}</div>

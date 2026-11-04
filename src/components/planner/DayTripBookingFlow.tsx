@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Language, Experience } from '../../types';
 import { EXPERIENCES_DATA } from '../../data/experiences';
 import { VisualAsset } from '../../pictures';
+import { bookingRequestService } from '../../services/bookingRequestService';
 import {
   Calendar,
   Users,
@@ -35,7 +36,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   const dayTripExperience: Experience =
     EXPERIENCES_DATA.find((e) => e.category === 'day-trip') || EXPERIENCES_DATA[0];
 
-  // Progressive Steps: 1: Experience | 2: Date | 3: Travelers | 4: Trip Info | 5: Review | 6: Checkout | 7: Confirmed
+  // Progressive Steps: 1: Experience | 2: Date | 3: Travelers | 4: Trip Info | 5: Review | 6: Request | 7: Received
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7>(1);
 
   // Form State
@@ -66,8 +67,9 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
 
   // Generated confirmation number on checkout
   const [reservationNumber, setReservationNumber] = useState<string>('');
-  const [emailCopied, setEmailCopied] = useState<boolean>(false);
   const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [idempotencyKey] = useState<string>(() => bookingRequestService.generateIdempotencyKey());
 
   // Generate clean date pills for the next 14 days
   const upcomingDates = Array.from({ length: 14 }).map((_, index) => {
@@ -101,15 +103,46 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
     return Object.keys(errors).length === 0;
   };
 
-  const handleProceedToCheckout = () => {
-    // Generate unique reference
-    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
-    setReservationNumber(`GNY-${randomSuffix}`);
+  const handleProceedToRequestStep = () => {
     setCurrentStep(6);
   };
 
-  const handleSimulatePayment = () => {
-    setCurrentStep(7);
+  const handleBookingRequestSubmit = async () => {
+    if (!termsAccepted) {
+      alert(isEs ? 'Debe aceptar los Términos y Condiciones para continuar.' : 'Please acknowledge the Terms & Conditions to proceed.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const result = await bookingRequestService.submitBookingRequest({
+        idempotencyKey,
+        bookingType: 'day-trip',
+        customerName: fullName,
+        customerEmail: email,
+        customerPhone: phone,
+        experienceTitle: dayTripExperience.title[currentLang],
+        targetDate: selectedDate,
+        adults,
+        children,
+        pickupLocation,
+        specialNotes,
+        termsAccepted: true,
+        termsVersion: '2026-10-18',
+        customerLanguage: currentLang,
+      });
+
+      if (result.success && result.bookingReference) {
+        setReservationNumber(result.bookingReference);
+        setCurrentStep(7);
+      } else {
+        alert(result.error || (isEs ? 'Error al enviar la solicitud. Intente nuevamente.' : 'Error submitting booking request. Please try again.'));
+      }
+    } catch (err: any) {
+      console.error('[DayTripBookingFlow Error] Submission failed:', err);
+      alert(err?.message || (isEs ? 'Error al enviar la solicitud. Intente nuevamente.' : 'Error submitting booking request. Please try again.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const stepTitles = [
@@ -118,7 +151,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
     { num: 3, label: isEs ? 'Viajeros' : 'Travelers' },
     { num: 4, label: isEs ? 'Detalles' : 'Details' },
     { num: 5, label: isEs ? 'Revisión' : 'Review' },
-    { num: 6, label: isEs ? 'Pago Seguro' : 'Checkout' },
+    { num: 6, label: isEs ? 'Solicitud' : 'Request' },
   ];
 
   return (
@@ -698,11 +731,10 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
               </button>
 
               <button
-                onClick={handleProceedToCheckout}
+                onClick={handleProceedToRequestStep}
                 className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-[#06121e] hover:bg-[#0e7490] text-white text-xs uppercase tracking-[0.16em] font-medium transition-all flex items-center justify-center gap-2 shadow-sm"
               >
-                <Lock className="w-4 h-4" />
-                <span>{isEs ? 'Continuar a Pago Seguro' : 'Continue to Secure Checkout'}</span>
+                <span>{isEs ? 'Continuar a Solicitud de Reserva' : 'Continue to Booking Request'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -711,32 +743,28 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
       )}
 
       {/* ========================================================
-          STEP 6: SECURE CHECKOUT & DIRECT TEAM AVAILABILITY CONFIRMATION
-          (Transparent checkout state; no fake payment processing)
+          STEP 6: BOOKING REQUEST SUBMISSION
+          (Transparent request state; no fake payment processing)
          ======================================================== */}
       {currentStep === 6 && (
         <div className="space-y-6 animate-fadeIn">
           <div className="text-center max-w-xl mx-auto mb-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-[11px] font-mono uppercase tracking-[0.18em] mb-3">
               <ShieldCheck className="w-4 h-4 text-amber-700" />
-              <span>{isEs ? 'Confirmación Directa de Disponibilidad' : 'Direct Availability Confirmation'}</span>
+              <span>{isEs ? 'Solicitud de Reserva de Pasadía' : 'Day Tour Booking Request'}</span>
             </div>
             <h3 className="text-2xl sm:text-3xl font-display font-light text-[#06121e]">
-              {isEs ? 'Finalizar Reserva con el Equipo Local' : 'Finalize Reservation with Local Team'}
+              {isEs ? 'Enviar Solicitud de Pasadía' : 'Submit Day Tour Request'}
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] font-light mt-2 leading-relaxed">
               {isEs
-                ? 'Estamos finalizando las reservas en línea. Comunícate con nuestro equipo para confirmar la disponibilidad y completar tu reserva.'
-                : 'Online booking is being finalized. Please contact our team to confirm availability and complete your reservation.'}
+                ? 'Esta es una solicitud de reserva, no una reserva confirmada. Nuestro equipo verificará la disponibilidad de cupos en el 4x4 y la lancha antes de emitir los datos de pago.'
+                : 'This is a booking request, not a confirmed reservation. Our team will verify 4x4 vehicle and boat capacity before issuing payment instructions.'}
             </p>
           </div>
 
           <div className="bg-white rounded-3xl border border-[#e2d8c5] shadow-sm p-6 sm:p-8 max-w-xl mx-auto space-y-6">
             <div className="p-4 bg-[#f8fafc] rounded-2xl border border-[#e2e8f0] space-y-2.5">
-              <div className="flex justify-between text-xs text-[#64748b]">
-                <span>{isEs ? 'Referencia de Consulta:' : 'Inquiry Reference:'}</span>
-                <span className="font-mono font-bold text-[#06121e]">{reservationNumber}</span>
-              </div>
               <div className="flex justify-between text-xs text-[#64748b]">
                 <span>{isEs ? 'Experiencia:' : 'Experience:'}</span>
                 <span className="font-semibold text-[#06121e]">{dayTripExperience.title[currentLang]}</span>
@@ -757,131 +785,118 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
               </div>
               <div className="flex justify-between text-xs text-[#64748b]">
                 <span>{isEs ? 'Titular:' : 'Lead Customer:'}</span>
-                <span className="font-semibold text-[#06121e]">{fullName}</span>
+                <span className="font-semibold text-[#06121e]">{fullName} ({email})</span>
               </div>
             </div>
 
-            {/* Direct WhatsApp Action */}
-            {(() => {
-              const termsNote = isEs
-                ? `\n\nEl cliente reconoció los Términos y Condiciones del Tour de Día Compartido (versión 2026-10-18) antes de abrir WhatsApp.`
-                : `\n\nCustomer acknowledged the Shared Day Tour Terms & Conditions (version 2026-10-18) before opening WhatsApp.`;
-              const whatsappMsg = (isEs
-                ? `Hola Guna Yala Panama Travel, me gustaría confirmar la disponibilidad para una Pasadía (Day Trip) el ${selectedDate}.\n\nReferencia: ${reservationNumber}\nTitular: ${fullName}\nPasajeros: ${adults} adultos${children > 0 ? `, ${children} niños` : ''}\nRecogida: ${pickupLocation}${specialNotes ? `\nNotas: ${specialNotes}` : ''}`
-                : `Hello Guna Yala Panama Travel, I would like to confirm availability for a San Blas Day Trip on ${selectedDate}.\n\nReference: ${reservationNumber}\nLead Contact: ${fullName}\nTravelers: ${adults} Adults${children > 0 ? `, ${children} Children` : ''}\nPickup Location: ${pickupLocation}${specialNotes ? `\nNotes: ${specialNotes}` : ''}`) + termsNote;
+            {/* Terms and Submission */}
+            <div className="space-y-4 pt-2">
+              <div className="flex items-start gap-2.5 p-3.5 bg-[#FAF8F5] border border-[#E2D8C5] rounded-xl text-xs text-[#334155]">
+                <input
+                  type="checkbox"
+                  id="shared-tour-terms-chk"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="mt-0.5 rounded border-[#C8AC75] text-[#061815] focus:ring-[#061815]"
+                />
+                <label htmlFor="shared-tour-terms-chk" className="cursor-pointer select-none">
+                  {isEs ? (
+                    <>
+                      He leído y acepto los{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.history.pushState({}, '', '/terms-and-conditions/day-tour');
+                          window.dispatchEvent(new Event('popstate'));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                      >
+                        Términos y condiciones
+                      </button>
+                      {' '}aplicables a mi solicitud de reserva de pasadía.
+                    </>
+                  ) : (
+                    <>
+                      I have read and agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.history.pushState({}, '', '/terms-and-conditions/day-tour');
+                          window.dispatchEvent(new Event('popstate'));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                      >
+                        Terms & Conditions
+                      </button>
+                      {' '}applicable to my day tour booking request.
+                    </>
+                  )}
+                </label>
+              </div>
 
-              const waUrl = `https://wa.me/50764443649?text=${encodeURIComponent(whatsappMsg)}`;
+              <button
+                type="button"
+                onClick={handleBookingRequestSubmit}
+                disabled={isSubmitting}
+                className={`w-full py-4 px-6 rounded-xl text-xs uppercase tracking-[0.18em] font-semibold transition-all flex items-center justify-center gap-2.5 shadow-md ${
+                  isSubmitting
+                    ? 'bg-gray-400 text-white cursor-wait'
+                    : termsAccepted
+                    ? 'bg-[#06121e] hover:bg-[#0e7490] text-white cursor-pointer shadow-lg'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <span>
+                  {isSubmitting
+                    ? (isEs ? 'Enviando Solicitud...' : 'Submitting Request...')
+                    : (isEs ? 'Enviar Solicitud de Pasadía' : 'Submit Day Tour Request')}
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
 
-              return (
-                <div className="space-y-4 pt-2">
-                  <div className="flex items-start gap-2.5 p-3.5 bg-[#FAF8F5] border border-[#E2D8C5] rounded-xl text-xs text-[#334155]">
-                    <input
-                      type="checkbox"
-                      id="shared-tour-terms-chk"
-                      checked={termsAccepted}
-                      onChange={(e) => setTermsAccepted(e.target.checked)}
-                      className="mt-0.5 rounded border-[#C8AC75] text-[#061815] focus:ring-[#061815]"
-                    />
-                    <label htmlFor="shared-tour-terms-chk" className="cursor-pointer select-none">
-                      {isEs ? (
-                        <>
-                          He leído y acepto los{' '}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              window.history.pushState({}, '', '/terms-and-conditions/day-tour');
-                              window.dispatchEvent(new Event('popstate'));
-                            }}
-                            className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
-                          >
-                            Términos y condiciones
-                          </button>
-                          {' '}aplicables a mi solicitud de reserva.
-                        </>
-                      ) : (
-                        <>
-                          I have read and agree to the{' '}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              window.history.pushState({}, '', '/terms-and-conditions/day-tour');
-                              window.dispatchEvent(new Event('popstate'));
-                            }}
-                            className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
-                          >
-                            Terms & Conditions
-                          </button>
-                          {' '}applicable to my booking request.
-                        </>
-                      )}
-                    </label>
-                  </div>
+              <p className="text-[11px] text-center text-[#64748b] font-light">
+                {isEs
+                  ? 'Nuestro equipo de atención al cliente verificará inmediatamente la disponibilidad del 4x4 y del bote.'
+                  : 'Our team will immediately verify 4x4 seat allocation and boat availability for your target date.'}
+              </p>
 
-                  <a
-                    href={termsAccepted ? waUrl : '#'}
-                    onClick={(e) => {
-                      if (!termsAccepted) {
-                        e.preventDefault();
-                        alert(isEs ? 'Debe aceptar los Términos y Condiciones para continuar.' : 'Please acknowledge the Terms & Conditions to proceed.');
-                      }
-                    }}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`w-full py-4 px-6 rounded-xl text-xs uppercase tracking-[0.18em] font-semibold transition-all flex items-center justify-center gap-2.5 shadow-md ${
-                      termsAccepted ? 'bg-[#25D366] hover:bg-[#1ebd59] text-white cursor-pointer shadow-lg' : 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none'
-                    }`}
-                  >
-                    <Phone className="w-4 h-4 fill-current" />
-                    <span>{isEs ? 'Confirmar Reserva Vía WhatsApp (+507 6444-3649)' : 'Confirm Reservation via WhatsApp (+507 6444-3649)'}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </a>
-
-                  <p className="text-[11px] text-center text-[#64748b] font-light">
-                    {isEs
-                      ? 'Nuestro equipo de atención al cliente verificará inmediatamente el espacio 4x4 y la disponibilidad del bote.'
-                      : 'Our team will immediately verify 4x4 seat allocation and boat availability for your date.'}
-                  </p>
-
-                  <button
-                    onClick={() => setCurrentStep(5)}
-                    className="w-full py-2.5 text-xs text-[#64748b] hover:text-[#06121e] uppercase tracking-wider font-medium"
-                  >
-                    {isEs ? 'Volver a la Revisión' : 'Back to Review'}
-                  </button>
-                </div>
-              );
-            })()}
+              <button
+                onClick={() => setCurrentStep(5)}
+                className="w-full py-2.5 text-xs text-[#64748b] hover:text-[#06121e] uppercase tracking-wider font-medium"
+              >
+                {isEs ? 'Volver a la Revisión' : 'Back to Review'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* ========================================================
-          STEP 7: CONFIRMATION EXPERIENCE
-          "YOUR GUNA YALA EXPERIENCE IS CONFIRMED"
-          Shows reservation number, details, next steps, and Petra's workflow preview
+          STEP 7: CONFIRMATION / ACKNOWLEDGEMENT SCREEN
+          "SOLICITUD DE PASADÍA RECIBIDA"
          ======================================================== */}
       {currentStep === 7 && (
         <div className="space-y-8 animate-fadeIn">
           {/* Header Banner */}
           <div className="text-center max-w-2xl mx-auto">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-4 shadow-sm">
+            <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4 shadow-sm">
               <Check className="w-8 h-8" />
             </div>
 
-            <span className="text-[11px] font-mono uppercase tracking-[0.25em] text-emerald-700 font-semibold block mb-2">
-              {isEs ? 'Reserva Exitosa' : 'Reservation Confirmed'}
+            <span className="text-[11px] font-mono uppercase tracking-[0.25em] text-amber-700 font-semibold block mb-2">
+              {isEs ? 'Solicitud Recibida' : 'Request Received'}
             </span>
 
             <h3 className="text-3xl sm:text-4xl lg:text-5xl font-display font-light text-[#06121e] tracking-tight">
-              {isEs ? 'Su Experiencia en Guna Yala Está Confirmada' : 'Your Guna Yala Experience Is Confirmed'}
+              {isEs ? 'Solicitud de Pasadía Recibida' : 'Day Tour Request Received'}
             </h3>
 
             <p className="mt-3 text-sm text-[#475569] font-light max-w-lg mx-auto leading-relaxed">
               {isEs
-                ? 'Hemos registrado su excursión y preparado las instrucciones para su viaje al Caribe.'
-                : 'Your day trip has been reserved and your travel details are ready.'}
+                ? 'Hemos registrado su solicitud de pasadía. Esta es una solicitud de reserva, no una reserva confirmada. Verificaremos la disponibilidad de 4x4 y lancha antes de confirmarle.'
+                : 'Your day tour request has been recorded. This is a booking request, not a confirmed reservation. We will verify 4x4 vehicle and boat capacity before issuing payment details.'}
             </p>
           </div>
 
@@ -890,15 +905,15 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
             <div className="bg-[#06121e] text-white p-6 sm:p-7 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#38bdf8] block">
-                  {isEs ? 'Número de Confirmación' : 'Confirmation Number'}
+                  {isEs ? 'Referencia de Solicitud' : 'Request Reference'}
                 </span>
                 <span className="text-2xl sm:text-3xl font-mono font-bold text-white tracking-wider">
-                  {reservationNumber}
+                  {reservationNumber || 'GNY-PENDING'}
                 </span>
               </div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-mono">
-                <Check className="w-3.5 h-3.5" />
-                <span>{isEs ? 'Estado: Confirmado' : 'Status: Confirmed'}</span>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-mono">
+                <Clock className="w-3.5 h-3.5" />
+                <span>{isEs ? 'Estado: Solicitud Pendiente de Verificación' : 'Status: Request Awaiting Verification'}</span>
               </div>
             </div>
 
@@ -916,7 +931,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
 
                 <div className="p-3.5 bg-[#f8fafc] rounded-2xl border border-[#f1f5f9]">
                   <span className="text-[#64748b] font-mono uppercase tracking-wider block mb-1">
-                    {isEs ? 'Fecha de Salida' : 'Departure Date'}
+                    {isEs ? 'Fecha Solicitada' : 'Requested Date'}
                   </span>
                   <span className="font-semibold text-sm text-[#06121e]">
                     {selectedDate}
@@ -959,7 +974,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
               {/* What Happens Next Steps */}
               <div className="space-y-3 pt-4 border-t border-[#f1f5f9]">
                 <h5 className="text-xs font-mono uppercase tracking-[0.18em] text-[#06121e] font-semibold">
-                  {isEs ? 'Próximos Pasos Importantes' : 'Important Next Steps'}
+                  {isEs ? 'Próximos Pasos del Proceso' : 'What Happens Next'}
                 </h5>
 
                 <div className="space-y-2.5 text-xs text-[#334155] font-light">
@@ -969,11 +984,11 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                     </span>
                     <div>
                       <span className="font-semibold text-[#06121e]">
-                        {isEs ? 'Confirmación por Correo Electrónico:' : 'Email Confirmation Sent:'}
+                        {isEs ? 'Acuse de Recibo Enviado:' : 'Acknowledgement Dispatched:'}
                       </span>{' '}
                       {isEs
-                        ? `Se ha enviado el comprobante con el código ${reservationNumber} a ${email}.`
-                        : `A confirmation voucher with reference ${reservationNumber} has been dispatched to ${email}.`}
+                        ? `Se ha enviado un correo de confirmación de solicitud con la referencia ${reservationNumber} a ${email}.`
+                        : `An automatic acknowledgement email with reference ${reservationNumber} has been sent to ${email}.`}
                     </div>
                   </div>
 
@@ -983,11 +998,11 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                     </span>
                     <div>
                       <span className="font-semibold text-[#06121e]">
-                        {isEs ? 'Notificación a Petra y Transporte:' : 'Coordination with Petra & Drivers:'}
+                        {isEs ? 'Verificación de Cupos:' : 'Availability Verification:'}
                       </span>{' '}
                       {isEs
-                        ? 'El equipo de logística de Petra ha recibido su ruta y asignado su asiento 4x4.'
-                        : "Petra's logistics system has received your booking and reserved your 4x4 seats."}
+                        ? 'Petra y el equipo de logística verificarán la capacidad del vehículo 4x4 y la lancha.'
+                        : 'Petra and the operations team will verify 4x4 seat capacity and boat space for your travel date.'}
                     </div>
                   </div>
 
@@ -997,11 +1012,11 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                     </span>
                     <div>
                       <span className="font-semibold text-[#06121e]">
-                        {isEs ? 'Coordinación la Tarde Previa:' : 'Evening Prior Coordination:'}
+                        {isEs ? 'Contacto Directo:' : 'Direct Follow-Up:'}
                       </span>{' '}
                       {isEs
-                        ? `Recibirá un mensaje a su WhatsApp (${phone}) con el nombre del conductor y la placa del vehículo.`
-                        : `You will receive a WhatsApp message on ${phone} with the driver's name and vehicle plate.`}
+                        ? `Le contactaremos vía WhatsApp (${phone}) o correo con los detalles de confirmación y pago.`
+                        : `We will contact you via WhatsApp (${phone}) or email with confirmation and payment instructions.`}
                     </div>
                   </div>
 
@@ -1012,34 +1027,38 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                         {isEs ? 'Recordatorio Obligatorio:' : 'Mandatory Checklist:'}
                       </span>{' '}
                       {isEs
-                        ? 'Lleve su pasaporte físico original (no copias) y dinero en efectivo. Las tarifas de entrada y de puerto se confirmarán en su cotización.'
-                        : 'Bring your original physical passport (no photos/copies) and US Dollar cash. Entrance and port fees will be confirmed in your quotation.'}
+                        ? 'Recuerde que debe llevar su pasaporte físico original el día del viaje.'
+                        : 'Remember that an original physical passport is required on the day of travel.'}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Architecture Preview of Petra's Automated Notification */}
-            <div className="p-6 bg-[#f8fafc] border-t border-[#e2e8f0]">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-[#64748b] mb-2 flex items-center justify-between">
-                <span>{isEs ? 'Arquitectura del Sistema (Notificación Automática de Petra):' : "System Architecture (Petra's Notification Dispatch):"}</span>
-                <span className="text-emerald-600 font-bold">READY</span>
-              </div>
-              <pre className="text-[11px] font-mono bg-white p-3.5 rounded-xl border border-[#cbd5e1] text-[#334155] overflow-x-auto whitespace-pre-wrap">
-{`NEW DAY TRIP RESERVATION
-Reservation: ${reservationNumber}
-Experience: ${dayTripExperience.title[currentLang]}
-Date: ${selectedDate}
-Travelers: ${adults + children} (${adults} Adults, ${children} Children)
-Customer: ${fullName}
-Email: ${email}
-Phone/WhatsApp: ${phone}
-Pickup: ${pickupLocation}
-Notes: ${specialNotes || 'None'}
-Payment: CONFIRMED`}
-              </pre>
-            </div>
+            {/* Direct WhatsApp fast connect */}
+            {(() => {
+              const whatsappMsg = isEs
+                ? `Hola Guna Yala Panama Travel, acabo de enviar la solicitud de Pasadía ${reservationNumber} para el ${selectedDate}.`
+                : `Hello Guna Yala Panama Travel, I just submitted Day Tour request ${reservationNumber} for ${selectedDate}.`;
+              const waUrl = `https://wa.me/50764443649?text=${encodeURIComponent(whatsappMsg)}`;
+
+              return (
+                <div className="p-6 bg-[#f8fafc] border-t border-[#e2e8f0] text-center space-y-3">
+                  <p className="text-xs text-[#64748b]">
+                    {isEs ? '¿Desea acelerar la respuesta de su solicitud?' : 'Want to fast-track your request confirmation?'}
+                  </p>
+                  <a
+                    href={waUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 py-3 px-6 rounded-xl bg-[#25D366] hover:bg-[#1ebd59] text-white text-xs uppercase tracking-[0.14em] font-semibold transition-all shadow-sm"
+                  >
+                    <Phone className="w-4 h-4 fill-current" />
+                    <span>{isEs ? 'Contactar por WhatsApp (+507 6444-3649)' : 'Contact via WhatsApp (+507 6444-3649)'}</span>
+                  </a>
+                </div>
+              );
+            })()}
 
             <div className="p-6 bg-white border-t border-[#e2d8c5] text-center">
               <button

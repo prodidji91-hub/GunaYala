@@ -27,11 +27,11 @@ export const Footer: React.FC<FooterProps> = ({
   };
 
   return (
-    <footer className="bg-[#061815] text-[#F6F2E9]/80 border-t border-[#C8AC75]/20 pt-16 pb-12">
+    <footer className="bg-[#173D36] text-[#FAF8F2]/90 border-t border-[#C5A46B]/25 pt-16 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Main Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 pb-12 border-b border-[#C8AC75]/15">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 pb-12 border-b border-[#C5A46B]/20">
           
           {/* Brand and identity */}
           <div className="lg:col-span-4 space-y-4">

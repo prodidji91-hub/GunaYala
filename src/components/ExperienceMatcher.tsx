@@ -144,24 +144,24 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
   }[currentLang];
 
   return (
-    <section id="finder" className="py-12 sm:py-16 bg-[#F6F2E9] border-b border-[#C8AC75]/25 scroll-mt-20 text-[#0B2924]">
+    <section id="finder" className="py-12 sm:py-16 bg-[#FAF8F2] border-b border-[#E2D2BB] scroll-mt-20 text-[#173D36]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Luxury Travel Concierge Panel */}
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#C8AC75]/35 shadow-xl transition-all">
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E2D2BB] shadow-md transition-all">
           
           {/* Header */}
-          <div className="mb-6 pb-4 border-b border-[#C8AC75]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="mb-6 pb-4 border-b border-[#E2D2BB]/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 text-xs font-sans uppercase tracking-[0.2em] text-[#C8AC75] font-semibold mb-1">
-                <Sparkles className="w-3.5 h-3.5 text-[#C8AC75]" />
+              <div className="inline-flex items-center gap-2 text-xs font-sans uppercase tracking-[0.2em] text-[#C5A46B] font-semibold mb-1">
+                <Sparkles className="w-3.5 h-3.5 text-[#55B8B3]" />
                 <span>{currentLang === 'es' ? 'CONSERJERÍA DE VIAJE' : 'TRAVEL CONCIERGE'}</span>
               </div>
-              <h3 className="text-xl sm:text-2xl font-serif font-light text-[#0B2924] leading-snug">
+              <h3 className="text-xl sm:text-2xl font-serif font-light text-[#173D36] leading-snug">
                 {t.quickFinder.title}
               </h3>
             </div>
-            <p className="text-xs sm:text-sm text-[#153B49]/80 font-sans font-light max-w-sm">
+            <p className="text-xs sm:text-sm text-[#53645E] font-sans font-light max-w-sm">
               {t.quickFinder.subtitle}
             </p>
           </div>
@@ -172,13 +172,13 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
             {/* Column 1: Time */}
             <div className="flex flex-col h-full">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-mono font-bold text-[#C8AC75]">01</span>
-                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#0B2924]">
+                <span className="text-sm font-mono font-bold text-[#C5A46B]">01</span>
+                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#173D36]">
                   {sectionLabels.q1Tag}
                 </span>
               </div>
 
-              <h4 className="text-sm font-serif font-medium text-[#0B2924] mb-3 lg:h-9 flex items-center">
+              <h4 className="text-sm font-serif font-medium text-[#173D36] mb-3 lg:h-9 flex items-center">
                 {t.quickFinder.questionTime}
               </h4>
 
@@ -197,23 +197,23 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                       onClick={() => setTimeChoice(opt.id as any)}
                       className={`px-3.5 py-2.5 text-left rounded-xl border transition-all duration-200 flex items-center justify-between cursor-pointer focus:outline-none ${
                         isSelected
-                          ? 'bg-[#0B2924] text-[#F6F2E9] border-[#C8AC75] shadow-sm'
-                          : 'bg-[#F6F2E9]/70 text-[#0B2924] border-[#C8AC75]/25 hover:bg-white hover:border-[#C8AC75]/60'
+                          ? 'bg-[#173D36] text-white border-[#55B8B3] shadow-sm'
+                          : 'bg-[#F0E7D8]/60 text-[#173D36] border-[#E2D2BB] hover:bg-white hover:border-[#55B8B3]'
                       }`}
                     >
                       <div className="pr-2">
-                        <div className={`text-xs sm:text-sm font-sans font-medium leading-tight ${isSelected ? 'text-white' : 'text-[#0B2924]'}`}>
+                        <div className={`text-xs sm:text-sm font-sans font-medium leading-tight ${isSelected ? 'text-white' : 'text-[#173D36]'}`}>
                           {parsed.title}
                         </div>
                         {parsed.subtitle && (
-                          <div className={`text-[11px] mt-0.5 leading-tight ${isSelected ? 'text-[#C8AC75]' : 'text-[#153B49]/70'}`}>
+                          <div className={`text-[11px] mt-0.5 leading-tight ${isSelected ? 'text-[#C5A46B]' : 'text-[#53645E]'}`}>
                             {parsed.subtitle}
                           </div>
                         )}
                       </div>
 
                       <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 transition-all ${
-                        isSelected ? 'bg-[#C8AC75] text-[#0B2924]' : 'border border-[#C8AC75]/30 opacity-0'
+                        isSelected ? 'bg-[#55B8B3] text-[#173D36]' : 'border border-[#E2D2BB] opacity-0'
                       }`}>
                         <Check className="w-3 h-3 stroke-[2.5]" />
                       </div>
@@ -226,13 +226,13 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
             {/* Column 2: Vibe */}
             <div className="flex flex-col h-full">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-mono font-bold text-[#C8AC75]">02</span>
-                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#0B2924]">
+                <span className="text-sm font-mono font-bold text-[#C5A46B]">02</span>
+                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#173D36]">
                   {sectionLabels.q2Tag}
                 </span>
               </div>
 
-              <h4 className="text-sm font-serif font-medium text-[#0B2924] mb-3 lg:h-9 flex items-center">
+              <h4 className="text-sm font-serif font-medium text-[#173D36] mb-3 lg:h-9 flex items-center">
                 {t.quickFinder.questionVibe}
               </h4>
 
@@ -255,16 +255,16 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                         isFullWidth ? 'col-span-2' : ''
                       } ${
                         isSelected
-                          ? 'bg-[#0B2924] text-[#F6F2E9] border-[#C8AC75] shadow-sm'
-                          : 'bg-[#F6F2E9]/70 text-[#0B2924] border-[#C8AC75]/25 hover:bg-white hover:border-[#C8AC75]/60'
+                          ? 'bg-[#173D36] text-white border-[#55B8B3] shadow-sm'
+                          : 'bg-[#F0E7D8]/60 text-[#173D36] border-[#E2D2BB] hover:bg-white hover:border-[#55B8B3]'
                       }`}
                     >
-                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-white' : 'text-[#0B2924]'}`}>
+                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-white' : 'text-[#173D36]'}`}>
                         {opt.label}
                       </span>
 
                       <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ml-1 transition-all ${
-                        isSelected ? 'bg-[#C8AC75] text-[#0B2924]' : 'border border-[#C8AC75]/30 opacity-0'
+                        isSelected ? 'bg-[#55B8B3] text-[#173D36]' : 'border border-[#E2D2BB] opacity-0'
                       }`}>
                         <Check className="w-3 h-3 stroke-[2.5]" />
                       </div>
@@ -277,13 +277,13 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
             {/* Column 3: Party */}
             <div className="flex flex-col h-full">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-mono font-bold text-[#C8AC75]">03</span>
-                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#0B2924]">
+                <span className="text-sm font-mono font-bold text-[#C5A46B]">03</span>
+                <span className="text-xs font-sans uppercase tracking-[0.16em] font-semibold text-[#173D36]">
                   {sectionLabels.q3Tag}
                 </span>
               </div>
 
-              <h4 className="text-sm font-serif font-medium text-[#0B2924] mb-3 lg:h-9 flex items-center">
+              <h4 className="text-sm font-serif font-medium text-[#173D36] mb-3 lg:h-9 flex items-center">
                 {t.quickFinder.questionParty}
               </h4>
 
@@ -302,16 +302,16 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                       onClick={() => setPartyChoice(opt.id as any)}
                       className={`px-3 py-2 text-left rounded-xl border transition-all duration-200 flex items-center justify-between cursor-pointer min-h-[44px] focus:outline-none ${
                         isSelected
-                          ? 'bg-[#0B2924] text-[#F6F2E9] border-[#C8AC75] shadow-sm'
-                          : 'bg-[#F6F2E9]/70 text-[#0B2924] border-[#C8AC75]/25 hover:bg-white hover:border-[#C8AC75]/60'
+                          ? 'bg-[#173D36] text-white border-[#55B8B3] shadow-sm'
+                          : 'bg-[#F0E7D8]/60 text-[#173D36] border-[#E2D2BB] hover:bg-white hover:border-[#55B8B3]'
                       }`}
                     >
-                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-white' : 'text-[#0B2924]'}`}>
+                      <span className={`text-xs font-sans font-medium leading-snug pr-1 ${isSelected ? 'text-white' : 'text-[#173D36]'}`}>
                         {opt.label}
                       </span>
 
                       <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ml-1 transition-all ${
-                        isSelected ? 'bg-[#C8AC75] text-[#0B2924]' : 'border border-[#C8AC75]/30 opacity-0'
+                        isSelected ? 'bg-[#55B8B3] text-[#173D36]' : 'border border-[#E2D2BB] opacity-0'
                       }`}>
                         <Check className="w-3 h-3 stroke-[2.5]" />
                       </div>
@@ -325,20 +325,20 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
 
           {/* Recommendation Result */}
           {matchedExperience && recommendation && (
-            <div className="mt-6 pt-5 border-t border-[#C8AC75]/30 animate-fadeIn">
-              <div className="bg-[#0B2924] text-[#F6F2E9] border border-[#C8AC75]/40 rounded-2xl p-5 sm:p-6 shadow-xl">
+            <div className="mt-6 pt-5 border-t border-[#E2D2BB] animate-fadeIn">
+              <div className="bg-[#173D36] text-white border border-[#55B8B3] rounded-2xl p-5 sm:p-6 shadow-xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-[#C8AC75]" />
-                    <span className="text-xs font-sans font-semibold uppercase tracking-[0.2em] text-[#C8AC75]">
+                    <Sparkles className="w-4 h-4 text-[#C5A46B]" />
+                    <span className="text-xs font-sans font-semibold uppercase tracking-[0.2em] text-[#C5A46B]">
                       {t.quickFinder.recommendedTitle}
                     </span>
                   </div>
                   <button
                     onClick={handleReset}
-                    className="inline-flex items-center gap-1.5 text-xs font-sans text-[#F6F2E9]/70 hover:text-[#C8AC75] transition-colors self-start sm:self-auto cursor-pointer"
+                    className="inline-flex items-center gap-1.5 text-xs font-sans text-white/80 hover:text-[#C5A46B] transition-colors self-start sm:self-auto cursor-pointer"
                   >
-                    <RotateCcw className="w-3 h-3 text-[#C8AC75]" />
+                    <RotateCcw className="w-3 h-3 text-[#C5A46B]" />
                     <span>{t.quickFinder.reset}</span>
                   </button>
                 </div>
@@ -347,21 +347,21 @@ export const ExperienceMatcher: React.FC<ExperienceMatcherProps> = ({
                   {matchedExperience.title[currentLang]}
                 </h3>
 
-                <p className="text-xs sm:text-sm text-[#F6F2E9]/85 font-sans font-light leading-relaxed mb-5">
+                <p className="text-xs sm:text-sm text-white/90 font-sans font-light leading-relaxed mb-5">
                   {recommendation.reason[currentLang]}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={() => onViewExperienceDetails(matchedExperience.id)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-sans uppercase tracking-wider font-medium text-[#F6F2E9] bg-white/10 border border-white/25 rounded-xl hover:bg-white/20 transition-all cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-sans uppercase tracking-wider font-medium text-white bg-white/10 border border-white/25 rounded-xl hover:bg-white/20 transition-all cursor-pointer"
                   >
                     <span>{t.quickFinder.viewDetails}</span>
                   </button>
 
                   <button
                     onClick={() => onSelectExperience(recommendation.category)}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-sans uppercase tracking-wider font-semibold text-[#0B2924] bg-[#C8AC75] hover:bg-[#dfc38d] rounded-xl transition-all shadow-md cursor-pointer"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-sans uppercase tracking-wider font-semibold text-[#173D36] bg-[#C5A46B] hover:bg-[#dfc38d] rounded-xl transition-all shadow-md cursor-pointer"
                   >
                     <span>{t.quickFinder.planThis}</span>
                     <ArrowRight className="w-3.5 h-3.5" />

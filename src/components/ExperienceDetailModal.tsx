@@ -764,7 +764,7 @@ export const ExperienceDetailModal: React.FC<ExperienceDetailModalProps> = ({
 
           {/* I. BOOKING / INQUIRY CALL TO ACTION */}
           <section className="px-6 sm:px-10 max-w-4xl mx-auto">
-            <div className="p-8 sm:p-10 bg-[#06121e] rounded-3xl text-white text-center space-y-5 border border-white/10 shadow-xl">
+            <div className="p-8 sm:p-10 bg-[#173D36] rounded-3xl text-white text-center space-y-5 border border-white/10 shadow-xl">
               <div className="inline-flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.25em] text-[#38bdf8] bg-white/10 px-3 py-1 rounded-full border border-white/15">
                 <CompassIcon className="w-3 h-3 text-[#38bdf8]" />
                 <span>GUNA YALA PANAMA TRAVEL</span>
@@ -879,7 +879,7 @@ export const ExperienceDetailModal: React.FC<ExperienceDetailModalProps> = ({
               onClose();
               onInquire(experience.category);
             }}
-            className="inline-flex items-center gap-2 py-3 px-6 text-xs uppercase tracking-[0.16em] font-semibold text-white bg-[#06121e] hover:bg-[#0e7490] rounded-full shadow-md transition-all active:scale-95"
+            className="inline-flex items-center gap-2 py-3 px-6 text-xs uppercase tracking-[0.16em] font-semibold text-white bg-[#173D36] hover:bg-[#112e29] rounded-full shadow-md transition-all active:scale-95"
           >
             <span>{primaryCtaLabel}</span>
             <ArrowRight className="w-4 h-4" />
