@@ -39,8 +39,9 @@ export class BookingRequestService {
   }
 
   /**
-   * Submits a booking request strictly through the validated backend Netlify Function.
-   * Direct-to-Supabase client persistence has been removed for security and data integrity.
+   * Submits a booking request strictly through the Netlify Function.
+   * Features a dual-endpoint fallback (/api/booking-request -> /.netlify/functions/booking-request)
+   * and an HTML response guard to prevent silent SPA catch-all parsing failures.
    */
   public async submitBookingRequest(input: BookingRequestInput): Promise<BookingRequestResult> {
     const customerLanguage = input.customerLanguage || 'en';
@@ -78,50 +79,69 @@ export class BookingRequestService {
       submittedAt: new Date().toISOString(),
     };
 
-    try {
-      const response = await fetch('/api/booking-request', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Idempotency-Key': idempotencyKey,
-        },
-        body: JSON.stringify(payload),
-      });
+    // Endpoints to attempt in order (rewritten route first, then direct function URL)
+    const endpoints = [
+      '/api/booking-request',
+      '/.netlify/functions/booking-request',
+    ];
 
-      if (!response.ok) {
-        let errMessage = `Server error (${response.status})`;
-        try {
-          const errData = await response.json();
-          if (errData.error) errMessage = errData.error;
-        } catch {
-          // fallback
+    let lastError: string = '';
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+
+        // Guard against Netlify SPA fallback serving index.html
+        if (contentType.includes('text/html')) {
+          console.warn(`[BookingRequestService] Endpoint ${endpoint} returned HTML (SPA fallback). Retrying next endpoint...`);
+          lastError = 'API endpoint returned HTML page instead of JSON.';
+          continue;
         }
-        throw new Error(errMessage);
+
+        if (!contentType.includes('application/json')) {
+          lastError = `Endpoint ${endpoint} returned invalid content type: ${contentType}`;
+          continue;
+        }
+
+        const resData = await response.json();
+
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.error || `Server error (${response.status})`);
+        }
+
+        if (resData.success && resData.bookingReference) {
+          return {
+            success: true,
+            bookingReference: resData.bookingReference,
+            status: resData.status || 'request_received',
+            idempotentReplay: Boolean(resData.idempotentReplay),
+            message: resData.message || 'Booking request submitted successfully.',
+          };
+        }
+      } catch (err: any) {
+        console.warn(`[BookingRequestService] Attempt on ${endpoint} failed:`, err.message);
+        lastError = err.message || 'Network error';
       }
-
-      const resData = await response.json();
-
-      if (!resData.success || !resData.bookingReference) {
-        throw new Error(resData.error || 'Failed to record booking request.');
-      }
-
-      return {
-        success: true,
-        bookingReference: resData.bookingReference,
-        status: resData.status || 'request_received',
-        idempotentReplay: Boolean(resData.idempotentReplay),
-        message: resData.message || 'Booking request submitted successfully.',
-      };
-    } catch (netErr: any) {
-      console.error('[BookingRequestService Error] Request failed:', netErr);
-      return {
-        success: false,
-        bookingReference: '',
-        status: 'error',
-        message: netErr?.message || 'Unable to submit booking request. Please check your connection and retry.',
-        error: netErr?.message || 'Network or server error',
-      };
     }
+
+    // Both endpoints failed or returned non-JSON
+    console.error('[BookingRequestService Error] All API endpoints failed:', lastError);
+    return {
+      success: false,
+      bookingReference: '',
+      status: 'error',
+      message: 'Unable to submit booking request. Our booking system is briefly verifying connection settings. Please try again.',
+      error: lastError || 'Server error or endpoint offline',
+    };
   }
 }
 
