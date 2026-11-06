@@ -19,7 +19,10 @@ import {
 } from '../src/templates/emailTemplates.js';
 import { handler as bookingHandler } from '../netlify/functions/booking-request.js';
 import { handler as queueHandler } from '../netlify/functions/process-email-queue.js';
-import { handler as scheduledHandler } from '../netlify/functions/process-email-queue-scheduled.js';
+import scheduledDefaultHandler, {
+  handler as scheduledHandler,
+  config as scheduledConfig,
+} from '../netlify/functions/process-email-queue-scheduled.js';
 
 interface TestResult {
   name: string;
@@ -265,18 +268,31 @@ async function runEmailTests() {
       `deliveryEnabled=${disabledResult.deliveryEnabled}, processedCount=${disabledResult.processedCount}, rpcCalled=${rpcCalledWhenDisabled}`
     );
 
-    // Invoke scheduled handler with delivery disabled
+    // Invoke scheduled handler with delivery disabled (modern Request and legacy event)
+    const modernReq = new Request('https://gunayalapanama.com/.netlify/functions/process-email-queue-scheduled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ next_run: '2026-11-05T12:00:00Z' }),
+    });
+    const modernScheduledRes = await scheduledDefaultHandler(modernReq);
+    const modernScheduledBody = await modernScheduledRes.json();
+
     const scheduledDisabledRes = await scheduledHandler({ next_run: '2026-11-05T12:00:00Z' });
     const scheduledDisabledBody = JSON.parse(scheduledDisabledRes.body);
 
     assert(
       'Test 9: Netlify Scheduled Function exits cleanly with HTTP 200 and deliveryEnabled: false',
-      scheduledDisabledRes.statusCode === 200 &&
+      modernScheduledRes.status === 200 &&
+        modernScheduledBody.scheduled === true &&
+        modernScheduledBody.deliveryEnabled === false &&
+        modernScheduledBody.processedCount === 0 &&
+        scheduledDisabledRes.statusCode === 200 &&
         scheduledDisabledBody.scheduled === true &&
         scheduledDisabledBody.deliveryEnabled === false &&
-        scheduledDisabledBody.processedCount === 0,
-      'HTTP 200, scheduled=true, deliveryEnabled=false, processedCount=0',
-      `HTTP ${scheduledDisabledRes.statusCode}, scheduled=${scheduledDisabledBody.scheduled}, deliveryEnabled=${scheduledDisabledBody.deliveryEnabled}`
+        scheduledDisabledBody.processedCount === 0 &&
+        scheduledConfig.schedule === '*/10 * * * *',
+      'HTTP 200, scheduled=true, deliveryEnabled=false, processedCount=0, cron=*/10 * * * *',
+      `Modern HTTP ${modernScheduledRes.status}, Legacy HTTP ${scheduledDisabledRes.statusCode}, cron=${scheduledConfig.schedule}`
     );
 
     // -------------------------------------------------------------
@@ -589,11 +605,11 @@ async function runEmailTests() {
     );
 
     // -------------------------------------------------------------
-    // PART 13: TASK 5.9 — NO ACCIDENTAL PUBLIC ACCESS TO QUEUE OPS
+    // PART 13: TASK 5.9 — SECURE QUEUE ENDPOINT AUTHENTICATION
     // -------------------------------------------------------------
     process.env.QUEUE_PROCESSING_SECRET = 'secret_pass_888999';
 
-    // 13a. Unauthenticated direct HTTP call to process-email-queue -> 401
+    // 13a. Unauthenticated direct HTTP call to manual endpoint process-email-queue -> 401
     const unauthManualEvent = {
       httpMethod: 'POST',
       headers: {},
@@ -601,31 +617,34 @@ async function runEmailTests() {
     };
     const unauthManualRes = await queueHandler(unauthManualEvent as any);
 
-    // 13b. Unauthenticated direct HTTP call to process-email-queue-scheduled -> 401
-    const unauthScheduledEvent = {
-      httpMethod: 'POST',
-      headers: {},
-      body: '',
-    };
-    const unauthScheduledRes = await scheduledHandler(unauthScheduledEvent as any);
-
-    // 13c. Authenticated HTTP call with valid secret header -> 200
-    const authScheduledEvent = {
+    // 13b. Authenticated HTTP call to manual endpoint with valid secret header -> 200
+    const authManualEvent = {
       httpMethod: 'POST',
       headers: {
         'x-queue-secret': 'secret_pass_888999',
       },
-      body: '',
+      body: JSON.stringify({ batchSize: 5 }),
     };
-    const authScheduledRes = await scheduledHandler(authScheduledEvent as any);
+    const authManualRes = await queueHandler(authManualEvent as any);
+
+    // 13c. Netlify Scheduled invocation executes successfully without requiring x-queue-secret
+    // (resolving the production bug where internal cron runner was blocked with 401)
+    const scheduledCronReq = new Request('http://localhost', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ next_run: '2026-11-05T12:10:00Z' }),
+    });
+    const scheduledCronRes = await scheduledDefaultHandler(scheduledCronReq);
+    const scheduledCronBody = await scheduledCronRes.json();
 
     assert(
-      'Test 17: Public access protection: direct HTTP calls without secret return HTTP 401 on both manual and scheduled endpoints',
+      'Test 17: Public access protection: manual endpoint requires secret (401 without, 200 with), while scheduled worker reliably accepts cron runner invocations',
       unauthManualRes.statusCode === 401 &&
-        unauthScheduledRes.statusCode === 401 &&
-        authScheduledRes.statusCode === 200,
-      'Manual=401, Scheduled=401, Authenticated=200',
-      `Manual=${unauthManualRes.statusCode}, Scheduled=${unauthScheduledRes.statusCode}, Authenticated=${authScheduledRes.statusCode}`
+        authManualRes.statusCode === 200 &&
+        scheduledCronRes.status === 200 &&
+        scheduledCronBody.scheduled === true,
+      'ManualUnauth=401, ManualAuth=200, ScheduledCron=200',
+      `ManualUnauth=${unauthManualRes.statusCode}, ManualAuth=${authManualRes.statusCode}, ScheduledCron=${scheduledCronRes.status}`
     );
 
     // -------------------------------------------------------------
