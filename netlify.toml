@@ -5,6 +5,9 @@
 [functions]
   directory = "netlify/functions"
 
+[functions."process-email-queue-scheduled"]
+  schedule = "*/10 * * * *"
+
 [[redirects]]
   from = "/api/booking-request"
   to = "/.netlify/functions/booking-request"

@@ -13,6 +13,17 @@ import franklinImg from '../pictures/04 Franklin.jpg';
 import veleroImg from '../pictures/09 Velero .jpg';
 import communityImg from '../pictures/04 Learn about the Guna Community in San Blas.jpg';
 
+// 9 New luxury visual captures (q1 to q9)
+import q1Img from '../pictures/q1.jpg';
+import q2Img from '../pictures/q2.jpg';
+import q3Img from '../pictures/q3.jpg';
+import q4Img from '../pictures/q4.jpg';
+import q5Img from '../pictures/q5.jpg';
+import q6Img from '../pictures/q6.jpg';
+import q7Img from '../pictures/q7.jpg';
+import q8Img from '../pictures/q8.jpg';
+import q9Img from '../pictures/q9.jpg';
+
 interface FloatingGalleryProps {
   currentLang: Language;
   onOpenPlanner?: (category?: string) => void;
@@ -55,6 +66,7 @@ export interface GalleryItem {
 }
 
 const GALLERY_ITEMS: GalleryItem[] = [
+  // ─── RING 1: INNER SANCTUARY ORBIT (6 items, rX: 350, rY: 225) ─────────────
   {
     id: 'cayos-holandeses',
     title: {
@@ -78,10 +90,39 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[4/3]',
     initialRotation: -2,
     depth: 0.9,
-    startAngle: 0.0, // 0 degrees (Right)
+    startAngle: 0.0, // 0 deg
     orbitSpeed: 0.98,
-    orbitRadiusX: { desktop: 360, mobile: 140 },
-    orbitRadiusY: { desktop: 230, mobile: 170 },
+    orbitRadiusX: { desktop: 350, mobile: 135 },
+    orbitRadiusY: { desktop: 225, mobile: 160 },
+    plannerCategory: 'sailing',
+  },
+  {
+    id: 'q1-barrier-lagoon',
+    title: {
+      en: 'Prismatic Coral Barrier Lagoon',
+      es: 'Laguna Coralina de Barrera Turquesa',
+    },
+    location: {
+      en: 'East Holandeses Channel',
+      es: 'Canal Este de Cayos Holandeses',
+    },
+    category: {
+      en: 'Coral Lagoon',
+      es: 'Laguna Coralina',
+    },
+    description: {
+      en: 'Unbroken turquoise transparency where living reefs meet deep ocean channels in calm, crystal-clear serenity.',
+      es: 'Transparencia turquesa ininterrumpida donde los arrecifes vivos se encuentran con canales oceánicos en calma absoluta.',
+    },
+    imageSrc: q1Img,
+    fallbackSrc: '/pictures/q1.jpg',
+    aspectRatio: 'aspect-[3/2]',
+    initialRotation: 1.5,
+    depth: 1.05,
+    startAngle: 1.05, // 60 deg
+    orbitSpeed: 1.02,
+    orbitRadiusX: { desktop: 350, mobile: 135 },
+    orbitRadiusY: { desktop: 225, mobile: 160 },
     plannerCategory: 'sailing',
   },
   {
@@ -107,11 +148,40 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[16/10]',
     initialRotation: 2,
     depth: 1.1,
-    startAngle: 1.57, // 90 degrees (Bottom)
-    orbitSpeed: 1.02,
-    orbitRadiusX: { desktop: 370, mobile: 145 },
-    orbitRadiusY: { desktop: 240, mobile: 180 },
+    startAngle: 2.09, // 120 deg
+    orbitSpeed: 0.99,
+    orbitRadiusX: { desktop: 350, mobile: 135 },
+    orbitRadiusY: { desktop: 225, mobile: 160 },
     plannerCategory: 'catamaran',
+  },
+  {
+    id: 'q2-thatched-haven',
+    title: {
+      en: 'Ancestral Beachfront Palm Retreat',
+      es: 'Refugio de Palma Frente a la Playa',
+    },
+    location: {
+      en: 'Private Cay Anchorage, Limones',
+      es: 'Fondeo Privado, Cayos Limones',
+    },
+    category: {
+      en: 'Island Haven',
+      es: 'Refugio Isleño',
+    },
+    description: {
+      en: 'Traditional bamboo architecture shaded by leaning coconut palms just steps from the lapping Caribbean surf.',
+      es: 'Arquitectura tradicional de bambú cobijada por cocoteros inclinados a pasos de las suaves olas del Caribe.',
+    },
+    imageSrc: q2Img,
+    fallbackSrc: '/pictures/q2.jpg',
+    aspectRatio: 'aspect-[4/5]',
+    initialRotation: -1.5,
+    depth: 0.85,
+    startAngle: 3.14, // 180 deg
+    orbitSpeed: 0.97,
+    orbitRadiusX: { desktop: 350, mobile: 135 },
+    orbitRadiusY: { desktop: 225, mobile: 160 },
+    plannerCategory: 'overnight',
   },
   {
     id: 'perro-chico',
@@ -135,13 +205,44 @@ const GALLERY_ITEMS: GalleryItem[] = [
     fallbackSrc: '/pictures/perrochico.jpg',
     aspectRatio: 'aspect-[3/4]',
     initialRotation: 1,
-    depth: 0.85,
-    startAngle: 3.14, // 180 degrees (Left)
-    orbitSpeed: 0.96,
+    depth: 0.9,
+    startAngle: 4.19, // 240 deg
+    orbitSpeed: 1.01,
     orbitRadiusX: { desktop: 350, mobile: 135 },
-    orbitRadiusY: { desktop: 220, mobile: 165 },
+    orbitRadiusY: { desktop: 225, mobile: 160 },
     plannerCategory: 'day-trip',
   },
+  {
+    id: 'q3-caribbean-sunset',
+    title: {
+      en: 'Amber Horizon Over Calm Waters',
+      es: 'Horizonte Ámbar Sobre Aguas en Calma',
+    },
+    location: {
+      en: 'Western Guna Yala Channel',
+      es: 'Canal Occidental de Guna Yala',
+    },
+    category: {
+      en: 'Sunset Glow',
+      es: 'Atardecer Dorado',
+    },
+    description: {
+      en: 'Golden twilight casting warm amber reflections across the mirror-calm Caribbean as twilight falls over San Blas.',
+      es: 'Crepúsculo dorado que proyecta reflejos de ámbar cálido sobre las aguas espejadas del Caribe al caer la tarde.',
+    },
+    imageSrc: q3Img,
+    fallbackSrc: '/pictures/q3.jpg',
+    aspectRatio: 'aspect-[4/5]',
+    initialRotation: -2,
+    depth: 1.15,
+    startAngle: 5.24, // 300 deg
+    orbitSpeed: 1.03,
+    orbitRadiusX: { desktop: 350, mobile: 135 },
+    orbitRadiusY: { desktop: 225, mobile: 160 },
+    plannerCategory: 'catamaran',
+  },
+
+  // ─── RING 2: MID-ARCHIPELAGO ORBIT (6 items, rX: 490, rY: 305) ─────────────
   {
     id: 'piscina-natural',
     title: {
@@ -165,11 +266,40 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[16/9]',
     initialRotation: -1,
     depth: 1.0,
-    startAngle: 4.71, // 270 degrees (Top)
-    orbitSpeed: 1.04,
-    orbitRadiusX: { desktop: 380, mobile: 150 },
-    orbitRadiusY: { desktop: 250, mobile: 185 },
+    startAngle: 0.52, // 30 deg offset
+    orbitSpeed: 1.02,
+    orbitRadiusX: { desktop: 490, mobile: 165 },
+    orbitRadiusY: { desktop: 305, mobile: 210 },
     plannerCategory: 'day-trip',
+  },
+  {
+    id: 'q4-pristine-shoreline',
+    title: {
+      en: 'Solitary Coconut Palm Shoreline',
+      es: 'Orilla Solitaria de Palmas y Arena',
+    },
+    location: {
+      en: 'Pelicano & Miryadup Atolls',
+      es: 'Atolones Pelícano y Miryadup',
+    },
+    category: {
+      en: 'Pure Solitude',
+      es: 'Pura Soledad',
+    },
+    description: {
+      en: 'Fine powdery white sand kissed by gentle waves, without footprints, surrounded by pristine turquoise shallow banks.',
+      es: 'Arena blanca pulverizada bañada por olas suaves, sin huellas, rodeada de bajos turquesa resplandecientes.',
+    },
+    imageSrc: q4Img,
+    fallbackSrc: '/pictures/q4.jpg',
+    aspectRatio: 'aspect-[2/3]',
+    initialRotation: 2,
+    depth: 0.8,
+    startAngle: 1.57, // 90 deg
+    orbitSpeed: 0.98,
+    orbitRadiusX: { desktop: 490, mobile: 165 },
+    orbitRadiusY: { desktop: 305, mobile: 210 },
+    plannerCategory: 'overnight',
   },
   {
     id: 'guna-mola-art',
@@ -194,11 +324,40 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[1/1]',
     initialRotation: -2,
     depth: 1.15,
-    startAngle: 0.7, // ~40 degrees (Outer top-right)
-    orbitSpeed: 0.97,
-    orbitRadiusX: { desktop: 520, mobile: 170 },
-    orbitRadiusY: { desktop: 320, mobile: 240 },
+    startAngle: 2.62, // 150 deg
+    orbitSpeed: 0.96,
+    orbitRadiusX: { desktop: 490, mobile: 165 },
+    orbitRadiusY: { desktop: 305, mobile: 210 },
     plannerCategory: 'overnight',
+  },
+  {
+    id: 'q5-coco-bandero-oasis',
+    title: {
+      en: 'Coco Bandero Palm Grove Sanctuary',
+      es: 'Oasis de Cocoteros en Coco Bandero',
+    },
+    location: {
+      en: 'Coco Bandero Archipelago',
+      es: 'Archipiélago Coco Bandero',
+    },
+    category: {
+      en: 'Tropical Oasis',
+      es: 'Oasis Tropical',
+    },
+    description: {
+      en: 'Iconic tiny coral islets draped in towering coconut palms and surrounded by 360-degree turquoise reef barriers.',
+      es: 'Diminutos islotes de coral cubiertos por altas palmeras de coco y protegidos por barreras de coral turquesa en 360 grados.',
+    },
+    imageSrc: q5Img,
+    fallbackSrc: '/pictures/q5.jpg',
+    aspectRatio: 'aspect-[2/3]',
+    initialRotation: 1,
+    depth: 1.05,
+    startAngle: 3.67, // 210 deg
+    orbitSpeed: 1.04,
+    orbitRadiusX: { desktop: 490, mobile: 165 },
+    orbitRadiusY: { desktop: 305, mobile: 210 },
+    plannerCategory: 'sailing',
   },
   {
     id: 'sailing-yacht',
@@ -223,12 +382,43 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[4/3]',
     initialRotation: -2,
     depth: 0.75,
-    startAngle: 1.95, // ~112 degrees (Outer bottom-right)
-    orbitSpeed: 1.01,
-    orbitRadiusX: { desktop: 540, mobile: 175 },
-    orbitRadiusY: { desktop: 330, mobile: 250 },
+    startAngle: 4.71, // 270 deg
+    orbitSpeed: 1.0,
+    orbitRadiusX: { desktop: 490, mobile: 165 },
+    orbitRadiusY: { desktop: 305, mobile: 210 },
     plannerCategory: 'sailing',
   },
+  {
+    id: 'q6-guna-island-traditions',
+    title: {
+      en: 'Ancestral Guna Heritage & Spirit',
+      es: 'Herencia y Espíritu Ancestral Guna',
+    },
+    location: {
+      en: 'Gardi Sugdub Cultural Heart',
+      es: 'Corazón Cultural de Gardi Sugdub',
+    },
+    category: {
+      en: 'Living Tradition',
+      es: 'Tradición Viva',
+    },
+    description: {
+      en: 'Living Guna customs, traditional handmade molas, and welcoming community smiles preserved across generations.',
+      es: 'Costumbres vivas del pueblo guna, molas artesanales y hospitalidad comunitaria preservada a través de las generaciones.',
+    },
+    imageSrc: q6Img,
+    fallbackSrc: '/pictures/q6.jpg',
+    aspectRatio: 'aspect-[4/5]',
+    initialRotation: 2.5,
+    depth: 0.9,
+    startAngle: 5.76, // 330 deg
+    orbitSpeed: 0.97,
+    orbitRadiusX: { desktop: 490, mobile: 165 },
+    orbitRadiusY: { desktop: 305, mobile: 210 },
+    plannerCategory: 'multi-day',
+  },
+
+  // ─── RING 3: OUTER HORIZON ORBIT (6 items, rX: 630, rY: 385) ───────────────
   {
     id: 'isla-franklin',
     title: {
@@ -252,11 +442,40 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[3/4]',
     initialRotation: 2,
     depth: 0.95,
-    startAngle: 3.2, // ~183 degrees (Outer bottom-left)
+    startAngle: 0.26, // 15 deg
     orbitSpeed: 0.99,
-    orbitRadiusX: { desktop: 510, mobile: 165 },
-    orbitRadiusY: { desktop: 310, mobile: 235 },
+    orbitRadiusX: { desktop: 630, mobile: 195 },
+    orbitRadiusY: { desktop: 385, mobile: 255 },
     plannerCategory: 'overnight',
+  },
+  {
+    id: 'q7-turquoise-barrier-channel',
+    title: {
+      en: 'Panoramic Outer Reef Passage',
+      es: 'Paso Panorámico de la Barrera Arrecifal',
+    },
+    location: {
+      en: 'Dutch Cays Outer Blue Line',
+      es: 'Línea Azul Exterior de Cayos Holandeses',
+    },
+    category: {
+      en: 'Reef Panorama',
+      es: 'Panorama Arrecifal',
+    },
+    description: {
+      en: 'Wide panoramic horizon showing the sharp gradient between sapphire Caribbean depth and neon turquoise shallows.',
+      es: 'Horizonte panorámico amplio que revela el intenso gradiente entre el zafiro oceánico y las aguas turquesa neón.',
+    },
+    imageSrc: q7Img,
+    fallbackSrc: '/pictures/q7.jpg',
+    aspectRatio: 'aspect-[16/9]',
+    initialRotation: -1.5,
+    depth: 0.7,
+    startAngle: 1.31, // 75 deg
+    orbitSpeed: 1.03,
+    orbitRadiusX: { desktop: 630, mobile: 195 },
+    orbitRadiusY: { desktop: 385, mobile: 255 },
+    plannerCategory: 'sailing',
   },
   {
     id: 'guna-community-village',
@@ -281,11 +500,40 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[16/10]',
     initialRotation: 1,
     depth: 0.65,
-    startAngle: 4.45, // ~255 degrees (Outer top-left)
-    orbitSpeed: 1.03,
-    orbitRadiusX: { desktop: 530, mobile: 180 },
-    orbitRadiusY: { desktop: 330, mobile: 255 },
+    startAngle: 2.36, // 135 deg
+    orbitSpeed: 0.98,
+    orbitRadiusX: { desktop: 630, mobile: 195 },
+    orbitRadiusY: { desktop: 385, mobile: 255 },
     plannerCategory: 'multi-day',
+  },
+  {
+    id: 'q8-starfish-sandbar-shallows',
+    title: {
+      en: 'Crystal Shallows & Giant Starfish Bar',
+      es: 'Bajos Cristalinos y Banco de Estrellas',
+    },
+    location: {
+      en: 'Isla Perro & Diablo Channel',
+      es: 'Canal entre Isla Perro e Isla Diablo',
+    },
+    category: {
+      en: 'Crystal Shallows',
+      es: 'Bajos Cristalinos',
+    },
+    description: {
+      en: 'Knee-deep calm water over brilliant white coral sand where giant cushion sea stars thrive in pristine sunlight.',
+      es: 'Aguas cristalinas a la altura de la rodilla sobre arena coralina donde habitan estrellas de mar bajo el sol caribeño.',
+    },
+    imageSrc: q8Img,
+    fallbackSrc: '/pictures/q8.jpg',
+    aspectRatio: 'aspect-[16/9]',
+    initialRotation: 2,
+    depth: 1.05,
+    startAngle: 3.40, // 195 deg
+    orbitSpeed: 1.02,
+    orbitRadiusX: { desktop: 630, mobile: 195 },
+    orbitRadiusY: { desktop: 385, mobile: 255 },
+    plannerCategory: 'day-trip',
   },
   {
     id: 'island-hopping-boat',
@@ -310,11 +558,40 @@ const GALLERY_ITEMS: GalleryItem[] = [
     aspectRatio: 'aspect-[4/3]',
     initialRotation: -1,
     depth: 1.1,
-    startAngle: 5.7, // ~326 degrees (Outer mid-top-right)
+    startAngle: 4.45, // 255 deg
     orbitSpeed: 0.95,
-    orbitRadiusX: { desktop: 500, mobile: 160 },
-    orbitRadiusY: { desktop: 310, mobile: 230 },
+    orbitRadiusX: { desktop: 630, mobile: 195 },
+    orbitRadiusY: { desktop: 385, mobile: 255 },
     plannerCategory: 'day-trip',
+  },
+  {
+    id: 'q9-outer-yacht-anchorage',
+    title: {
+      en: 'Protected Outer Island Yacht Anchorage',
+      es: 'Fondeadero Protegido de Veleros',
+    },
+    location: {
+      en: 'Chichime Cays Lagoon',
+      es: 'Laguna de Cayos Chichime',
+    },
+    category: {
+      en: 'Sailing Anchorage',
+      es: 'Fondeo de Veleros',
+    },
+    description: {
+      en: 'Calm natural harbor protected by barrier reefs where catamarans rest motionless on aquamarine waters.',
+      es: 'Puerto natural en calma protegido por la barrera de coral donde los catamaranes reposan en aguas aguamarina.',
+    },
+    imageSrc: q9Img,
+    fallbackSrc: '/pictures/q9.jpg',
+    aspectRatio: 'aspect-[16/9]',
+    initialRotation: -2,
+    depth: 0.8,
+    startAngle: 5.50, // 315 deg
+    orbitSpeed: 1.04,
+    orbitRadiusX: { desktop: 630, mobile: 195 },
+    orbitRadiusY: { desktop: 385, mobile: 255 },
+    plannerCategory: 'sailing',
   },
 ];
 
@@ -548,7 +825,7 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
             </button>
 
             <span className="hidden sm:inline-block px-3 py-1.5 rounded-full bg-[#F0E7D8] text-[#173D36] text-xs font-mono font-medium border border-[#E2D2BB]">
-              9 {isEs ? 'Capturas' : 'Moments'}
+              {GALLERY_ITEMS.length} {isEs ? 'Capturas' : 'Moments'}
             </span>
           </div>
         </div>
@@ -559,7 +836,7 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="relative w-full min-h-[720px] sm:min-h-[820px] md:min-h-[900px] lg:min-h-[980px] max-w-[1440px] mx-auto px-4 overflow-hidden"
+        className="relative w-full min-h-[740px] sm:min-h-[840px] md:min-h-[940px] lg:min-h-[1020px] max-w-[1440px] mx-auto px-4 overflow-hidden"
       >
         {/* Subtle Ambient Background Gradients */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(85,184,179,0.1),transparent_70%)] pointer-events-none rounded-full blur-3xl" />
@@ -599,7 +876,7 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
         </div>
 
         {/* SLOW ORBITAL PHOTO CARDS CANVAS */}
-        <div className="relative w-full h-full min-h-[720px] sm:min-h-[820px] md:min-h-[900px] lg:min-h-[980px]">
+        <div className="relative w-full h-full min-h-[740px] sm:min-h-[840px] md:min-h-[940px] lg:min-h-[1020px]">
           {GALLERY_ITEMS.map((item) => {
             const isLoaded = loadedImages[item.id];
 
@@ -631,6 +908,7 @@ export const FloatingGallery: React.FC<FloatingGalleryProps> = ({ currentLang, o
                       src={item.imageSrc}
                       alt={item.title[currentLang]}
                       loading="lazy"
+                      decoding="async"
                       onLoad={() => handleImageLoad(item.id)}
                       onError={(e) => handleImageError(item.id, item.fallbackSrc, e)}
                       className={`w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108 ${

@@ -68,6 +68,21 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
   // Ambient audio refs (bound to DOM audio elements)
   const islandsAudioRef = useRef<HTMLAudioElement | null>(null);
   const sailingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const heroContainerRef = useRef<HTMLDivElement>(null);
+  const [isHeroVisible, setIsHeroVisible] = useState(true);
+
+  // Viewport intersection observer to suspend decoding/playback when scrolled away
+  useEffect(() => {
+    if (!heroContainerRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsHeroVisible(entry.isIntersecting);
+      },
+      { threshold: 0.08 }
+    );
+    observer.observe(heroContainerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   // Stop ambient audio on component unmount
   useEffect(() => {
@@ -83,30 +98,31 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
     };
   }, []);
 
-  // Handle video playback
+  // Handle video playback with viewport awareness
   useEffect(() => {
+    const shouldPlay = isPlaying && isHeroVisible;
     if (videoRef.current) {
-      if (isPlaying) {
+      if (shouldPlay) {
         videoRef.current.play().catch(() => setVideoError(true));
       } else {
         videoRef.current.pause();
       }
     }
     if (sailingVideoRef.current) {
-      if (isPlaying) {
+      if (shouldPlay) {
         sailingVideoRef.current.play().catch(() => setSailingVideoError(true));
       } else {
         sailingVideoRef.current.pause();
       }
     }
     if (cultureVideoRef.current) {
-      if (isPlaying) {
+      if (shouldPlay) {
         cultureVideoRef.current.play().catch(() => setCultureVideoError(true));
       } else {
         cultureVideoRef.current.pause();
       }
     }
-  }, [isPlaying]);
+  }, [isPlaying, isHeroVisible]);
 
   // Synchronous ambient audio controller bound directly to user gesture event stack
   const togglePanelAudio = (panel: 'islands' | 'sailing') => {
@@ -188,7 +204,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
   };
 
   return (
-    <div id="hero" className="relative min-h-[92vh] lg:min-h-screen flex flex-col justify-between bg-[#0B2924] text-[#F6F2E9] overflow-hidden pt-[72px] sm:pt-[72px] lg:pt-[72px] select-none">
+    <div id="hero" ref={heroContainerRef} className="relative min-h-[92vh] lg:min-h-screen flex flex-col justify-between bg-[#0B2924] text-[#F6F2E9] overflow-hidden pt-[72px] sm:pt-[72px] lg:pt-[72px] select-none">
       
       {/* ========================================================
           THREE SIDE-BY-SIDE CINEMATIC PANELS (DESKTOP HORIZONTAL)
@@ -210,7 +226,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 muted
                 loop
                 playsInline
-                preload="auto"
+                preload="metadata"
                 poster="/pictures/hero/guna-yala-hero.jpg"
                 onError={() => setVideoError(true)}
                 className="w-full h-full object-cover object-center scale-100 group-hover:scale-[1.03] transform-gpu backface-hidden transition-transform duration-1000 ease-out brightness-[1.05] saturate-[1.05]"
@@ -308,7 +324,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 muted
                 loop
                 playsInline
-                preload="auto"
+                preload="metadata"
                 poster="/pictures/catamaran.jpg"
                 onError={() => setSailingVideoError(true)}
                 className="w-full h-full object-cover object-center scale-100 group-hover:scale-[1.03] transform-gpu backface-hidden transition-transform duration-1000 ease-out brightness-[1.05] saturate-[1.05]"
@@ -406,7 +422,7 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
                 muted
                 loop
                 playsInline
-                preload="auto"
+                preload="metadata"
                 poster="/pictures/04 Learn about the Guna Community in San Blas.jpg"
                 onError={() => setCultureVideoError(true)}
                 className="w-full h-full object-cover object-center scale-100 group-hover:scale-[1.03] transform-gpu backface-hidden transition-transform duration-1000 ease-out brightness-[1.05] saturate-[1.05]"
@@ -553,14 +569,14 @@ export const Hero: React.FC<HeroProps> = ({ currentLang, onExploreClick, onPlanC
         ref={islandsAudioRef}
         src="/audio/Island_Escape_Tropical_Birds_Waves_Music_Balanced_V2.mp3"
         loop
-        preload="auto"
+        preload="none"
         onError={(e) => console.error('[Hero Audio Error] Island Escape audio load error:', e)}
       />
       <audio
         ref={sailingAudioRef}
         src="/audio/escapesound.mp3"
         loop
-        preload="auto"
+        preload="none"
         onError={(e) => console.error('[Hero Audio Error] Sailing Adventures audio load error:', e)}
       />
     </div>

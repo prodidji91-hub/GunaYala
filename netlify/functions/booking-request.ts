@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { dispatchBookingEmails } from './emailService.js';
 
 interface NetlifyEvent {
   httpMethod: string;
@@ -217,7 +218,7 @@ export const handler = async (event: NetlifyEvent) => {
       : `[${initialBookingReference}] Booking Request Received — Guna Yala Panama Travel`;
 
     const petraSubject = `[NEW BOOKING REQUEST] ${initialBookingReference} — ${experienceTitle} (${fullName})`;
-    const petraEmail = process.env.PETRA_NOTIFICATION_EMAIL || 'info@gunayalapanamatravel.com';
+    const petraEmail = process.env.PETRA_NOTIFICATION_EMAIL || 'hello@gunayalapanamatravel.com';
 
     // 5. ATOMIC POSTGRES RPC TRANSACTION ONLY (NO SEQUENTIAL FALLBACK INSERTS)
     const { data: rpcData, error: rpcError } = await supabase.rpc(
@@ -296,7 +297,44 @@ export const handler = async (event: NetlifyEvent) => {
       };
     }
 
-    // 6. VERIFIED ATOMIC SUCCESS RESPONSE
+    // 6. DISPATCH TRANSACTIONAL EMAILS (NON-BLOCKING FOR BOOKING PERSISTENCE)
+    // - Concurrency safe: skips sending on idempotent retransmission
+    // - Dry-run safe: withholds delivery while domain gunayalapanama.com is pending verification
+    // - Fault tolerant: email provider errors never invalidate a successfully saved booking
+    try {
+      await dispatchBookingEmails({
+        supabase,
+        payload: {
+          bookingReference: rpcData.booking_reference,
+          bookingType,
+          customerName: fullName,
+          customerEmail: email,
+          customerPhone: phone,
+          experienceTitle,
+          targetDate,
+          departureDate,
+          nights,
+          adults,
+          children,
+          accommodationPreference,
+          pickupLocation,
+          specialNotes,
+          termsAccepted: true,
+          termsVersion,
+          customerLanguage,
+          submittedAt: new Date().toISOString(),
+        },
+        isIdempotentReplay: Boolean(rpcData.idempotent_replay),
+        requestId,
+      });
+    } catch (emailErr: any) {
+      console.warn(
+        `[BookingRequest] Request ${requestId} email dispatch warning (booking preserved):`,
+        emailErr?.message || emailErr
+      );
+    }
+
+    // 7. VERIFIED ATOMIC SUCCESS RESPONSE
     return {
       statusCode: 200,
       headers: {
