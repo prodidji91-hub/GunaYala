@@ -1,3 +1,23 @@
+# API Functions (Forced execution)
 /api/booking-request  /.netlify/functions/booking-request  200!
 /api/*                /.netlify/functions/:splat             200!
-/*                    /index.html                            200
+
+# Prerendered Bilingual SEO Landing Pages (Explicit static serving)
+/san-blas-day-trips          /san-blas-day-trips/index.html          200
+/san-blas-day-trips/         /san-blas-day-trips/index.html          200
+/es/san-blas-day-trips       /es/san-blas-day-trips/index.html       200
+/es/san-blas-day-trips/      /es/san-blas-day-trips/index.html       200
+
+/san-blas-overnight-stays       /san-blas-overnight-stays/index.html       200
+/san-blas-overnight-stays/      /san-blas-overnight-stays/index.html       200
+/es/san-blas-overnight-stays    /es/san-blas-overnight-stays/index.html    200
+/es/san-blas-overnight-stays/   /es/san-blas-overnight-stays/index.html    200
+
+/san-blas-sailing            /san-blas-sailing/index.html            200
+/san-blas-sailing/           /san-blas-sailing/index.html            200
+/es/san-blas-sailing         /es/san-blas-sailing/index.html         200
+/es/san-blas-sailing/        /es/san-blas-sailing/index.html         200
+
+# Client-Side Dynamic SPA Fallback
+/*                           /index.html                             200
+

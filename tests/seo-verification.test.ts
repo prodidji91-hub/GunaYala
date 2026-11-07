@@ -310,6 +310,149 @@ runTest('Test 14: Netlify routing preserves static file priority while forcing A
   assert.ok(netlifyToml.includes('force = true'), 'netlify.toml must force API redirects');
 });
 
+// 15. Verify Landing Route Normalization & Trailing Slash Tolerance (Part 27.2)
+runTest('Test 15: normalizePath and getLandingRouteInfo correctly resolve all 6 URLs with and without trailing slashes, index.html, and queries', async () => {
+  const { normalizePath, getLandingRouteInfo } = await import('../src/utils/landingRoutes');
+
+  // Verify normalizePath
+  assert.strictEqual(normalizePath('/san-blas-day-trips'), '/san-blas-day-trips');
+  assert.strictEqual(normalizePath('/san-blas-day-trips/'), '/san-blas-day-trips');
+  assert.strictEqual(normalizePath('/SAN-BLAS-DAY-TRIPS///'), '/san-blas-day-trips');
+  assert.strictEqual(normalizePath('/san-blas-day-trips/index.html'), '/san-blas-day-trips');
+  assert.strictEqual(normalizePath('/san-blas-day-trips.html'), '/san-blas-day-trips');
+  assert.strictEqual(normalizePath('https://gunayalapanama.com/san-blas-day-trips/?ref=google'), '/san-blas-day-trips');
+
+  // Verify all 6 routes in English and Spanish
+  const cases: { input: string; expectedType: string | null; expectedLang: string | null }[] = [
+    // English Day Trips
+    { input: '/san-blas-day-trips', expectedType: 'day-trips', expectedLang: 'en' },
+    { input: '/san-blas-day-trips/', expectedType: 'day-trips', expectedLang: 'en' },
+    { input: '/san-blas-day-trips.html', expectedType: 'day-trips', expectedLang: 'en' },
+    { input: '/san-blas-day-trips/index.html', expectedType: 'day-trips', expectedLang: 'en' },
+    // Spanish Day Trips
+    { input: '/es/san-blas-day-trips', expectedType: 'day-trips', expectedLang: 'es' },
+    { input: '/es/san-blas-day-trips/', expectedType: 'day-trips', expectedLang: 'es' },
+    { input: '/es/san-blas-day-trips.html', expectedType: 'day-trips', expectedLang: 'es' },
+    // English Overnight Stays
+    { input: '/san-blas-overnight-stays', expectedType: 'overnight-stays', expectedLang: 'en' },
+    { input: '/san-blas-overnight-stays/', expectedType: 'overnight-stays', expectedLang: 'en' },
+    { input: '/san-blas-overnight-stays.html', expectedType: 'overnight-stays', expectedLang: 'en' },
+    // Spanish Overnight Stays
+    { input: '/es/san-blas-overnight-stays', expectedType: 'overnight-stays', expectedLang: 'es' },
+    { input: '/es/san-blas-overnight-stays/', expectedType: 'overnight-stays', expectedLang: 'es' },
+    { input: '/es/san-blas-overnight-stays.html', expectedType: 'overnight-stays', expectedLang: 'es' },
+    // English Sailing
+    { input: '/san-blas-sailing', expectedType: 'sailing', expectedLang: 'en' },
+    { input: '/san-blas-sailing/', expectedType: 'sailing', expectedLang: 'en' },
+    { input: '/san-blas-sailing.html', expectedType: 'sailing', expectedLang: 'en' },
+    // Spanish Sailing
+    { input: '/es/san-blas-sailing', expectedType: 'sailing', expectedLang: 'es' },
+    { input: '/es/san-blas-sailing/', expectedType: 'sailing', expectedLang: 'es' },
+    { input: '/es/san-blas-sailing.html', expectedType: 'sailing', expectedLang: 'es' },
+    // Non-landing routes should resolve to null
+    { input: '/', expectedType: null, expectedLang: null },
+    { input: '/?lang=es', expectedType: null, expectedLang: null },
+    { input: '/admin', expectedType: null, expectedLang: null },
+    { input: '/terms-and-conditions', expectedType: null, expectedLang: null },
+  ];
+
+  for (const c of cases) {
+    const res = getLandingRouteInfo(c.input);
+    assert.strictEqual(
+      res.type,
+      c.expectedType,
+      `Failed route matching for ${c.input}: expected type ${c.expectedType}, got ${res.type}`
+    );
+    assert.strictEqual(
+      res.lang,
+      c.expectedLang,
+      `Failed lang matching for ${c.input}: expected lang ${c.expectedLang}, got ${res.lang}`
+    );
+  }
+});
+
+// 16. Verify dist/ Static Files for all 6 Landing Pages (both folder and clean URL)
+runTest('Test 16: dist/ contains both directory index.html and standalone .html for all 6 landing pages', () => {
+  const routes = [
+    { dir: 'san-blas-day-trips', file: 'san-blas-day-trips.html', h1: 'San Blas Day Trips from Panama City' },
+    { dir: 'es/san-blas-day-trips', file: 'es/san-blas-day-trips.html', h1: 'Pasadías en San Blas desde Ciudad de Panamá' },
+    { dir: 'san-blas-overnight-stays', file: 'san-blas-overnight-stays.html', h1: 'San Blas Overnight Stays & Island Experiences' },
+    { dir: 'es/san-blas-overnight-stays', file: 'es/san-blas-overnight-stays.html', h1: 'Estadías y Cabañas en Islas San Blas' },
+    { dir: 'san-blas-sailing', file: 'san-blas-sailing.html', h1: 'San Blas Sailing & Private Charters' },
+    { dir: 'es/san-blas-sailing', file: 'es/san-blas-sailing.html', h1: 'Veleros y Catamaranes en San Blas Panamá' },
+  ];
+
+  for (const r of routes) {
+    const dirHtml = path.resolve(process.cwd(), 'dist', r.dir, 'index.html');
+    const flatHtml = path.resolve(process.cwd(), 'dist', r.file);
+
+    assert.ok(fs.existsSync(dirHtml), `dist/${r.dir}/index.html must exist`);
+    assert.ok(fs.existsSync(flatHtml), `dist/${r.file} must exist`);
+
+    const dirContent = fs.readFileSync(dirHtml, 'utf-8');
+    const flatContent = fs.readFileSync(flatHtml, 'utf-8');
+
+    assert.ok(dirContent.includes(r.h1), `${dirHtml} must contain H1 "${r.h1}"`);
+    assert.ok(flatContent.includes(r.h1), `${flatHtml} must contain H1 "${r.h1}"`);
+  }
+});
+
+// 17. Verify Explicit Landing Redirects in public/_redirects
+runTest('Test 17: public/_redirects defines explicit 200 rules for all 6 landing pages before SPA fallback', () => {
+  const redirects = fs.readFileSync(path.resolve(process.cwd(), 'public/_redirects'), 'utf-8');
+  const requiredRules = [
+    '/san-blas-day-trips',
+    '/san-blas-day-trips/',
+    '/es/san-blas-day-trips',
+    '/es/san-blas-day-trips/',
+    '/san-blas-overnight-stays',
+    '/san-blas-overnight-stays/',
+    '/es/san-blas-overnight-stays',
+    '/es/san-blas-overnight-stays/',
+    '/san-blas-sailing',
+    '/san-blas-sailing/',
+    '/es/san-blas-sailing',
+    '/es/san-blas-sailing/',
+  ];
+
+  const spaIdx = redirects.indexOf('/*                           /index.html                             200');
+  assert.ok(spaIdx > -1, 'Must contain SPA fallback');
+
+  for (const r of requiredRules) {
+    const idx = redirects.indexOf(r);
+    assert.ok(idx > -1, `public/_redirects must contain rule for "${r}"`);
+    assert.ok(idx < spaIdx, `Rule for "${r}" must be positioned BEFORE SPA fallback`);
+  }
+});
+
+// 18. Verify Explicit Landing Redirects in netlify.toml
+runTest('Test 18: netlify.toml defines explicit 200 redirects for all 6 landing pages before /* fallback', () => {
+  const toml = fs.readFileSync(path.resolve(process.cwd(), 'netlify.toml'), 'utf-8');
+  const requiredPaths = [
+    '/san-blas-day-trips',
+    '/san-blas-day-trips/',
+    '/es/san-blas-day-trips',
+    '/es/san-blas-day-trips/',
+    '/san-blas-overnight-stays',
+    '/san-blas-overnight-stays/',
+    '/es/san-blas-overnight-stays',
+    '/es/san-blas-overnight-stays/',
+    '/san-blas-sailing',
+    '/san-blas-sailing/',
+    '/es/san-blas-sailing',
+    '/es/san-blas-sailing/',
+  ];
+
+  const catchAllIdx = toml.lastIndexOf('from = "/*"');
+  assert.ok(catchAllIdx > -1, 'Must contain /* fallback in netlify.toml');
+
+  for (const p of requiredPaths) {
+    const pathIdx = toml.indexOf(`from = "${p}"`);
+    assert.ok(pathIdx > -1, `netlify.toml must contain redirect from "${p}"`);
+    assert.ok(pathIdx < catchAllIdx, `Redirect from "${p}" must be positioned before /* fallback`);
+  }
+});
+
 console.log('----------------------------------------------------');
 console.log(`TOTAL: ${testsPassed + testsFailed} tests | PASSED: ${testsPassed} | FAILED: ${testsFailed}`);
 console.log('----------------------------------------------------');
@@ -317,4 +460,5 @@ console.log('----------------------------------------------------');
 if (testsFailed > 0) {
   process.exit(1);
 }
+
 

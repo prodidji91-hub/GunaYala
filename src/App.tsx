@@ -18,7 +18,7 @@ import { Footer } from './components/Footer';
 import { AdminAuthGuard } from './components/admin/AdminAuthGuard';
 import { IslandDesignPreview } from './components/preview/IslandDesignPreview';
 import { TermsAndConditionsPage } from './components/TermsAndConditionsPage';
-import { LandingExperiencePage, LandingExperienceType } from './components/landing/LandingExperiencePage';
+import { LandingExperiencePage } from './components/landing/LandingExperiencePage';
 import { updateSeoMetadata, SeoRoute } from './utils/seo';
 import { EXPERIENCES_DATA } from './data/experiences';
 import { supabase } from './lib/supabase';
@@ -43,15 +43,8 @@ const isAuthCallbackUrl = (): boolean => {
   );
 };
 
-const getLandingRouteInfo = (pathname: string): { type: LandingExperienceType | null; lang: Language | null } => {
-  if (pathname === '/san-blas-day-trips') return { type: 'day-trips', lang: 'en' };
-  if (pathname === '/es/san-blas-day-trips') return { type: 'day-trips', lang: 'es' };
-  if (pathname === '/san-blas-overnight-stays') return { type: 'overnight-stays', lang: 'en' };
-  if (pathname === '/es/san-blas-overnight-stays') return { type: 'overnight-stays', lang: 'es' };
-  if (pathname === '/san-blas-sailing') return { type: 'sailing', lang: 'en' };
-  if (pathname === '/es/san-blas-sailing') return { type: 'sailing', lang: 'es' };
-  return { type: null, lang: null };
-};
+import { normalizePath, getLandingRouteInfo, LandingExperienceType } from './utils/landingRoutes';
+export { normalizePath, getLandingRouteInfo };
 
 export default function App() {
   const [currentLang, setCurrentLang] = useState<Language>(() => {
@@ -123,6 +116,7 @@ export default function App() {
       if (landingInfo.type) {
         const targetUrl = newLang === 'es' ? `/es/san-blas-${landingInfo.type}` : `/san-blas-${landingInfo.type}`;
         window.history.pushState({}, '', targetUrl);
+        window.dispatchEvent(new Event('popstate'));
         return;
       }
       if (path.startsWith('/terms-and-conditions')) {

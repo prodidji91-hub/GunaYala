@@ -360,11 +360,14 @@ export function prerenderLandingPages() {
     );
 
     // Write to both dist/ (if present) and public/ (for dev server and build distribution)
+    // Support both folder-based (route/index.html) and clean URL file-based (route.html)
     const targets = [
       path.resolve(publicDir, target.routePath, 'index.html'),
+      path.resolve(publicDir, `${target.routePath}.html`),
     ];
     if (fs.existsSync(distDir)) {
       targets.push(path.resolve(distDir, target.routePath, 'index.html'));
+      targets.push(path.resolve(distDir, `${target.routePath}.html`));
     }
 
     for (const outPath of targets) {
@@ -374,7 +377,7 @@ export function prerenderLandingPages() {
     }
   }
 
-  console.log('Prerendering completed successfully for all 6 landing pages!');
+  console.log('Prerendering completed successfully for all 6 landing pages (both index.html and .html variants)!');
 }
 
 // Execute when run as script

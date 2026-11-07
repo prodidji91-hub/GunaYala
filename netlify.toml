@@ -27,6 +27,66 @@
   force = true
 
 [[redirects]]
+  from = "/san-blas-day-trips"
+  to = "/san-blas-day-trips/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/san-blas-day-trips/"
+  to = "/san-blas-day-trips/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/es/san-blas-day-trips"
+  to = "/es/san-blas-day-trips/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/es/san-blas-day-trips/"
+  to = "/es/san-blas-day-trips/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/san-blas-overnight-stays"
+  to = "/san-blas-overnight-stays/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/san-blas-overnight-stays/"
+  to = "/san-blas-overnight-stays/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/es/san-blas-overnight-stays"
+  to = "/es/san-blas-overnight-stays/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/es/san-blas-overnight-stays/"
+  to = "/es/san-blas-overnight-stays/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/san-blas-sailing"
+  to = "/san-blas-sailing/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/san-blas-sailing/"
+  to = "/san-blas-sailing/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/es/san-blas-sailing"
+  to = "/es/san-blas-sailing/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/es/san-blas-sailing/"
+  to = "/es/san-blas-sailing/index.html"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
