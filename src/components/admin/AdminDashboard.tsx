@@ -28,6 +28,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
   const [activeView, setActiveView] = useState<'list' | 'editor' | 'preview' | 'descriptions' | 'crm' | 'payments'>(() => {
     try {
       if (typeof window !== 'undefined') {
+        const search = window.location.search;
+        if (search.includes('sandbox-test') || search.includes('sandbox_test')) {
+          return 'payments';
+        }
         const hasDraft = !!localStorage.getItem(DRAFT_KEY);
         const savedView = sessionStorage.getItem(VIEW_KEY) || localStorage.getItem(VIEW_KEY);
         if (hasDraft || savedView === 'editor' || savedView === 'preview' || savedView === 'descriptions' || savedView === 'crm' || savedView === 'payments') {
@@ -144,17 +148,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
           }
         }
 
-        if (targetQuote) {
-          setSelectedQuotation(targetQuote);
-          if (savedView === 'preview') {
-            setActiveView('preview');
-          } else if (savedView === 'editor' || rawDraft) {
-            setActiveView('editor');
-          } else if (savedView === 'list') {
-            setActiveView('list');
+        const isSandboxRedirect =
+          window.location.search.includes('sandbox-test') || window.location.search.includes('sandbox_test');
+
+        if (!isSandboxRedirect) {
+          if (targetQuote) {
+            setSelectedQuotation(targetQuote);
+            if (savedView === 'preview') {
+              setActiveView('preview');
+            } else if (savedView === 'editor' || rawDraft) {
+              setActiveView('editor');
+            } else if (savedView === 'list') {
+              setActiveView('list');
+            }
+          } else if (savedView) {
+            setActiveView(savedView as any);
           }
-        } else if (savedView) {
-          setActiveView(savedView as any);
         }
       }
     } catch (err: any) {

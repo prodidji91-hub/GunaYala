@@ -228,7 +228,7 @@ export async function executeAdminSandboxTest(
     CCLW: sandboxCclw,
     CMTN: 1.00, // Exact $1.00 USD
     CDSC: 'Guna Yala Admin Sandbox Connectivity Test ($1.00)',
-    RETURN_URL: 'https://gunayalapanama.com/admin?sandbox_test=complete',
+    RETURN_URL: 'https://gunayalapanama.com/admin?sandbox-test=complete',
     PARM_1: testReference,
     PARM_2: testAttemptKey,
     EXPIRES_IN: 1800, // 30-minute test window

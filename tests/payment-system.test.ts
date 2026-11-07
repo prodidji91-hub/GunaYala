@@ -19,6 +19,10 @@ import {
   generateVerifiedBookingConfirmationEmail,
   generatePaymentFailedOrExpiredEmail,
 } from '../src/templates/emailTemplates.js';
+import {
+  parseSandboxReturnParams,
+  parseTotalPagado,
+} from '../src/utils/sandboxReturnParser.js';
 
 interface TestResult {
   name: string;
@@ -1132,10 +1136,158 @@ async function runPaymentSecurityTests() {
   );
 
   // -------------------------------------------------------------
+  // PART 25I: SANDBOX HOSTED-CHECKOUT RETURN TESTS (TESTS 36-42)
+  // -------------------------------------------------------------
+
+  // Test 36: Approved return parameters are parsed accurately but strictly remain isVerified=false with "Payment status not verified"
+  const approvedReturnUrl =
+    '?sandbox-test=complete&TotalPagado=1.00&PARM_1=TEST-PF-SANDBOX-179408200-ABC&Estado=Aprobada&Oper=AUTH-OP-8822&Razon=Aprobada';
+  const parsedApproved = parseSandboxReturnParams(approvedReturnUrl);
+
+  assert(
+    'Test 36: Approved sandbox return redirect parameters are parsed accurately but strictly remain isVerified=false with "Payment status not verified"',
+    Boolean(
+      parsedApproved.isSandboxReturn === true &&
+        parsedApproved.reference === 'TEST-PF-SANDBOX-179408200-ABC' &&
+        parsedApproved.amount === 1.00 &&
+        parsedApproved.estado === 'Aprobada' &&
+        parsedApproved.oper === 'AUTH-OP-8822' &&
+        parsedApproved.razon === 'Aprobada' &&
+        parsedApproved.isZeroAmount === false &&
+        parsedApproved.isVerified === false &&
+        parsedApproved.headline === 'Payment status not verified'
+    ),
+    'isVerified=false, headline="Payment status not verified", amount=1.00, ref matched',
+    `isVerified=${parsedApproved.isVerified}, headline="${parsedApproved.headline}", amount=${parsedApproved.amount}`
+  );
+
+  // Test 37: Zero returned amount displays "No successful payment confirmed" rather than success message
+  const zeroReturnUrl = '?sandbox-test=complete&TotalPagado=0&PARM_1=TEST-PF-SANDBOX-ZERO';
+  const parsedZero = parseSandboxReturnParams(zeroReturnUrl);
+
+  const zeroPointZeroReturnUrl = '?sandbox-test=complete&TotalPagado=0.00&PARM_1=TEST-PF-SANDBOX-ZERO-2';
+  const parsedZeroDecimal = parseSandboxReturnParams(zeroPointZeroReturnUrl);
+
+  assert(
+    'Test 37: Zero returned amount (TotalPagado=0 or 0.00) displays "No successful payment confirmed" without assuming decline reason',
+    Boolean(
+      parsedZero.isSandboxReturn === true &&
+        parsedZero.isZeroAmount === true &&
+        parsedZero.headline === 'No successful payment confirmed' &&
+        parsedZero.isVerified === false &&
+        parsedZeroDecimal.isZeroAmount === true &&
+        parsedZeroDecimal.headline === 'No successful payment confirmed' &&
+        parsedZeroDecimal.isVerified === false
+    ),
+    'isZeroAmount=true, headline="No successful payment confirmed", isVerified=false',
+    `zeroHeadline="${parsedZero.headline}", decimalHeadline="${parsedZeroDecimal.headline}", isVerified=${parsedZero.isVerified}`
+  );
+
+  // Test 38: Denied return parameters are captured safely as unverified with isZeroAmount=true
+  const deniedReturnUrl =
+    '?sandbox-test=complete&TotalPagado=0.00&Estado=Rechazada&Razon=Fondos%20Insuficientes&Oper=DECLINED-7711';
+  const parsedDenied = parseSandboxReturnParams(deniedReturnUrl);
+
+  assert(
+    'Test 38: Denied / declined sandbox return parameters are safely captured as unverified with isZeroAmount=true and reason preserved',
+    Boolean(
+      parsedDenied.isSandboxReturn === true &&
+        parsedDenied.isZeroAmount === true &&
+        parsedDenied.headline === 'No successful payment confirmed' &&
+        parsedDenied.estado === 'Rechazada' &&
+        parsedDenied.razon === 'Fondos Insuficientes' &&
+        parsedDenied.oper === 'DECLINED-7711' &&
+        parsedDenied.isVerified === false
+    ),
+    'isZeroAmount=true, headline="No successful payment confirmed", estado=Rechazada, isVerified=false',
+    `headline="${parsedDenied.headline}", estado=${parsedDenied.estado}, razon="${parsedDenied.razon}"`
+  );
+
+  // Test 39: Pending return parameters remain strictly isVerified=false
+  const pendingReturnUrl =
+    '?sandbox-test=complete&TotalPagado=1.00&Estado=Pendiente&Oper=PENDING-9944&Razon=En%20Proceso';
+  const parsedPending = parseSandboxReturnParams(pendingReturnUrl);
+
+  assert(
+    'Test 39: Pending return parameters remain strictly isVerified=false with "Payment status not verified"',
+    Boolean(
+      parsedPending.isSandboxReturn === true &&
+        parsedPending.isZeroAmount === false &&
+        parsedPending.headline === 'Payment status not verified' &&
+        parsedPending.estado === 'Pendiente' &&
+        parsedPending.isVerified === false
+    ),
+    'isVerified=false, headline="Payment status not verified", estado=Pendiente',
+    `isVerified=${parsedPending.isVerified}, headline="${parsedPending.headline}", estado=${parsedPending.estado}`
+  );
+
+  // Test 40: Malformed return parameters and XSS attempts fail safely without crashes or NaN
+  const malformedReturnUrl =
+    '?sandbox-test=complete&TotalPagado=NOT_A_NUMBER&PARM_1=<script>alert("hacked")</script>&Oper=<div>bad</div>';
+  const parsedMalformed = parseSandboxReturnParams(malformedReturnUrl);
+
+  const emptyReturnUrl = '';
+  const parsedEmpty = parseSandboxReturnParams(emptyReturnUrl);
+
+  assert(
+    'Test 40: Malformed return parameters and XSS attempts fail safely without crashes or NaN, sanitizing dangerous characters',
+    Boolean(
+      parsedMalformed.isSandboxReturn === true &&
+        parsedMalformed.amount === null &&
+        parsedMalformed.isZeroAmount === true &&
+        parsedMalformed.headline === 'No successful payment confirmed' &&
+        !parsedMalformed.reference?.includes('<script>') &&
+        !parsedMalformed.oper?.includes('<div>') &&
+        parsedEmpty.isSandboxReturn === false &&
+        parsedEmpty.reference === null &&
+        parsedEmpty.isVerified === false
+    ),
+    'amount=null, isZeroAmount=true, script tags stripped, empty query safe',
+    `amount=${parsedMalformed.amount}, ref="${parsedMalformed.reference}", oper="${parsedMalformed.oper}", emptyIsSandbox=${parsedEmpty.isSandboxReturn}`
+  );
+
+  // Test 41: Tampered return query parameters cannot mark transactions paid and sensitive credentials are stripped
+  const tamperedReturnUrl =
+    '?sandbox-test=complete&TotalPagado=5000.00&isPaid=true&status=paid&Estado=Aprobada&CCLW=LEAKED_SECRET_CCLW&access_token=LEAKED_JWT_SECRET';
+  const parsedTampered = parseSandboxReturnParams(tamperedReturnUrl);
+
+  assert(
+    'Test 41: Tampered return query parameters cannot mark transactions paid and sensitive merchant credentials (CCLW, access_token) are stripped',
+    Boolean(
+      parsedTampered.isSandboxReturn === true &&
+        parsedTampered.isVerified === false &&
+        parsedTampered.headline === 'Payment status not verified' &&
+        parsedTampered.sanitizedParams.CCLW === undefined &&
+        parsedTampered.sanitizedParams.cclw === undefined &&
+        parsedTampered.sanitizedParams.access_token === undefined &&
+        !JSON.stringify(parsedTampered.sanitizedParams).includes('LEAKED_SECRET_CCLW') &&
+        !JSON.stringify(parsedTampered.sanitizedParams).includes('LEAKED_JWT_SECRET')
+    ),
+    'isVerified=false, credentials stripped from sanitizedParams',
+    `isVerified=${parsedTampered.isVerified}, cclwPresent=${'CCLW' in parsedTampered.sanitizedParams}, tokenPresent=${'access_token' in parsedTampered.sanitizedParams}`
+  );
+
+  // Test 42: Both sandbox-test=complete and sandbox_test=complete URL flags are recognized identically
+  const hyphenFlag = parseSandboxReturnParams('?sandbox-test=complete&TotalPagado=1.00');
+  const underscoreFlag = parseSandboxReturnParams('?sandbox_test=complete&TotalPagado=1.00');
+
+  assert(
+    'Test 42: Both sandbox-test=complete and sandbox_test=complete URL return flags are recognized identically',
+    Boolean(
+      hyphenFlag.isSandboxReturn === true &&
+        underscoreFlag.isSandboxReturn === true &&
+        hyphenFlag.amount === 1.00 &&
+        underscoreFlag.amount === 1.00
+    ),
+    'Both hyphen and underscore return flags parsed as isSandboxReturn=true',
+    `hyphen=${hyphenFlag.isSandboxReturn}, underscore=${underscoreFlag.isSandboxReturn}`
+  );
+
+  // -------------------------------------------------------------
   // PRINT TEST MATRIX
   // -------------------------------------------------------------
   console.log('----------------------------------------------------');
-  console.log('         PART 25H PAYMENT SECURITY TEST MATRIX');
+  console.log('         PART 25I PAYMENT SECURITY TEST MATRIX');
   console.log('----------------------------------------------------');
   let passCount = 0;
   testResults.forEach((t, i) => {

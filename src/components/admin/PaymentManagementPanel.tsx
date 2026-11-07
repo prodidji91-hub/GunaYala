@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { PaymentLifecycleStatus, AdminSandboxTestResponse } from '../../types/payment';
 import { supabase } from '../../lib/supabase';
+import { parseSandboxReturnParams, ParsedSandboxReturn } from '../../utils/sandboxReturnParser';
 
 interface PaymentManagementPanelProps {
   onBackToDashboard?: () => void;
@@ -32,6 +33,24 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
   const [isTestingSandbox, setIsTestingSandbox] = useState<boolean>(false);
   const [sandboxTestResult, setSandboxTestResult] = useState<AdminSandboxTestResponse | null>(null);
   const [testErrorMessage, setTestErrorMessage] = useState<string | null>(null);
+
+  // Sandbox Hosted-Checkout Return Detection State (Part 25I)
+  const [sandboxReturnResult, setSandboxReturnResult] = useState<ParsedSandboxReturn | null>(() => {
+    if (typeof window !== 'undefined') {
+      const parsed = parseSandboxReturnParams(window.location.search);
+      if (parsed.isSandboxReturn) {
+        return parsed;
+      }
+    }
+    return null;
+  });
+
+  const handleDismissSandboxReturn = () => {
+    setSandboxReturnResult(null);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  };
 
   const handleRunSandboxTest = async () => {
     setIsTestingSandbox(true);
@@ -175,6 +194,179 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
           </div>
         </div>
       </div>
+
+      {/* ========================================================
+          PART 25I: SANDBOX HOSTED-CHECKOUT RETURN RESULT (UNVERIFIED)
+         ======================================================== */}
+      {sandboxReturnResult && (
+        <div className="bg-white border-2 border-amber-400/80 rounded-2xl p-6 shadow-sm space-y-5">
+          {/* Header Row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-bold text-[#06121e]">
+                  {sandboxReturnResult.headline}
+                </h3>
+                <span className="px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold">
+                  Unverified Browser Return
+                </span>
+                <span className="px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-full bg-purple-100 text-purple-900 border border-purple-300 font-semibold">
+                  Sandbox Only
+                </span>
+              </div>
+              <p className="text-xs text-[#64748b]">
+                PagueloFacil Demo hosted checkout redirected back to <code className="font-mono text-[11px] bg-gray-100 px-1 py-0.5 rounded">/admin?sandbox-test=complete</code>.
+              </p>
+            </div>
+
+            <button
+              onClick={handleDismissSandboxReturn}
+              className="text-xs text-[#64748b] hover:text-[#06121e] hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto shrink-0"
+              title="Clear return notice from screen and remove query parameters"
+            >
+              <span>Dismiss Notice</span>
+              <XCircle className="w-3.5 h-3.5 text-gray-400" />
+            </button>
+          </div>
+
+          {/* Security & Verification Banner */}
+          <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-950 space-y-2">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-amber-950">
+                  {sandboxReturnResult.verificationNotice}
+                </p>
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  Browser query parameters can be altered in the address bar and are strictly untrusted. Under payment security policy, no transaction or booking is ever marked paid based on client redirects. Authoritative settlement confirmation requires PagueloFacil merchant server verification.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Returned Parameters Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* Reference Number */}
+            <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-[#64748b] block">
+                Reference (PARM_1)
+              </span>
+              <div className="font-mono text-xs font-semibold text-[#06121e] break-all">
+                {sandboxReturnResult.reference || <span className="text-gray-400 font-normal italic">Not provided</span>}
+              </div>
+              <p className="text-[10px] text-[#64748b]">Unique sandbox test operation tag</p>
+            </div>
+
+            {/* Returned Amount */}
+            <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-[#64748b] block">
+                Returned Amount (TotalPagado)
+              </span>
+              <div className="text-sm font-bold text-[#06121e] flex items-center gap-2">
+                {sandboxReturnResult.amount !== null ? (
+                  <span>${sandboxReturnResult.amount.toFixed(2)} USD</span>
+                ) : (
+                  <span className="text-gray-400 font-normal italic">
+                    {sandboxReturnResult.totalPagadoRaw || 'Not provided'}
+                  </span>
+                )}
+                {sandboxReturnResult.isZeroAmount && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800">
+                    Zero / Unconfirmed
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-[#64748b]">Amount reported in query string</p>
+            </div>
+
+            {/* Reported Estado */}
+            <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-[#64748b] block">
+                Reported Estado
+              </span>
+              <div className="text-xs font-bold text-[#06121e]">
+                {sandboxReturnResult.estado ? (
+                  <span className="px-2 py-0.5 rounded bg-gray-100 border border-gray-300">
+                    {sandboxReturnResult.estado}
+                  </span>
+                ) : (
+                  <span className="text-gray-400 font-normal italic">Not reported</span>
+                )}
+              </div>
+              <p className="text-[10px] text-[#64748b]">Client-side claim (unverified)</p>
+            </div>
+
+            {/* Reported Oper */}
+            <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-[#64748b] block">
+                Gateway Operation ID (Oper)
+              </span>
+              <div className="font-mono text-xs font-semibold text-[#06121e]">
+                {sandboxReturnResult.oper || <span className="text-gray-400 font-normal italic">Not reported</span>}
+              </div>
+              <p className="text-[10px] text-[#64748b]">Operation reference in gateway logs</p>
+            </div>
+
+            {/* Reported Razon */}
+            <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-[#64748b] block">
+                Reported Reason (Razon)
+              </span>
+              <div className="text-xs text-[#06121e]">
+                {sandboxReturnResult.razon || <span className="text-gray-400 italic">None reported</span>}
+              </div>
+              <p className="text-[10px] text-[#64748b]">Gateway response narrative</p>
+            </div>
+
+            {/* Verification Status */}
+            <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-[#64748b] block">
+                Database & Payment Status
+              </span>
+              <div className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>Payment status not verified</span>
+              </div>
+              <p className="text-[10px] text-[#64748b]">Zero database mutations executed</p>
+            </div>
+          </div>
+
+          {/* Merchant Dashboard Guidance & Action Buttons */}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+              <div className="space-y-1 flex-1">
+                <p className="font-semibold text-slate-900">
+                  Authoritative Transaction Verification in Merchant Dashboard
+                </p>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  No public client verification endpoint exists for the $1 test. To confirm card authorization, approval, or test fund settlement, open Petra&apos;s PagueloFacil Demo portal. Look up the Oper ID or Reference above in the merchant transactions ledger.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <a
+                href="https://admin.paguelofacil.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0e3b2f] hover:bg-[#155243] text-[#FAF8F5] text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 cursor-pointer"
+              >
+                <span>Open PagueloFacil Merchant Dashboard</span>
+                <ExternalLink className="w-3.5 h-3.5 text-[#D6BA80]" />
+              </a>
+
+              <button
+                onClick={handleDismissSandboxReturn}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-gray-100 text-[#06121e] border border-[#E2D8C5] text-xs font-semibold rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                <span>Clear Sandbox Return Notice</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================
           PART 25H: ADMIN-ONLY SANDBOX CONNECTIVITY TEST RUNNER
