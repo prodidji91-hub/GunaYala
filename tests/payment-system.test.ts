@@ -11,6 +11,10 @@ import {
 import { handler as checkoutHandler } from '../netlify/functions/payment-checkout.js';
 import { handler as webhookHandler } from '../netlify/functions/payment-webhook.js';
 import {
+  executeAdminSandboxTest,
+  handler as adminSandboxTestHandler,
+} from '../netlify/functions/admin-payment-sandbox-test.js';
+import {
   generatePaymentInstructionsEmail,
   generateVerifiedBookingConfirmationEmail,
   generatePaymentFailedOrExpiredEmail,
@@ -781,11 +785,300 @@ async function runPaymentSecurityTests() {
     `isMismatch=${isBookingMismatch}, txBooking=${matchedForMismatch?.booking_reference}, webhookBooking=${parsedMismatch.bookingReference}`
   );
 
+  // =============================================================
+  // PART 25H: ADMIN-ONLY PAGUELOFACIL SANDBOX CONNECTION TESTS
+  // =============================================================
+
+  const createMockSupabase = (opts: { validUser?: boolean; isAdmin?: boolean; userId?: string } = {}) => {
+    return {
+      auth: {
+        getUser: async (token: string) => {
+          if (opts.validUser === false || token === 'invalid_token') {
+            return { data: { user: null }, error: { message: 'Invalid token' } };
+          }
+          return {
+            data: {
+              user: {
+                id: opts.userId || 'admin_uuid_petra',
+                email: 'petra@gunayalapanamatravel.com',
+              },
+            },
+            error: null,
+          };
+        },
+      },
+      from: (table: string) => {
+        if (table === 'quotation_admins') {
+          return {
+            select: () => ({
+              eq: (_col: string, val: string) => ({
+                maybeSingle: async () => {
+                  if (opts.isAdmin === false) {
+                    return { data: null, error: null };
+                  }
+                  return { data: { user_id: val, role: 'quotation_admin' }, error: null };
+                },
+              }),
+            }),
+          };
+        }
+        throw new Error(`Unexpected table access during test: ${table}`);
+      },
+    } as any;
+  };
+
+  const defaultSandboxEnv: Record<string, string> = {
+    PAGUELOFACIL_ENV: 'sandbox',
+    ENABLE_SANDBOX_CONNECTIVITY_TEST: 'true',
+    PAGUELOFACIL_SANDBOX_CCLW: 'SANDBOX_CCLW_VALID_12345',
+    PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'SANDBOX_API_TOKEN_XYZ',
+    SUPABASE_URL: 'https://test-sandbox-db.supabase.co',
+    SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
+  };
+
+  // Test 25: Unauthenticated request rejected
+  const unauthResult = await executeAdminSandboxTest(null, {
+    supabaseClient: createMockSupabase({ validUser: false }),
+    envOverride: defaultSandboxEnv,
+  });
+
+  assert(
+    'Test 25: Request lacking administrator Bearer authorization is rejected with HTTP 401',
+    unauthResult.statusCode === 401 && unauthResult.body.success === false,
+    'HTTP 401, success=false, error=Unauthorized',
+    `status=${unauthResult.statusCode}, error="${unauthResult.body.error}"`
+  );
+
+  // Test 26: Authenticated non-admin user rejected against quotation_admins table
+  const nonAdminResult = await executeAdminSandboxTest('Bearer valid_token_regular_user', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: false, userId: 'non_admin_customer_123' }),
+    envOverride: defaultSandboxEnv,
+  });
+
+  assert(
+    'Test 26: Authenticated user not present in quotation_admins table is rejected with HTTP 403',
+    Boolean(
+      nonAdminResult.statusCode === 403 &&
+        nonAdminResult.body.success === false &&
+        nonAdminResult.body.error?.includes('quotation administrators')
+    ),
+    'HTTP 403, Forbidden: Access restricted to authorized quotation administrators',
+    `status=${nonAdminResult.statusCode}, error="${nonAdminResult.body.error}"`
+  );
+
+  // Test 27: Explicit flag check: Rejection when ENABLE_SANDBOX_CONNECTIVITY_TEST is false/unset
+  const disabledFlagEnv = { ...defaultSandboxEnv, ENABLE_SANDBOX_CONNECTIVITY_TEST: 'false' };
+  const disabledFlagResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_test_user_flag' }),
+    envOverride: disabledFlagEnv,
+  });
+
+  assert(
+    'Test 27: Sandbox test is disabled by default and rejected when ENABLE_SANDBOX_CONNECTIVITY_TEST is unset or false',
+    Boolean(
+      disabledFlagResult.statusCode === 403 &&
+        disabledFlagResult.body.success === false &&
+        disabledFlagResult.body.error?.includes('ENABLE_SANDBOX_CONNECTIVITY_TEST=true')
+    ),
+    'HTTP 403, requires ENABLE_SANDBOX_CONNECTIVITY_TEST=true in environment',
+    `status=${disabledFlagResult.statusCode}, error="${disabledFlagResult.body.error}"`
+  );
+
+  // Test 28: Server environment check: Rejection when PAGUELOFACIL_ENV is not sandbox
+  const prodEnvSetting = { ...defaultSandboxEnv, PAGUELOFACIL_ENV: 'production' };
+  const prodEnvResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_test_user_env' }),
+    envOverride: prodEnvSetting,
+  });
+
+  assert(
+    'Test 28: Execution rejected with HTTP 400 when PAGUELOFACIL_ENV is set to production (calling production endpoints prohibited)',
+    Boolean(
+      prodEnvResult.statusCode === 400 &&
+        prodEnvResult.body.success === false &&
+        prodEnvResult.body.error?.includes('PAGUELOFACIL_ENV must be set to "sandbox"')
+    ),
+    'HTTP 400, PAGUELOFACIL_ENV must be set to sandbox',
+    `status=${prodEnvResult.statusCode}, error="${prodEnvResult.body.error}"`
+  );
+
+  // Test 29: Rejection when sandbox CCLW is missing or invalid
+  const invalidCclwEnv = { ...defaultSandboxEnv, PAGUELOFACIL_SANDBOX_CCLW: '' };
+  const invalidCclwResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_test_user_cclw' }),
+    envOverride: invalidCclwEnv,
+  });
+
+  assert(
+    'Test 29: Rejection with HTTP 422 when PAGUELOFACIL_SANDBOX_CCLW is missing or malformed',
+    invalidCclwResult.statusCode === 422 &&
+      invalidCclwResult.body.success === false &&
+      invalidCclwResult.body.diagnostic?.cclwConfigured === false,
+    'HTTP 422, CCLW missing/invalid with sanitized diagnostic output',
+    `status=${invalidCclwResult.statusCode}, cclwConfigured=${invalidCclwResult.body.diagnostic?.cclwConfigured}`
+  );
+
+  // Test 30: Successful genuine $1.00 USD checkout link generated with unique non-customer test reference and zero database mutations
+  let capturedGatewayPayload: any = null;
+  const mockValidTransport = async (payload: any) => {
+    capturedGatewayPayload = payload;
+    return {
+      headerStatus: {
+        code: 200,
+        status: 'SUCCESS',
+        description: 'Transacción Aprobada / Link Creado',
+      },
+      data: {
+        url: 'https://sandbox.paguelofacil.com/checkout?code=LK-GENUINE-SANDBOX-100',
+        code: 'LK-GENUINE-SANDBOX-100',
+      },
+      message: 'Operación Exitosa',
+    };
+  };
+
+  const successResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_petra_unique_success' }),
+    testTransport: mockValidTransport,
+    envOverride: defaultSandboxEnv,
+  });
+
+  const isUniqueNonCustomerRef =
+    Boolean(successResult.body.testReference) &&
+    successResult.body.testReference.startsWith('TEST-PF-SANDBOX-') &&
+    !successResult.body.testReference.startsWith('GNY-');
+
+  const isExactOneDollar =
+    capturedGatewayPayload?.CMTN === 1.00 &&
+    successResult.body.amount === 1.00 &&
+    successResult.body.currency === 'USD';
+
+  assert(
+    'Test 30: Successful genuine $1.00 USD PagueloFacil hosted sandbox checkout link generated with unique non-customer reference',
+    Boolean(
+      successResult.statusCode === 200 &&
+        successResult.body.success === true &&
+        successResult.body.environment === 'sandbox' &&
+        isUniqueNonCustomerRef &&
+        isExactOneDollar &&
+        successResult.body.checkoutUrl === 'https://sandbox.paguelofacil.com/checkout?code=LK-GENUINE-SANDBOX-100' &&
+        !successResult.body.checkoutUrl?.includes('***') &&
+        capturedGatewayPayload.CCLW === 'SANDBOX_CCLW_VALID_12345'
+    ),
+    'HTTP 200, amount=$1.00 USD, testRef starting with TEST-PF-SANDBOX-, genuine sandbox URL',
+    `status=${successResult.statusCode}, amount=${successResult.body.amount}, ref=${successResult.body.testReference}, url=${successResult.body.checkoutUrl}`
+  );
+
+  // Test 31: Rejection if gateway returns untrusted checkout URL
+  const mockUntrustedTransport = async (_payload: any) => {
+    return {
+      headerStatus: { code: 200, status: 'SUCCESS' },
+      data: {
+        url: 'https://attacker-fake-checkout.com/pay',
+        code: 'BAD-URL',
+      },
+    };
+  };
+
+  const untrustedResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_user_untrusted_url' }),
+    testTransport: mockUntrustedTransport,
+    envOverride: defaultSandboxEnv,
+  });
+
+  assert(
+    'Test 31: Untrusted checkout hostname returned by gateway is rejected with HTTP 502',
+    Boolean(
+      untrustedResult.statusCode === 502 &&
+        untrustedResult.body.success === false &&
+        untrustedResult.body.error?.includes('untrusted sandbox checkout URL')
+    ),
+    'HTTP 502, Untrusted checkout hostname rejected',
+    `status=${untrustedResult.statusCode}, error="${untrustedResult.body.error}"`
+  );
+
+  // Test 32: Rate limiting cooldown enforcement (429 Too Many Requests)
+  const rapidUser = 'admin_rapid_clicker_123';
+  await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: rapidUser }),
+    testTransport: mockValidTransport,
+    envOverride: defaultSandboxEnv,
+  });
+
+  // Immediate second attempt within 5 seconds cooldown
+  const rapidSecondAttempt = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: rapidUser }),
+    testTransport: mockValidTransport,
+    envOverride: defaultSandboxEnv,
+  });
+
+  assert(
+    'Test 32: Rapid consecutive test attempts are rejected with HTTP 429 under cooldown rule',
+    Boolean(
+      rapidSecondAttempt.statusCode === 429 &&
+        rapidSecondAttempt.body.success === false &&
+        rapidSecondAttempt.body.error?.includes('Cooldown active')
+    ),
+    'HTTP 429, Cooldown active: Please wait before initiating another test',
+    `status=${rapidSecondAttempt.statusCode}, error="${rapidSecondAttempt.body.error}"`
+  );
+
+  // Test 33: Sanitized diagnostic response when gateway returns rejection without leaking secrets
+  const mockDeclinedTransport = async (_payload: any) => {
+    return {
+      headerStatus: {
+        code: 403,
+        status: 'DENIED',
+        description: 'Credenciales del comercio inválidas o cuenta inactiva',
+      },
+      message: 'Acceso Denegado',
+    };
+  };
+
+  const gatewayDeniedResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_test_denied' }),
+    testTransport: mockDeclinedTransport,
+    envOverride: defaultSandboxEnv,
+  });
+
+  const diagnosticHasNoSecrets =
+    !JSON.stringify(gatewayDeniedResult.body).includes('SANDBOX_CCLW_VALID_12345') &&
+    !JSON.stringify(gatewayDeniedResult.body).includes('SANDBOX_API_TOKEN_XYZ') &&
+    gatewayDeniedResult.body.diagnostic?.cclwMasked === '***2345';
+
+  assert(
+    'Test 33: Gateway rejection returns sanitized diagnostic details without exposing raw CCLW or API token',
+    Boolean(
+      gatewayDeniedResult.statusCode === 502 &&
+        gatewayDeniedResult.body.gatewayStatus === 403 &&
+        diagnosticHasNoSecrets
+    ),
+    'HTTP 502, gatewayStatus=403, secrets masked (***2345), no credentials leaked',
+    `status=${gatewayDeniedResult.statusCode}, gatewayStatus=${gatewayDeniedResult.body.gatewayStatus}, masked=${gatewayDeniedResult.body.diagnostic?.cclwMasked}`
+  );
+
+  // Test 34: Method & CORS verification on Netlify Handler
+  const optionsEvent = { httpMethod: 'OPTIONS', headers: {} };
+  const optionsResponse = await adminSandboxTestHandler(optionsEvent);
+
+  const getEvent = { httpMethod: 'GET', headers: {} };
+  const getResponse = await adminSandboxTestHandler(getEvent);
+
+  assert(
+    'Test 34: Netlify Function enforces HTTP POST only (405 on GET) and responds with 204 on OPTIONS CORS preflight',
+    Boolean(
+      optionsResponse.statusCode === 204 &&
+        optionsResponse.headers['Access-Control-Allow-Methods']?.includes('POST') &&
+        getResponse.statusCode === 405
+    ),
+    'OPTIONS=204 with CORS headers, GET=405 Method Not Allowed',
+    `optionsStatus=${optionsResponse.statusCode}, getStatus=${getResponse.statusCode}`
+  );
+
   // -------------------------------------------------------------
   // PRINT TEST MATRIX
   // -------------------------------------------------------------
   console.log('----------------------------------------------------');
-  console.log('         PART 25G.2 PAYMENT SECURITY TEST MATRIX');
+  console.log('         PART 25H PAYMENT SECURITY TEST MATRIX');
   console.log('----------------------------------------------------');
   let passCount = 0;
   testResults.forEach((t, i) => {

@@ -1,6 +1,7 @@
 # API Functions (Forced execution)
-/api/booking-request  /.netlify/functions/booking-request  200!
-/api/*                /.netlify/functions/:splat             200!
+/api/booking-request             /.netlify/functions/booking-request             200!
+/api/admin/payment-sandbox-test  /.netlify/functions/admin-payment-sandbox-test  200!
+/api/*                           /.netlify/functions/:splat                      200!
 
 # Prerendered Bilingual SEO Landing Pages (Explicit static serving)
 /san-blas-day-trips          /san-blas-day-trips/index.html          200

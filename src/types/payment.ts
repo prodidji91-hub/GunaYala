@@ -152,3 +152,33 @@ export interface PagueloFacilLinkDaemonResponse {
   message?: string;
 }
 
+/**
+ * Admin-Only PagueloFacil Sandbox Connectivity Test Types (Part 25H)
+ */
+export interface AdminSandboxTestRequest {
+  adminNote?: string;
+}
+
+export interface AdminSandboxTestResponse {
+  success: boolean;
+  environment: 'sandbox';
+  testReference: string;
+  checkoutUrl?: string;
+  linkCode?: string;
+  amount: number;
+  currency: 'USD';
+  expiresAt?: string;
+  gatewayStatus?: number;
+  message?: string;
+  error?: string;
+  diagnostic?: {
+    cclwConfigured: boolean;
+    cclwMasked: string;
+    tokenConfigured: boolean;
+    gatewayEndpoint: string;
+    requestedAmount: number;
+    requestTimestamp: string;
+  };
+}
+
+

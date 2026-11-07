@@ -5,7 +5,7 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 interface AdminHeaderProps {
   onBackToWebsite: () => void;
   onResetData: () => void;
-  activeView: 'list' | 'editor' | 'preview' | 'descriptions' | 'crm';
+  activeView: 'list' | 'editor' | 'preview' | 'descriptions' | 'crm' | 'payments';
   quotationRef?: string;
   onNavigateList?: () => void;
 }

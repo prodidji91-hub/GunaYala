@@ -12,15 +12,67 @@ import {
   Info,
   DollarSign,
   FileCheck,
+  Play,
+  Loader2,
+  Server,
+  ShieldCheck,
+  Terminal,
 } from 'lucide-react';
-import { PaymentLifecycleStatus } from '../../types/payment';
+import { PaymentLifecycleStatus, AdminSandboxTestResponse } from '../../types/payment';
+import { supabase } from '../../lib/supabase';
 
 interface PaymentManagementPanelProps {
   onBackToDashboard?: () => void;
 }
 
-export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = () => {
+export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ onBackToDashboard }) => {
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
+
+  // Sandbox Connectivity Test State (Part 25H)
+  const [isTestingSandbox, setIsTestingSandbox] = useState<boolean>(false);
+  const [sandboxTestResult, setSandboxTestResult] = useState<AdminSandboxTestResponse | null>(null);
+  const [testErrorMessage, setTestErrorMessage] = useState<string | null>(null);
+
+  const handleRunSandboxTest = async () => {
+    setIsTestingSandbox(true);
+    setTestErrorMessage(null);
+    setSandboxTestResult(null);
+
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client is not available.');
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          adminNote: 'Admin dashboard manual connectivity verification',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setSandboxTestResult(data);
+        setTestErrorMessage(data.error || `HTTP ${response.status}: Sandbox test did not succeed.`);
+      } else {
+        setSandboxTestResult(data);
+      }
+    } catch (err: any) {
+      setTestErrorMessage(err.message || 'An unexpected error occurred while running the sandbox test.');
+    } finally {
+      setIsTestingSandbox(false);
+    }
+  };
 
   const statusDefinitions: Array<{
     status: PaymentLifecycleStatus;
@@ -90,6 +142,18 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = () 
 
   return (
     <div className="space-y-6">
+      {/* Top Bar Navigation if onBackToDashboard provided */}
+      {onBackToDashboard && (
+        <div className="flex items-center justify-between pb-2 border-b border-[#E2D8C5]">
+          <button
+            onClick={onBackToDashboard}
+            className="text-xs text-[#0e3b2f] hover:underline font-medium flex items-center gap-1 cursor-pointer"
+          >
+            &larr; Back to Quotation Administration
+          </button>
+        </div>
+      )}
+
       {/* Top Banner: Safe Preparation Mode */}
       <div className="bg-[#FAF8F5] border border-[#E2D8C5] rounded-2xl p-5 sm:p-6 shadow-sm">
         <div className="flex items-start gap-4">
@@ -110,6 +174,135 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = () 
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ========================================================
+          PART 25H: ADMIN-ONLY SANDBOX CONNECTIVITY TEST RUNNER
+         ======================================================== */}
+      <div className="bg-white border-2 border-[#D6BA80]/60 rounded-2xl p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#F1F5F9] pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Server className="w-5 h-5 text-[#0e3b2f]" />
+              <h3 className="text-sm sm:text-base font-bold text-[#06121e]">
+                Admin-Only PagueloFacil Sandbox Connection Test (Part 25H)
+              </h3>
+              <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-sky-100 text-sky-800 border border-sky-300 font-semibold">
+                Isolated $1.00 USD
+              </span>
+            </div>
+            <p className="text-xs text-[#64748b]">
+              Verify that Petra's Sandbox Demo account can programmatically generate a genuine PagueloFacil hosted-checkout URL.
+            </p>
+          </div>
+
+          <button
+            onClick={handleRunSandboxTest}
+            disabled={isTestingSandbox}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-[#FAF8F5] text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer shrink-0"
+          >
+            {isTestingSandbox ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-[#D6BA80]" />
+                <span>Contacting Sandbox...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 text-[#D6BA80]" />
+                <span>Test Sandbox Connection ($1.00)</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Isolation Principles Callout */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+            <span className="font-semibold text-[#0e3b2f] flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Zero Database Mutation</span>
+            </span>
+            <p className="text-[11px] text-[#64748b]">
+              Connectivity-only test. Does not write to <code className="font-mono text-[10px]">payment_transactions</code> or affect real customer bookings.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+            <span className="font-semibold text-[#0e3b2f] flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-blue-600" />
+              <span>Sandbox Only</span>
+            </span>
+            <p className="text-[11px] text-[#64748b]">
+              Targeted strictly at <code className="font-mono text-[10px]">sandbox.paguelofacil.com</code>. Production payment endpoints are strictly forbidden.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] space-y-1">
+            <span className="font-semibold text-[#0e3b2f] flex items-center gap-1.5">
+              <Terminal className="w-3.5 h-3.5 text-amber-600" />
+              <span>Admin Bearer Auth</span>
+            </span>
+            <p className="text-[11px] text-[#64748b]">
+              Requires verified Supabase <code className="font-mono text-[10px]">quotation_admins</code> session token. Public users have zero access.
+            </p>
+          </div>
+        </div>
+
+        {/* Test Result: Success */}
+        {sandboxTestResult && sandboxTestResult.success && (
+          <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-950 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span className="font-bold text-sm">
+                Sandbox Connection Verified Successfully!
+              </span>
+            </div>
+            <p className="text-xs text-emerald-900 leading-relaxed">
+              {sandboxTestResult.message}
+            </p>
+            <div className="p-3 rounded-lg bg-white/80 border border-emerald-200 font-mono text-[11px] space-y-1">
+              <div><strong>Test Ref:</strong> {sandboxTestResult.testReference}</div>
+              <div><strong>Amount:</strong> ${sandboxTestResult.amount?.toFixed(2)} {sandboxTestResult.currency}</div>
+              <div><strong>Link Code:</strong> {sandboxTestResult.linkCode || 'N/A'}</div>
+              <div><strong>Expires:</strong> {sandboxTestResult.expiresAt}</div>
+            </div>
+            {sandboxTestResult.checkoutUrl && (
+              <div className="pt-1">
+                <a
+                  href={sandboxTestResult.checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-medium text-xs shadow-sm transition-colors cursor-pointer"
+                >
+                  <span>Open Genuine Sandbox Checkout Page</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Test Result: Error / Rejection / Diagnostic */}
+        {testErrorMessage && (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span className="font-bold text-sm">Sandbox Connection Test Status</span>
+            </div>
+            <p className="text-xs text-amber-900 leading-relaxed font-mono">
+              {testErrorMessage}
+            </p>
+            {sandboxTestResult?.diagnostic && (
+              <div className="p-3 rounded-lg bg-white/80 border border-amber-200 font-mono text-[11px] space-y-1">
+                <div><strong>CCLW Configured:</strong> {sandboxTestResult.diagnostic.cclwConfigured ? 'Yes' : 'No'}</div>
+                <div><strong>CCLW Masked:</strong> {sandboxTestResult.diagnostic.cclwMasked}</div>
+                <div><strong>Token Configured:</strong> {sandboxTestResult.diagnostic.tokenConfigured ? 'Yes' : 'No'}</div>
+                <div><strong>Target Endpoint:</strong> {sandboxTestResult.diagnostic.gatewayEndpoint}</div>
+                <div><strong>Timestamp:</strong> {sandboxTestResult.diagnostic.requestTimestamp}</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Merchant Checklist */}
@@ -137,7 +330,7 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = () 
 
           <div className="p-3.5 rounded-xl border border-dashed border-[#CBD5E1] bg-[#F8FAFC] space-y-1">
             <span className="font-semibold text-[#06121e] block">3. Webhook URL Registration</span>
-            <p className="text-[#64748b]">Endpoint to register with PagueloFacil support: <code className="font-mono text-[10px]">/.netlify/functions/paguelofacil-webhook</code></p>
+            <p className="text-[#64748b]">Endpoint to register with PagueloFacil support: <code className="font-mono text-[10px]">/.netlify/functions/payment-webhook</code></p>
             <span className="inline-block mt-1 text-[10px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-700">Ready to Register</span>
           </div>
 
@@ -201,3 +394,4 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = () 
     </div>
   );
 };
+

@@ -8,6 +8,7 @@ import { QuotationEditor } from './QuotationEditor';
 import { CustomerQuotationPreview } from './CustomerQuotationPreview';
 import { ManagePackageDescriptions } from './ManagePackageDescriptions';
 import { CrmDashboard } from './CrmDashboard';
+import { PaymentManagementPanel } from './PaymentManagementPanel';
 import { Loader2 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -24,12 +25,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
   const [apiError, setApiError] = useState<string | null>(null);
 
   // Initialize view and selected quotation from persistent draft / storage state if available
-  const [activeView, setActiveView] = useState<'list' | 'editor' | 'preview' | 'descriptions' | 'crm'>(() => {
+  const [activeView, setActiveView] = useState<'list' | 'editor' | 'preview' | 'descriptions' | 'crm' | 'payments'>(() => {
     try {
       if (typeof window !== 'undefined') {
         const hasDraft = !!localStorage.getItem(DRAFT_KEY);
         const savedView = sessionStorage.getItem(VIEW_KEY) || localStorage.getItem(VIEW_KEY);
-        if (hasDraft || savedView === 'editor' || savedView === 'preview' || savedView === 'descriptions' || savedView === 'crm') {
+        if (hasDraft || savedView === 'editor' || savedView === 'preview' || savedView === 'descriptions' || savedView === 'crm' || savedView === 'payments') {
           return (savedView as any) || 'editor';
         }
       }
@@ -52,7 +53,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
     return null;
   });
 
-  const setViewState = (view: 'list' | 'editor' | 'preview' | 'descriptions' | 'crm', quote?: Quotation | null) => {
+  const setViewState = (view: 'list' | 'editor' | 'preview' | 'descriptions' | 'crm' | 'payments', quote?: Quotation | null) => {
     setActiveView(view);
     try {
       if (typeof window !== 'undefined') {
@@ -335,6 +336,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
                 onPreview={handlePreview}
                 onManageDescriptions={() => setViewState('descriptions', null)}
                 onManageCrm={() => setViewState('crm', null)}
+                onManagePayments={() => setViewState('payments', null)}
               />
             )}
 
@@ -356,6 +358,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
                   setSelectedQuotation(quote);
                   setViewState('preview', quote);
                 }}
+              />
+            )}
+
+            {activeView === 'payments' && (
+              <PaymentManagementPanel
+                onBackToDashboard={() => setViewState('list', null)}
               />
             )}
 

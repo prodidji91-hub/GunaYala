@@ -21,6 +21,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin/payment-sandbox-test"
+  to = "/.netlify/functions/admin-payment-sandbox-test"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200

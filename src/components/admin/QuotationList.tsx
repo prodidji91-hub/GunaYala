@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Quotation, QuotationStatus } from '../../types/quotation';
-import { Search, Plus, Copy, Trash2, Edit3, Eye, Calendar, MapPin, AlertCircle, FileText, GitBranch, Users } from 'lucide-react';
+import { Search, Plus, Copy, Trash2, Edit3, Eye, Calendar, MapPin, AlertCircle, FileText, GitBranch, Users, CreditCard } from 'lucide-react';
 import { generateNextRevisionReference } from '../../services/quotationStorageService';
 
 interface QuotationListProps {
@@ -13,6 +13,7 @@ interface QuotationListProps {
   onPreview: (quotation: Quotation) => void;
   onManageDescriptions?: () => void;
   onManageCrm?: () => void;
+  onManagePayments?: () => void;
 }
 
 export const QuotationList: React.FC<QuotationListProps> = ({
@@ -25,6 +26,7 @@ export const QuotationList: React.FC<QuotationListProps> = ({
   onPreview,
   onManageDescriptions,
   onManageCrm,
+  onManagePayments,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | QuotationStatus>('All');
@@ -110,6 +112,17 @@ export const QuotationList: React.FC<QuotationListProps> = ({
             >
               <FileText className="w-4 h-4 text-[#c9a96e]" />
               <span>Manage Descriptions</span>
+            </button>
+          )}
+
+          {onManagePayments && (
+            <button
+              onClick={onManagePayments}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-[#faf8f5] text-[#0e3b2f] font-medium text-xs rounded border border-[#cfc7b2] shadow-2xs transition-colors shrink-0"
+              title="PagueloFacil Payment Gateway & Sandbox Connection / Pasarela de Pagos"
+            >
+              <CreditCard className="w-4 h-4 text-[#c9a96e]" />
+              <span>Payment Gateway</span>
             </button>
           )}
 
