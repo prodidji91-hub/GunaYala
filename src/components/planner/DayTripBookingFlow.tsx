@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Language } from '../../types';
 import { VisualAsset } from '../../pictures';
 import { DAY_TOUR_PACKAGES_CLIENT, DayTourPackageInfo } from '../../data/dayTourPackages';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import {
   Calendar,
   Users,
@@ -145,12 +146,27 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
         idempotencyKey,
       };
 
+      let adminToken = '';
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            adminToken = session.access_token;
+          }
+        } catch (e) {}
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': idempotencyKey,
+      };
+      if (adminToken) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+
       const response = await fetch('/api/payment-checkout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Idempotency-Key': idempotencyKey,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 

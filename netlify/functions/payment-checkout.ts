@@ -160,8 +160,47 @@ export const handler = async (event: NetlifyEvent) => {
     };
   }
 
+  // Check optional administrator Bearer token for authorized admin-only sandbox day-tour testing
+  const authHeader = event.headers['authorization'] || event.headers['Authorization'] || null;
+  let isAdminAuthorized = false;
+
+  if (authHeader && authHeader.trim()) {
+    const cleanToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const supabaseUrl = process.env.SUPABASE_URL || '';
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    if (supabaseUrl && supabaseServiceKey && cleanToken) {
+      try {
+        const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+        if (!authError && authData?.user?.id) {
+          const { data: adminRecord } = await supabase
+            .from('quotation_admins')
+            .select('user_id')
+            .eq('user_id', authData.user.id)
+            .maybeSingle();
+          if (adminRecord?.user_id) {
+            isAdminAuthorized = true;
+          }
+        }
+      } catch (err) {
+        console.error('[PaymentCheckout] Admin authorization check error:', err);
+      }
+    }
+  }
+
+  const finalBookingReference =
+    isAdminAuthorized &&
+    (process.env.PAGUELOFACIL_ENV || '').trim().toLowerCase() === 'sandbox' &&
+    !(body.bookingReference || '').startsWith('TEST-')
+      ? `TEST-DAYTOUR-${effectiveBookingReference}`
+      : effectiveBookingReference;
+
   // 3. Gateway Adapter Evaluation (Environment selected EXCLUSIVELY server-side)
-  const gateway = new PagueloFacilGatewayAdapter();
+  const gateway = new PagueloFacilGatewayAdapter({
+    enableSandboxPayments: isAdminAuthorized ? true : undefined,
+  });
   const gatewayConfig = gateway.getConfig();
 
   // If server configuration is unconfigured, respond in safe request-only preparation mode
@@ -178,7 +217,7 @@ export const handler = async (event: NetlifyEvent) => {
         calculatedAmount: authoritativeAmount,
         calculatedAmountInCents: authoritativeAmountInCents,
         currency: 'USD',
-        bookingReference: effectiveBookingReference,
+        bookingReference: finalBookingReference,
         status: 'pending_payment',
       }),
     };
@@ -186,7 +225,7 @@ export const handler = async (event: NetlifyEvent) => {
 
   // 4. Create Gateway Payment Session via server-configured adapter
   const sessionResult = await gateway.createPaymentSession({
-    bookingReference: effectiveBookingReference,
+    bookingReference: finalBookingReference,
     bookingType,
     quotationId,
     customerName,
@@ -195,7 +234,7 @@ export const handler = async (event: NetlifyEvent) => {
     amount: authoritativeAmount,
     currency: 'USD',
     paymentType,
-    description: `Guna Yala Panama Travel - ${bookingType.toUpperCase()} ${effectiveBookingReference}`,
+    description: `Guna Yala Panama Travel - ${bookingType.toUpperCase()} ${finalBookingReference}`,
     expiresInSeconds: 7200, // 2 hours
     idempotencyKey,
   });
@@ -212,13 +251,17 @@ export const handler = async (event: NetlifyEvent) => {
           auth: { persistSession: false, autoRefreshToken: false },
         });
 
-        // 5a. Record day tour booking in booking_requests as PENDING_PAYMENT
+        // 5a. Record day tour booking in booking_requests as pending_payment with test tagging in special_notes
         if (bookingType === 'day-trip') {
+          const testSpecialNotes = isAdminAuthorized
+            ? `[TEST / ADMIN SANDBOX CHECKOUT] ${(body.specialNotes || '').trim()}`.trim()
+            : (body.specialNotes || '').trim();
+
           await supabase
             .from('booking_requests')
             .upsert(
               {
-                booking_reference: effectiveBookingReference,
+                booking_reference: finalBookingReference,
                 booking_type: 'day-trip',
                 customer_name: customerName,
                 customer_email: customerEmail,
@@ -228,7 +271,7 @@ export const handler = async (event: NetlifyEvent) => {
                 adults,
                 children,
                 pickup_location: body.pickupLocation || '',
-                special_notes: body.specialNotes || '',
+                special_notes: testSpecialNotes,
                 terms_accepted: Boolean(body.termsAccepted),
                 terms_version: '2026-10-18',
                 customer_language: body.customerLanguage || 'en',
@@ -247,7 +290,7 @@ export const handler = async (event: NetlifyEvent) => {
           .from('payment_transactions')
           .upsert(
             {
-              booking_reference: effectiveBookingReference,
+              booking_reference: finalBookingReference,
               quotation_id: quotationId || null,
               booking_type: bookingType,
               gateway: 'paguelofacil',
@@ -264,6 +307,7 @@ export const handler = async (event: NetlifyEvent) => {
               audit_metadata: {
                 environment: activeEnvironment,
                 is_demo: activeEnvironment === 'sandbox',
+                is_test: isAdminAuthorized,
                 amount_in_cents: authoritativeAmountInCents,
                 package_id: body.dayTourPackageId || null,
                 created_via: 'payment-checkout',
@@ -283,7 +327,7 @@ export const handler = async (event: NetlifyEvent) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       ...sessionResult,
-      bookingReference: effectiveBookingReference,
+      bookingReference: finalBookingReference,
       amount: authoritativeAmount,
       amountInCents: authoritativeAmountInCents,
       pricingBreakdown,
