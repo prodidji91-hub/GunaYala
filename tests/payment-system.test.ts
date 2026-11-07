@@ -133,19 +133,35 @@ async function runPaymentSecurityTests() {
   // -------------------------------------------------------------
   const untrustedDomainUrl = validatePagueloFacilCheckoutUrl('https://evil-phishing-site.com/checkout?code=LK-FAKE', 'sandbox');
   const insecureHttpUrl = validatePagueloFacilCheckoutUrl('http://sandbox.paguelofacil.com/checkout?code=LK-123', 'sandbox');
+  const insecureHttpDemoUrl = validatePagueloFacilCheckoutUrl('http://checkout-demo.paguelofacil.com/checkout?code=LK-123', 'sandbox');
   const mismatchedEnvUrl = validatePagueloFacilCheckoutUrl('https://secure.paguelofacil.com/checkout?code=LK-123', 'sandbox');
+  const demoInProdUrl = validatePagueloFacilCheckoutUrl('https://checkout-demo.paguelofacil.com/checkout?code=LK-123', 'production');
+  const customPortUrl = validatePagueloFacilCheckoutUrl('https://checkout-demo.paguelofacil.com:8443/checkout?code=LK-123', 'sandbox');
+  const embeddedCredsUrl = validatePagueloFacilCheckoutUrl('https://admin:pass@checkout-demo.paguelofacil.com/checkout?code=LK-123', 'sandbox');
+  const arbitrarySubdomainUrl = validatePagueloFacilCheckoutUrl('https://evil.checkout-demo.paguelofacil.com/checkout?code=LK-123', 'sandbox');
+  const malformedUrl = validatePagueloFacilCheckoutUrl('not-a-valid-url', 'sandbox');
   const validSandboxUrl = validatePagueloFacilCheckoutUrl('https://sandbox.paguelofacil.com/checkout?code=LK-VALID', 'sandbox');
+  const validSandboxDemoUrl = validatePagueloFacilCheckoutUrl('https://checkout-demo.paguelofacil.com/checkout?code=LK-DEMO', 'sandbox');
   const validProdUrl = validatePagueloFacilCheckoutUrl('https://secure.paguelofacil.com/checkout?code=LK-PROD', 'production');
 
   assert(
-    'Test 4: Fabricated checkout URLs are rejected against documented trusted PagueloFacil hostnames',
-    untrustedDomainUrl.valid === false &&
-      insecureHttpUrl.valid === false &&
-      mismatchedEnvUrl.valid === false &&
-      validSandboxUrl.valid === true &&
-      validProdUrl.valid === true,
-    'Untrusted domain, insecure HTTP, and cross-environment hostnames rejected; trusted hosts accepted',
-    `untrusted=${untrustedDomainUrl.valid}, http=${insecureHttpUrl.valid}, mismatchedEnv=${mismatchedEnvUrl.valid}, validSandbox=${validSandboxUrl.valid}`
+    'Test 4: Fabricated checkout URLs are rejected against documented trusted PagueloFacil hostnames with strict sandbox/production separation',
+    Boolean(
+      untrustedDomainUrl.valid === false &&
+        insecureHttpUrl.valid === false &&
+        insecureHttpDemoUrl.valid === false &&
+        mismatchedEnvUrl.valid === false &&
+        demoInProdUrl.valid === false &&
+        customPortUrl.valid === false &&
+        embeddedCredsUrl.valid === false &&
+        arbitrarySubdomainUrl.valid === false &&
+        malformedUrl.valid === false &&
+        validSandboxUrl.valid === true &&
+        validSandboxDemoUrl.valid === true &&
+        validProdUrl.valid === true
+    ),
+    'Untrusted domain, insecure HTTP, custom ports, embedded creds, and cross-environment hostnames rejected; checkout-demo.paguelofacil.com accepted in sandbox only',
+    `untrusted=${untrustedDomainUrl.valid}, http=${insecureHttpUrl.valid}, demoInSandbox=${validSandboxDemoUrl.valid}, demoInProd=${demoInProdUrl.valid}, customPort=${customPortUrl.valid}`
   );
 
   // -------------------------------------------------------------
@@ -1072,6 +1088,47 @@ async function runPaymentSecurityTests() {
     ),
     'OPTIONS=204 with CORS headers, GET=405 Method Not Allowed',
     `optionsStatus=${optionsResponse.statusCode}, getStatus=${getResponse.statusCode}`
+  );
+
+  // Test 35: Administrator sandbox test successfully accepts checkout-demo.paguelofacil.com and rejects it in production
+  const mockDemoHostTransport = async (_payload: any) => {
+    return {
+      headerStatus: { code: 200, status: 'SUCCESS' },
+      data: {
+        url: 'https://checkout-demo.paguelofacil.com/checkout?code=LK-DEMO-POSTMAN-100',
+        code: 'LK-DEMO-POSTMAN-100',
+      },
+      message: 'Operación Exitosa',
+    };
+  };
+
+  const demoHostResult = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: createMockSupabase({ validUser: true, isAdmin: true, userId: 'admin_petra_demo_host' }),
+    testTransport: mockDemoHostTransport,
+    envOverride: defaultSandboxEnv,
+  });
+
+  const demoHostValidationSandbox = validatePagueloFacilCheckoutUrl(
+    'https://checkout-demo.paguelofacil.com/checkout?code=LK-DEMO-POSTMAN-100',
+    'sandbox'
+  );
+  const demoHostValidationProd = validatePagueloFacilCheckoutUrl(
+    'https://checkout-demo.paguelofacil.com/checkout?code=LK-DEMO-POSTMAN-100',
+    'production'
+  );
+
+  assert(
+    'Test 35: PagueloFacil official checkout-demo.paguelofacil.com hostname is accepted for sandbox tests and rejected in production',
+    Boolean(
+      demoHostResult.statusCode === 200 &&
+        demoHostResult.body.success === true &&
+        demoHostResult.body.checkoutUrl === 'https://checkout-demo.paguelofacil.com/checkout?code=LK-DEMO-POSTMAN-100' &&
+        demoHostValidationSandbox.valid === true &&
+        demoHostValidationProd.valid === false &&
+        demoHostValidationProd.error?.includes('Untrusted checkout hostname')
+    ),
+    'HTTP 200, checkoutUrl preserved, valid in sandbox, strictly invalid in production',
+    `status=${demoHostResult.statusCode}, sandboxValid=${demoHostValidationSandbox.valid}, prodValid=${demoHostValidationProd.valid}`
   );
 
   // -------------------------------------------------------------

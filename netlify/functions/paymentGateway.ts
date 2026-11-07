@@ -93,8 +93,15 @@ export const PAGUELOFACIL_ENDPOINTS = {
 
 // Documented Trusted PagueloFacil Checkout Hostnames
 export const TRUSTED_CHECKOUT_HOSTNAMES: Record<'sandbox' | 'production', string[]> = {
-  sandbox: ['sandbox.paguelofacil.com', 'checkout-sand.paguelofacil.com'],
-  production: ['secure.paguelofacil.com', 'checkout.paguelofacil.com'],
+  sandbox: [
+    'sandbox.paguelofacil.com',
+    'checkout-sand.paguelofacil.com',
+    'checkout-demo.paguelofacil.com',
+  ],
+  production: [
+    'secure.paguelofacil.com',
+    'checkout.paguelofacil.com',
+  ],
 };
 
 /**
@@ -120,6 +127,7 @@ export function maskCredential(cred?: string): string {
 
 /**
  * Validates returned PagueloFacil checkout URL against documented trusted hostnames.
+ * Enforces HTTPS, rejects nonstandard ports, embedded credentials, unrecognized hosts and subdomains.
  */
 export function validatePagueloFacilCheckoutUrl(
   rawUrl: string,
@@ -129,6 +137,12 @@ export function validatePagueloFacilCheckoutUrl(
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== 'https:') {
       return { valid: false, error: 'Checkout URL must use secure HTTPS protocol.' };
+    }
+    if (parsed.port && parsed.port !== '443') {
+      return { valid: false, error: 'Checkout URL must not specify a custom port.' };
+    }
+    if (parsed.username || parsed.password) {
+      return { valid: false, error: 'Checkout URL must not contain embedded credentials.' };
     }
     const trustedHosts = TRUSTED_CHECKOUT_HOSTNAMES[environment] || [];
     if (!trustedHosts.includes(parsed.hostname.toLowerCase())) {
