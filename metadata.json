@@ -1,6 +1,6 @@
 {
   "name": "Guna Yala Panama Travel",
-  "description": "Guna-owned travel company specializing in authentic experiences in Guna Yala / San Blas, Panama. 5.0 Google rating.",
+  "description": "Explore the San Blas Islands with Guna Yala Panama Travel. Discover day trips, overnight island stays, sailing experiences and authentic Guna culture.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

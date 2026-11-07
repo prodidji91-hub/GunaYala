@@ -17,6 +17,9 @@ import { FinalCta } from './components/FinalCta';
 import { Footer } from './components/Footer';
 import { AdminAuthGuard } from './components/admin/AdminAuthGuard';
 import { IslandDesignPreview } from './components/preview/IslandDesignPreview';
+import { TermsAndConditionsPage } from './components/TermsAndConditionsPage';
+import { LandingExperiencePage, LandingExperienceType } from './components/landing/LandingExperiencePage';
+import { updateSeoMetadata, SeoRoute } from './utils/seo';
 import { EXPERIENCES_DATA } from './data/experiences';
 import { supabase } from './lib/supabase';
 import { TermsModal } from './components/TermsModal';
@@ -40,8 +43,24 @@ const isAuthCallbackUrl = (): boolean => {
   );
 };
 
+const getLandingRouteInfo = (pathname: string): { type: LandingExperienceType | null; lang: Language | null } => {
+  if (pathname === '/san-blas-day-trips') return { type: 'day-trips', lang: 'en' };
+  if (pathname === '/es/san-blas-day-trips') return { type: 'day-trips', lang: 'es' };
+  if (pathname === '/san-blas-overnight-stays') return { type: 'overnight-stays', lang: 'en' };
+  if (pathname === '/es/san-blas-overnight-stays') return { type: 'overnight-stays', lang: 'es' };
+  if (pathname === '/san-blas-sailing') return { type: 'sailing', lang: 'en' };
+  if (pathname === '/es/san-blas-sailing') return { type: 'sailing', lang: 'es' };
+  return { type: null, lang: null };
+};
+
 export default function App() {
-  const [currentLang, setCurrentLang] = useState<Language>('en');
+  const [currentLang, setCurrentLang] = useState<Language>(() => {
+    if (typeof window === 'undefined') return 'en';
+    const landingInfo = getLandingRouteInfo(window.location.pathname);
+    if (landingInfo.lang) return landingInfo.lang;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('lang') === 'es' ? 'es' : 'en';
+  });
   const [selectedExperienceForModal, setSelectedExperienceForModal] = useState<Experience | null>(null);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState<boolean>(false);
   const [termsModalTab, setTermsModalTab] = useState<'overnight' | 'day-trip'>('day-trip');
@@ -86,6 +105,64 @@ export default function App() {
     return window.location.pathname.startsWith('/island-design-preview');
   });
 
+  const [isTermsRoute, setIsTermsRoute] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname.startsWith('/terms-and-conditions');
+  });
+
+  const [landingRoute, setLandingRoute] = useState<LandingExperienceType | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return getLandingRouteInfo(window.location.pathname).type;
+  });
+
+  const handleLanguageChange = (newLang: Language) => {
+    setCurrentLang(newLang);
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const landingInfo = getLandingRouteInfo(path);
+      if (landingInfo.type) {
+        const targetUrl = newLang === 'es' ? `/es/san-blas-${landingInfo.type}` : `/san-blas-${landingInfo.type}`;
+        window.history.pushState({}, '', targetUrl);
+        return;
+      }
+      if (path.startsWith('/terms-and-conditions')) {
+        const targetUrl = newLang === 'es' ? `${path}?lang=es` : path;
+        window.history.replaceState({}, '', targetUrl);
+        return;
+      }
+      const url = new URL(window.location.href);
+      if (newLang === 'es') {
+        url.searchParams.set('lang', 'es');
+      } else {
+        url.searchParams.delete('lang');
+      }
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  };
+
+  // Dynamically update document SEO metadata when language or route changes
+  useEffect(() => {
+    let route: SeoRoute = 'home';
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const landingInfo = getLandingRouteInfo(path);
+      if (landingInfo.type === 'day-trips') {
+        route = 'landing-day-trips';
+      } else if (landingInfo.type === 'overnight-stays') {
+        route = 'landing-overnight-stays';
+      } else if (landingInfo.type === 'sailing') {
+        route = 'landing-sailing';
+      } else if (path.startsWith('/terms-and-conditions/day-tour')) {
+        route = 'terms-day-tour';
+      } else if (path.startsWith('/terms-and-conditions/overnight')) {
+        route = 'terms-overnight';
+      } else if (path.startsWith('/terms-and-conditions')) {
+        route = 'terms-hub';
+      }
+    }
+    updateSeoMetadata(route, currentLang);
+  }, [currentLang, isTermsRoute, landingRoute]);
+
   // Handle Shareable Experience Deep Links (?experience=id or ?exp=id)
   const handleSetExperienceModal = (exp: Experience | null) => {
     setSelectedExperienceForModal(exp);
@@ -105,6 +182,8 @@ export default function App() {
     const handleLocationChange = () => {
       const atAdmin = window.location.pathname.startsWith('/admin') || isAuthCallbackUrl();
       const atPreview = window.location.pathname.startsWith('/island-design-preview');
+      const atTerms = window.location.pathname.startsWith('/terms-and-conditions');
+      const landingInfo = getLandingRouteInfo(window.location.pathname);
 
       if (atAdmin && !window.location.pathname.startsWith('/admin')) {
         window.history.replaceState(
@@ -115,6 +194,8 @@ export default function App() {
       }
       setIsAdminRoute(atAdmin);
       setIsPreviewRoute(atPreview);
+      setIsTermsRoute(atTerms);
+      setLandingRoute(landingInfo.type);
 
       // Sync experience parameter on back/forward or initial navigate
       const params = new URLSearchParams(window.location.search);
@@ -127,6 +208,20 @@ export default function App() {
       } else {
         setSelectedExperienceForModal(null);
       }
+
+      // Sync language parameter if landing page specifies language or URL param changed
+      if (landingInfo.lang) {
+        if (landingInfo.lang !== currentLang) {
+          setCurrentLang(landingInfo.lang);
+        }
+      } else {
+        const langParam = params.get('lang');
+        if (langParam === 'es' && currentLang !== 'es') {
+          setCurrentLang('es');
+        } else if (!langParam && currentLang === 'es') {
+          setCurrentLang('en');
+        }
+      }
     };
 
     // Initial check on load
@@ -134,7 +229,7 @@ export default function App() {
 
     window.addEventListener('popstate', handleLocationChange);
     return () => window.removeEventListener('popstate', handleLocationChange);
-  }, []);
+  }, [currentLang]);
 
   // Listen for Supabase PASSWORD_RECOVERY events
   useEffect(() => {
@@ -156,9 +251,12 @@ export default function App() {
 
   const handleNavigateToPublic = () => {
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', '/');
+      const url = currentLang === 'es' ? '/?lang=es' : '/';
+      window.history.pushState({}, '', url);
       setIsAdminRoute(false);
       setIsPreviewRoute(false);
+      setIsTermsRoute(false);
+      setLandingRoute(null);
       window.scrollTo(0, 0);
     }
   };
@@ -192,7 +290,7 @@ export default function App() {
     return (
       <IslandDesignPreview
         currentLang={currentLang}
-        onLanguageChange={setCurrentLang}
+        onLanguageChange={handleLanguageChange}
         onBackToWebsite={handleNavigateToPublic}
       />
     );
@@ -203,12 +301,58 @@ export default function App() {
     return <AdminAuthGuard onBackToWebsite={handleNavigateToPublic} />;
   }
 
+  // Render Official Terms & Conditions Document Route
+  if (isTermsRoute) {
+    let initialPolicy: 'hub' | 'overnight' | 'day-tour' = 'hub';
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname.includes('/overnight')) initialPolicy = 'overnight';
+      else if (window.location.pathname.includes('/day-tour')) initialPolicy = 'day-tour';
+    }
+    return (
+      <TermsAndConditionsPage
+        currentLang={currentLang}
+        onLanguageChange={handleLanguageChange}
+        onBackToWebsite={handleNavigateToPublic}
+        onOpenPlanner={() => handleOpenPlanner()}
+        initialPolicy={initialPolicy}
+      />
+    );
+  }
+
+  // Render Premium Bilingual SEO Landing Experience Pages
+  if (landingRoute) {
+    return (
+      <>
+        <LandingExperiencePage
+          experienceType={landingRoute}
+          currentLang={currentLang}
+          onLanguageChange={handleLanguageChange}
+          onBackToHome={handleNavigateToPublic}
+          onOpenBooking={(cat) => handleOpenPlanner(cat)}
+        />
+
+        {/* Dedicated Experience Discovery & Booking Flow Modal */}
+        <ExperienceBookingModal
+          isOpen={isPlannerModalOpen}
+          onClose={() => setIsPlannerModalOpen(false)}
+          currentLang={currentLang}
+          onLanguageChange={handleLanguageChange}
+          initialCategory={plannerModalCategory}
+          onOpenExperienceDetails={(exp) => {
+            setIsPlannerModalOpen(false);
+            handleSetExperienceModal(exp);
+          }}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F2] text-[#173D36] selection:bg-[#E2D2BB] selection:text-[#173D36]">
       {/* Top Bar Navigation: Mathematically Centered GUNA YALA + Direct Sub-Navigation */}
       <Navbar
         currentLang={currentLang}
-        onLanguageChange={setCurrentLang}
+        onLanguageChange={handleLanguageChange}
         onOpenPlanner={() => handleOpenPlanner()}
       />
 
@@ -275,7 +419,7 @@ export default function App() {
       {/* Footer */}
       <Footer
         currentLang={currentLang}
-        onLanguageChange={setCurrentLang}
+        onLanguageChange={handleLanguageChange}
         onOpenPlanner={() => handleOpenPlanner()}
       />
 
@@ -284,7 +428,7 @@ export default function App() {
         isOpen={isPlannerModalOpen}
         onClose={() => setIsPlannerModalOpen(false)}
         currentLang={currentLang}
-        onLanguageChange={setCurrentLang}
+        onLanguageChange={handleLanguageChange}
         initialCategory={plannerModalCategory}
         onOpenExperienceDetails={(exp) => {
           setIsPlannerModalOpen(false);
@@ -296,7 +440,7 @@ export default function App() {
       <ExperienceDetailModal
         experience={selectedExperienceForModal}
         currentLang={currentLang}
-        onLanguageChange={setCurrentLang}
+        onLanguageChange={handleLanguageChange}
         onClose={() => handleSetExperienceModal(null)}
         onInquire={(cat) => handleOpenPlanner(cat)}
         onSelectExperience={(exp) => handleSetExperienceModal(exp)}

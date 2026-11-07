@@ -45,6 +45,7 @@ import {
   Loader2,
   GitBranch,
   Clock,
+  CreditCard,
 } from 'lucide-react';
 import { extractRootReference, generateNextRevisionReference } from '../../services/quotationStorageService';
 
@@ -3347,6 +3348,81 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                   placeholder={tr('Internal notes regarding payments to island hosts or drivers...', 'Notas internas sobre pagos a anfitriones de la isla o conductores...')}
                   className="w-full p-2 border border-amber-300 rounded text-xs bg-white"
                 />
+              </div>
+            </div>
+
+            {/* PagueloFacil Payment Link & Approval Workflow (Safe Preparation Mode) */}
+            <div className="mt-6 pt-6 border-t border-[#e5dec9] space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-[#06121e]" />
+                  <h4 className="text-sm font-semibold text-[#06121e]">
+                    {tr('PagueloFacil Payment Link & Approval Workflow', 'Flujo de Aprobación y Enlace de Pago PagueloFacil')}
+                  </h4>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-semibold w-fit">
+                  {tr('Safe Preparation Mode (Pending Credentials)', 'Modo Seguro (Pendiente de Credenciales)')}
+                </span>
+              </div>
+
+              {formData.termsStatus !== 'Approved by Petra' ? (
+                <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-900 space-y-1.5">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertCircle className="w-4 h-4 text-amber-700" />
+                    <span>{tr('Approval Required Before Payment Link Generation', 'Se Requiere Aprobación Antes de Generar el Enlace')}</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    {tr(
+                      'For overnight stays and private charters, Petra must verify island accommodation availability and approve the final quotation terms before a payment link can be issued. Click "Approve Terms & Pricing" in the header once verified.',
+                      'Para estadías y charters privados, Petra debe verificar la disponibilidad de cabañas en la isla y aprobar los términos de la cotización antes de generar un enlace de pago. Haga clic en "Aprobar Términos y Tarifas" en el encabezado una vez verificado.'
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-lg text-xs text-emerald-900 space-y-2">
+                  <div className="flex items-center gap-2 font-semibold text-emerald-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>{tr('Quotation Terms Approved by Petra', 'Términos de Cotización Aprobados por Petra')}</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-700 leading-relaxed">
+                    {tr(
+                      'Accommodation availability and pricing are verified. This quotation is ready for secure PagueloFacil payment link generation once merchant gateway credentials are confirmed.',
+                      'Disponibilidad de alojamiento y tarifas verificadas. Esta cotización está lista para generar el enlace de pago PagueloFacil una vez confirmadas las credenciales de la pasarela.'
+                    )}
+                  </p>
+                  
+                  {/* Deposit Calculation Preview */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 text-[11px] font-mono">
+                    <div className="p-2.5 bg-white rounded border border-emerald-200">
+                      <span className="text-gray-500 block">{tr('Total Quotation:', 'Total Cotizado:')}</span>
+                      <span className="font-bold text-[#06121e]">${formData.total.toFixed(2)} USD</span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded border border-emerald-200">
+                      <span className="text-gray-500 block">{tr('Deposit (50% Card):', 'Depósito (50% Tarjeta):')}</span>
+                      <span className="font-bold text-emerald-700">${(formData.total * 0.5).toFixed(2)} USD</span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded border border-emerald-200">
+                      <span className="text-gray-500 block">{tr('Balance (Cash on Island):', 'Saldo (Efectivo en Isla):')}</span>
+                      <span className="font-bold text-amber-800">${(formData.total * 0.5).toFixed(2)} USD</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Button (Visibly disabled in safe mode) */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-[#687785]">
+                  {tr('Payment actions remain locked until PagueloFacil support and Petra confirm production credentials.', 'Las acciones de pago permanecen bloqueadas hasta que soporte de PagueloFacil y Petra confirmen las credenciales.')}
+                </span>
+                <button
+                  type="button"
+                  disabled
+                  className="px-4 py-2 rounded bg-gray-200 text-gray-500 text-xs font-mono font-semibold cursor-not-allowed flex items-center gap-1.5 opacity-80"
+                  title={tr('Disabled in Safe Preparation Mode', 'Deshabilitado en Modo de Preparación Seguro')}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{tr('Generate PagueloFacil Link (Locked)', 'Generar Enlace PagueloFacil (Bloqueado)')}</span>
+                </button>
               </div>
             </div>
           </div>

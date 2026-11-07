@@ -76,8 +76,14 @@ export const Footer: React.FC<FooterProps> = ({
             <ul className="space-y-2 text-xs sm:text-sm text-[#F6F2E9]/70 font-sans font-light">
               <li>
                 <a
-                  href="#experiences"
-                  onClick={(e) => handleScrollTo(e, 'experiences')}
+                  href={currentLang === 'es' ? '/es/san-blas-day-trips' : '/san-blas-day-trips'}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const url = currentLang === 'es' ? '/es/san-blas-day-trips' : '/san-blas-day-trips';
+                    window.history.pushState({}, '', url);
+                    window.dispatchEvent(new Event('popstate'));
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="hover:text-white transition-colors"
                 >
                   {t.catalog.filterDay}
@@ -85,8 +91,14 @@ export const Footer: React.FC<FooterProps> = ({
               </li>
               <li>
                 <a
-                  href="#experiences"
-                  onClick={(e) => handleScrollTo(e, 'experiences')}
+                  href={currentLang === 'es' ? '/es/san-blas-overnight-stays' : '/san-blas-overnight-stays'}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const url = currentLang === 'es' ? '/es/san-blas-overnight-stays' : '/san-blas-overnight-stays';
+                    window.history.pushState({}, '', url);
+                    window.dispatchEvent(new Event('popstate'));
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="hover:text-white transition-colors"
                 >
                   {t.catalog.filterOvernight}
@@ -103,8 +115,14 @@ export const Footer: React.FC<FooterProps> = ({
               </li>
               <li>
                 <a
-                  href="#experiences"
-                  onClick={(e) => handleScrollTo(e, 'experiences')}
+                  href={currentLang === 'es' ? '/es/san-blas-sailing' : '/san-blas-sailing'}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const url = currentLang === 'es' ? '/es/san-blas-sailing' : '/san-blas-sailing';
+                    window.history.pushState({}, '', url);
+                    window.dispatchEvent(new Event('popstate'));
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="hover:text-white transition-colors"
                 >
                   {t.catalog.filterCatamaran}
@@ -208,12 +226,19 @@ export const Footer: React.FC<FooterProps> = ({
           <div className="flex items-center gap-3 flex-wrap">
             <span>© {new Date().getFullYear()} {t.footer.rights}</span>
             <span className="text-[#C8AC75]/30">|</span>
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent('open-terms', { detail: 'day-trip' }))}
+            <a
+              href={currentLang === 'es' ? '/terms-and-conditions?lang=es' : '/terms-and-conditions'}
+              onClick={(e) => {
+                e.preventDefault();
+                const targetUrl = currentLang === 'es' ? '/terms-and-conditions?lang=es' : '/terms-and-conditions';
+                window.history.pushState({}, '', targetUrl);
+                window.dispatchEvent(new Event('popstate'));
+                window.scrollTo(0, 0);
+              }}
               className="text-[#F6F2E9]/70 hover:text-[#C8AC75] transition-colors hover:underline"
             >
               <span>{currentLang === 'es' ? 'Términos y Condiciones' : 'Terms & Conditions'}</span>
-            </button>
+            </a>
             <span className="text-[#C8AC75]/30">|</span>
             <button
               onClick={() => {

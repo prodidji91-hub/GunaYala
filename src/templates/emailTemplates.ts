@@ -359,3 +359,52 @@ export function generateVerifiedBookingConfirmationEmail(
   return { subject, html, text: `${heading}\nRef: ${p.bookingReference}\n${message}` };
 }
 
+/**
+ * PREPARED STATUS-BASED TEMPLATE: Payment Failed or Expired
+ * Inactive until payment window expires or gateway returns persistent decline
+ */
+export function generatePaymentFailedOrExpiredEmail(
+  p: BookingEmailPayload,
+  details?: { reason?: string; isExpired?: boolean; retryLink?: string }
+): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const isEs = p.customerLanguage === 'es';
+  const isExp = details?.isExpired ?? false;
+
+  const subject = isEs
+    ? `${isExp ? 'Enlace de Pago Vencido' : 'Actualización de Pago'}: ${p.bookingReference} – Guna Yala Panama Travel`
+    : `${isExp ? 'Payment Link Expired' : 'Payment Update'}: ${p.bookingReference} – Guna Yala Panama Travel`;
+
+  const heading = isEs
+    ? (isExp ? 'Su enlace de pago ha vencido' : 'No pudimos procesar su pago')
+    : (isExp ? 'Your payment link has expired' : 'We could not process your payment');
+
+  const message = isEs
+    ? (isExp
+        ? `Estimado/a ${p.customerName}, el enlace de pago temporal para su reserva ${p.bookingReference} ha vencido. Para liberar o reconfirmar cabañas en la comarca, por favor contáctenos para renovar su cotización.`
+        : `Estimado/a ${p.customerName}, el intento de pago para su reserva ${p.bookingReference} no pudo ser completado por la entidad bancaria. Motivo: ${details?.reason || 'Transacción rechazada'}.`)
+    : (isExp
+        ? `Dear ${p.customerName}, the temporary payment window for booking ${p.bookingReference} has expired. To recheck traditional cabana availability with our island hosts, please contact us.`
+        : `Dear ${p.customerName}, the payment attempt for booking ${p.bookingReference} could not be completed by your bank. Reason: ${details?.reason || 'Transaction declined'}.`);
+
+  const html = `
+    <!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif; background:#faf7f2; padding:20px;">
+      <div style="max-width:600px; margin:0 auto; background:#fff; border:1px solid #e5dccb; border-radius:16px; padding:24px;">
+        <h2 style="color:#991b1b; margin-top:0;">⚠️ ${heading}</h2>
+        <p style="font-size:14px; color:#334155; line-height:1.6;">${message}</p>
+        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:16px; font-size:13px; margin:16px 0;">
+          <strong>Ref:</strong> ${p.bookingReference}<br>
+          ${details?.reason ? `<strong>${isEs ? 'Detalle' : 'Detail'}:</strong> ${details.reason}<br>` : ''}
+        </div>
+        ${details?.retryLink ? `<p><a href="${details.retryLink}" style="display:inline-block; background:#06121e; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">${isEs ? 'Reintentar Pago' : 'Retry Payment'}</a></p>` : ''}
+        <p style="font-size:13px; color:#64748b;">Guna Yala Panama Travel &bull; hello@gunayalapanamatravel.com &bull; WhatsApp: +507 6444-3649</p>
+      </div>
+    </body></html>
+  `;
+
+  return { subject, html, text: `${heading}\nRef: ${p.bookingReference}\n${message}` };
+}
+

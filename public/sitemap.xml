@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <!-- 1. English Homepage -->
+  <url>
+    <loc>https://gunayalapanama.com/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/?lang=es" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/" />
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+
+  <!-- 2. Spanish Homepage -->
+  <url>
+    <loc>https://gunayalapanama.com/?lang=es</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/?lang=es" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 3. Day Trips (English) -->
+  <url>
+    <loc>https://gunayalapanama.com/san-blas-day-trips</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/san-blas-day-trips" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/es/san-blas-day-trips" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/san-blas-day-trips" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 4. Day Trips (Spanish) -->
+  <url>
+    <loc>https://gunayalapanama.com/es/san-blas-day-trips</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/san-blas-day-trips" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/es/san-blas-day-trips" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/san-blas-day-trips" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 5. Overnight Stays (English) -->
+  <url>
+    <loc>https://gunayalapanama.com/san-blas-overnight-stays</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/san-blas-overnight-stays" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/es/san-blas-overnight-stays" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/san-blas-overnight-stays" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 6. Overnight Stays (Spanish) -->
+  <url>
+    <loc>https://gunayalapanama.com/es/san-blas-overnight-stays</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/san-blas-overnight-stays" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/es/san-blas-overnight-stays" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/san-blas-overnight-stays" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 7. Sailing & Charters (English) -->
+  <url>
+    <loc>https://gunayalapanama.com/san-blas-sailing</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/san-blas-sailing" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/es/san-blas-sailing" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/san-blas-sailing" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 8. Sailing & Charters (Spanish) -->
+  <url>
+    <loc>https://gunayalapanama.com/es/san-blas-sailing</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/san-blas-sailing" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/es/san-blas-sailing" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/san-blas-sailing" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- 9. Terms Hub -->
+  <url>
+    <loc>https://gunayalapanama.com/terms-and-conditions</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/terms-and-conditions" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/terms-and-conditions?lang=es" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/terms-and-conditions" />
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- 10. Day Tour Terms -->
+  <url>
+    <loc>https://gunayalapanama.com/terms-and-conditions/day-tour</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/terms-and-conditions/day-tour" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/terms-and-conditions/day-tour?lang=es" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/terms-and-conditions/day-tour" />
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- 11. Overnight Stay Terms -->
+  <url>
+    <loc>https://gunayalapanama.com/terms-and-conditions/overnight</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://gunayalapanama.com/terms-and-conditions/overnight" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://gunayalapanama.com/terms-and-conditions/overnight?lang=es" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://gunayalapanama.com/terms-and-conditions/overnight" />
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+</urlset>

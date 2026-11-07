@@ -1,0 +1,25 @@
+# robots.txt for Guna Yala Panama Travel
+# Production URL: https://gunayalapanama.com
+
+User-agent: *
+Allow: /
+Allow: /san-blas-day-trips
+Allow: /san-blas-overnight-stays
+Allow: /san-blas-sailing
+Allow: /es/
+Allow: /es/*
+Allow: /terms-and-conditions
+Allow: /terms-and-conditions/day-tour
+Allow: /terms-and-conditions/overnight
+Disallow: /admin
+Disallow: /admin/
+Disallow: /admin/*
+Disallow: /api/
+Disallow: /api/*
+Disallow: /.netlify/
+Disallow: /.netlify/*
+Disallow: /island-design-preview
+Disallow: /island-design-preview/*
+
+# XML Sitemap
+Sitemap: https://gunayalapanama.com/sitemap.xml

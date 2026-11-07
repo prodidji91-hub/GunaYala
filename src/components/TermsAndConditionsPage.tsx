@@ -4,6 +4,7 @@ import { Navbar } from './Navbar';
 import { Footer } from './Footer';
 import { Shield, FileText, ArrowLeft, Calendar, CheckCircle2, AlertCircle, ExternalLink, Download, Printer } from 'lucide-react';
 import { BrandWordmark } from './BrandWordmark';
+import { updateSeoMetadata, SeoRoute } from '../utils/seo';
 
 interface TermsAndConditionsPageProps {
   currentLang: Language;
@@ -22,27 +23,41 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
 }) => {
   const [activePolicy, setActivePolicy] = useState<'hub' | 'overnight' | 'day-tour'>(initialPolicy);
 
-  // Sync URL pathname with activePolicy
+  // Sync URL pathname with activePolicy and update SEO metadata
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const path = window.location.pathname;
+    let policy: 'hub' | 'overnight' | 'day-tour' = 'hub';
+    let route: SeoRoute = 'terms-hub';
     if (path.includes('/overnight')) {
-      setActivePolicy('overnight');
+      policy = 'overnight';
+      route = 'terms-overnight';
     } else if (path.includes('/day-tour')) {
-      setActivePolicy('day-tour');
-    } else {
-      setActivePolicy('hub');
+      policy = 'day-tour';
+      route = 'terms-day-tour';
     }
-  }, []);
+    setActivePolicy(policy);
+    updateSeoMetadata(route, currentLang);
+  }, [currentLang]);
 
   const handleSelectPolicy = (policy: 'hub' | 'overnight' | 'day-tour') => {
     setActivePolicy(policy);
     if (typeof window !== 'undefined') {
       let url = '/terms-and-conditions';
-      if (policy === 'overnight') url = '/terms-and-conditions/overnight';
-      if (policy === 'day-tour') url = '/terms-and-conditions/day-tour';
+      let route: SeoRoute = 'terms-hub';
+      if (policy === 'overnight') {
+        url = '/terms-and-conditions/overnight';
+        route = 'terms-overnight';
+      } else if (policy === 'day-tour') {
+        url = '/terms-and-conditions/day-tour';
+        route = 'terms-day-tour';
+      }
+      if (currentLang === 'es') {
+        url += '?lang=es';
+      }
       window.history.pushState({}, '', url);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      updateSeoMetadata(route, currentLang);
     }
   };
 

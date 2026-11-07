@@ -36,6 +36,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     const element = document.getElementById(targetId);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
+    } else if (typeof window !== 'undefined') {
+      const homeUrl = currentLang === 'es' ? `/?lang=es#${targetId}` : `/#${targetId}`;
+      window.history.pushState({}, '', homeUrl);
+      window.dispatchEvent(new Event('popstate'));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -59,12 +64,17 @@ export const Navbar: React.FC<NavbarProps> = ({
       >
         {/* Compact GUNA YALA Editorial Wordmark */}
         <a
-          href="#hero"
+          href={currentLang === 'es' ? '/?lang=es' : '/'}
           onClick={(e) => {
             e.preventDefault();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (typeof window !== 'undefined') {
+              const homeUrl = currentLang === 'es' ? '/?lang=es' : '/';
+              window.history.pushState({}, '', homeUrl);
+              window.dispatchEvent(new Event('popstate'));
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
           }}
-          className="group block focus:outline-none transition-transform duration-300 active:scale-98"
+          className="group block focus:outline-none transition-transform duration-300 active:scale-98 cursor-pointer"
           aria-label="Guna Yala Home"
         >
           <BrandWordmark
