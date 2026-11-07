@@ -5,14 +5,19 @@ import {
 } from './paymentGateway.js';
 
 interface CheckoutRequestBody {
-  bookingReference: string;
+  bookingReference?: string;
   bookingType: 'overnight' | 'day-trip' | 'private-charter';
+  dayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port' | string;
   customerName: string;
   customerEmail: string;
   customerPhone?: string;
   targetDate?: string;
   adults?: number;
   children?: number;
+  pickupLocation?: string;
+  specialNotes?: string;
+  termsAccepted?: boolean;
+  customerLanguage?: 'en' | 'es';
   quotationId?: string;
   depositAmount?: number;
   paymentType?: 'deposit' | 'full' | 'balance';
@@ -58,7 +63,6 @@ export const handler = async (event: NetlifyEvent) => {
   }
 
   const {
-    bookingReference,
     bookingType,
     customerName,
     customerEmail,
@@ -68,20 +72,26 @@ export const handler = async (event: NetlifyEvent) => {
     idempotencyKey,
   } = body;
 
+  const effectiveBookingReference =
+    (body.bookingReference || '').trim() ||
+    `GNY-${Math.floor(100000 + Math.random() * 900000)}`;
+
   // 1. Mandatory common fields
-  if (!bookingReference || !customerEmail || !customerName || !idempotencyKey) {
+  if (!customerEmail || !customerName || !idempotencyKey) {
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: false,
-        error: 'Missing required fields: bookingReference, customerEmail, customerName, and idempotencyKey are mandatory.',
+        error: 'Missing required fields: customerEmail, customerName, and idempotencyKey are mandatory.',
       }),
     };
   }
 
   // 2. Strict Business Rule Enforcement by Booking Type
   let authoritativeAmount = 0;
+  let authoritativeAmountInCents = 0;
+  let pricingBreakdown: any = null;
   let paymentType: 'deposit' | 'full' | 'balance' = 'full';
 
   if (bookingType === 'overnight') {
@@ -99,6 +109,7 @@ export const handler = async (event: NetlifyEvent) => {
       };
     }
     authoritativeAmount = body.depositAmount ?? 0;
+    authoritativeAmountInCents = Math.round(authoritativeAmount * 100);
     paymentType = body.paymentType ?? 'deposit';
   } else if (bookingType === 'private-charter') {
     // Private Charters REQUIRE custom quotation approval
@@ -115,10 +126,12 @@ export const handler = async (event: NetlifyEvent) => {
       };
     }
     authoritativeAmount = body.depositAmount ?? 0;
+    authoritativeAmountInCents = Math.round(authoritativeAmount * 100);
     paymentType = body.paymentType ?? 'deposit';
   } else if (bookingType === 'day-trip') {
-    // Day trips calculate server-authoritative pricing (never trust client amount)
-    const pricing = calculateAuthoritativeDayTripAmount(adults, children);
+    // Day tours calculate server-authoritative pricing in integer cents (never trust client amount)
+    const requestedPkg = body.dayTourPackageId;
+    const pricing = calculateAuthoritativeDayTripAmount(adults, children, requestedPkg);
     if (!pricing.valid || !pricing.isApproved) {
       // Safe mode: When pricing is not yet approved by Petra, automatic checkout is disabled
       return {
@@ -131,11 +144,13 @@ export const handler = async (event: NetlifyEvent) => {
           mode: 'request_only',
           pricingStatus: 'rates_pending_approval',
           message: pricing.error || 'Day-trip rates are pending Petra\'s official pricing approval. Automatic checkout is disabled; please submit as a booking request.',
-          bookingReference,
+          bookingReference: effectiveBookingReference,
         }),
       };
     }
     authoritativeAmount = pricing.amount;
+    authoritativeAmountInCents = pricing.amountInCents;
+    pricingBreakdown = pricing.breakdown;
     paymentType = 'full';
   } else {
     return {
@@ -161,15 +176,17 @@ export const handler = async (event: NetlifyEvent) => {
         mode: 'request_only',
         message: 'Online payment gateway is in safe preparation mode. Live card checkout is disabled pending merchant verification.',
         calculatedAmount: authoritativeAmount,
+        calculatedAmountInCents: authoritativeAmountInCents,
         currency: 'USD',
-        bookingReference,
+        bookingReference: effectiveBookingReference,
+        status: 'pending_payment',
       }),
     };
   }
 
   // 4. Create Gateway Payment Session via server-configured adapter
   const sessionResult = await gateway.createPaymentSession({
-    bookingReference,
+    bookingReference: effectiveBookingReference,
     bookingType,
     quotationId,
     customerName,
@@ -178,12 +195,12 @@ export const handler = async (event: NetlifyEvent) => {
     amount: authoritativeAmount,
     currency: 'USD',
     paymentType,
-    description: `Guna Yala Panama Travel - ${bookingType.toUpperCase()} ${bookingReference}`,
+    description: `Guna Yala Panama Travel - ${bookingType.toUpperCase()} ${effectiveBookingReference}`,
     expiresInSeconds: 7200, // 2 hours
     idempotencyKey,
   });
 
-  // 5. Persist trusted server-selected payment transaction record
+  // 5. Persist trusted server-selected payment transaction record & pending booking
   // STRICT RULE: Never accept environment from request body/headers. Stored environment matches active gateway.
   if (sessionResult.success) {
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -195,6 +212,34 @@ export const handler = async (event: NetlifyEvent) => {
           auth: { persistSession: false, autoRefreshToken: false },
         });
 
+        // 5a. Record day tour booking in booking_requests as PENDING_PAYMENT
+        if (bookingType === 'day-trip') {
+          await supabase
+            .from('booking_requests')
+            .upsert(
+              {
+                booking_reference: effectiveBookingReference,
+                booking_type: 'day-trip',
+                customer_name: customerName,
+                customer_email: customerEmail,
+                customer_phone: body.customerPhone || '',
+                experience_title: pricingBreakdown?.packageName || 'San Blas Day Tour',
+                target_date: body.targetDate || '',
+                adults,
+                children,
+                pickup_location: body.pickupLocation || '',
+                special_notes: body.specialNotes || '',
+                terms_accepted: Boolean(body.termsAccepted),
+                terms_version: '2026-10-18',
+                customer_language: body.customerLanguage || 'en',
+                status: 'pending_payment',
+                idempotency_key: idempotencyKey,
+              },
+              { onConflict: 'booking_reference' }
+            );
+        }
+
+        // 5b. Record payment transaction in payment_transactions with integer cents
         const activeEnvironment: 'sandbox' | 'production' =
           gatewayConfig.environment === 'production' ? 'production' : 'sandbox';
 
@@ -202,7 +247,7 @@ export const handler = async (event: NetlifyEvent) => {
           .from('payment_transactions')
           .upsert(
             {
-              booking_reference: bookingReference,
+              booking_reference: effectiveBookingReference,
               quotation_id: quotationId || null,
               booking_type: bookingType,
               gateway: 'paguelofacil',
@@ -211,6 +256,7 @@ export const handler = async (event: NetlifyEvent) => {
               payment_url: sessionResult.paymentUrl || null,
               currency: 'USD',
               expected_amount: authoritativeAmount,
+              amount_in_cents: authoritativeAmountInCents,
               payment_type: paymentType,
               status: 'pending',
               idempotency_key: idempotencyKey,
@@ -218,6 +264,8 @@ export const handler = async (event: NetlifyEvent) => {
               audit_metadata: {
                 environment: activeEnvironment,
                 is_demo: activeEnvironment === 'sandbox',
+                amount_in_cents: authoritativeAmountInCents,
+                package_id: body.dayTourPackageId || null,
                 created_via: 'payment-checkout',
                 created_at: new Date().toISOString(),
               },
@@ -233,6 +281,13 @@ export const handler = async (event: NetlifyEvent) => {
   return {
     statusCode: sessionResult.success ? 200 : 500,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sessionResult),
+    body: JSON.stringify({
+      ...sessionResult,
+      bookingReference: effectiveBookingReference,
+      amount: authoritativeAmount,
+      amountInCents: authoritativeAmountInCents,
+      pricingBreakdown,
+      status: 'pending_payment',
+    }),
   };
 };

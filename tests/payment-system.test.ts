@@ -1283,6 +1283,42 @@ async function runPaymentSecurityTests() {
     `hyphen=${hyphenFlag.isSandboxReturn}, underscore=${underscoreFlag.isSandboxReturn}`
   );
 
+  // Test 43: Panama City Day Tour authoritative pricing is correctly $142.00 (14200 cents) per person
+  const panamaCityCalc2Adults = calculateAuthoritativeDayTripAmount(2, 0, 'day-tour-panama-city');
+  const panamaCityCalcFamily = calculateAuthoritativeDayTripAmount(2, 1, 'day-tour-panama-city');
+
+  assert(
+    'Test 43: Panama City Day Tour authoritative pricing is correctly $142.00 (14200 cents) per person for different traveler counts',
+    Boolean(
+      panamaCityCalc2Adults.valid === true &&
+        panamaCityCalc2Adults.amount === 284.00 &&
+        panamaCityCalc2Adults.amountInCents === 28400 &&
+        panamaCityCalcFamily.valid === true &&
+        panamaCityCalcFamily.amount === 426.00 &&
+        panamaCityCalcFamily.amountInCents === 42600
+    ),
+    '2 adults = $284.00 (28400 cents); 2 adults + 1 child = $426.00 (42600 cents)',
+    `2Adults=$${panamaCityCalc2Adults.amount} (${panamaCityCalc2Adults.amountInCents}c), Family=$${panamaCityCalcFamily.amount} (${panamaCityCalcFamily.amountInCents}c)`
+  );
+
+  // Test 44: Cartí Port Day Tour authoritative pricing is correctly $69.00 (6900 cents) per person
+  const portCalc2Adults = calculateAuthoritativeDayTripAmount(2, 0, 'day-tour-port');
+  const portCalc1Adult = calculateAuthoritativeDayTripAmount(1, 0, 'day-tour-port');
+
+  assert(
+    'Test 44: Cartí Port Day Tour authoritative pricing is correctly $69.00 (6900 cents) per person',
+    Boolean(
+      portCalc2Adults.valid === true &&
+        portCalc2Adults.amount === 138.00 &&
+        portCalc2Adults.amountInCents === 13800 &&
+        portCalc1Adult.valid === true &&
+        portCalc1Adult.amount === 69.00 &&
+        portCalc1Adult.amountInCents === 6900
+    ),
+    '2 adults = $138.00 (13800 cents); 1 adult = $69.00 (6900 cents)',
+    `2Adults=$${portCalc2Adults.amount} (${portCalc2Adults.amountInCents}c), 1Adult=$${portCalc1Adult.amount} (${portCalc1Adult.amountInCents}c)`
+  );
+
   // -------------------------------------------------------------
   // PRINT TEST MATRIX
   // -------------------------------------------------------------

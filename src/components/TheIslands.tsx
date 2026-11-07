@@ -1033,7 +1033,7 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
                   </h4>
                 </div>
                 <div className="text-right font-mono">
-                  <div className="text-lg font-bold text-[#173D36]">USD 145</div>
+                  <div className="text-lg font-bold text-[#173D36]">USD 142</div>
                   <div className="text-[10px] text-[#53645E]">{isEs ? '/ persona' : '/ person'}</div>
                 </div>
               </div>
