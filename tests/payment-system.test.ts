@@ -1505,6 +1505,274 @@ async function runPaymentSecurityTests() {
   );
 
   // -------------------------------------------------------------
+  // TEST 50: AUTHORITATIVE VERIFICATION FOR APPROVED TRANSACTION
+  // -------------------------------------------------------------
+  const approvedVerifyAdapter = new PagueloFacilGatewayAdapter(
+    { sandboxAccessToken: 'token_sandbox_valid', environment: 'sandbox', enableSandboxPayments: true },
+    async (action, params) => {
+      if (action === 'verifyTransaction') {
+        return {
+          success: true,
+          verified: true,
+          status: 'approved',
+          amountPaid: 142.0,
+          currency: 'USD',
+          gatewayOperationId: params.gatewayOperationId,
+        };
+      }
+      return { success: false };
+    }
+  );
+  const approvedRes = await approvedVerifyAdapter.verifyTransaction({ gatewayOperationId: 'OP-APP-001', environment: 'sandbox' });
+
+  assert(
+    'Test 50: Authoritative verification succeeds for approved transaction',
+    approvedRes.verified === true && approvedRes.status === 'approved' && approvedRes.amountPaid === 142.0,
+    'verified=true, status=approved',
+    `verified=${approvedRes.verified}, status=${approvedRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 51: AUTHORITATIVE VERIFICATION FOR DECLINED TRANSACTION
+  // -------------------------------------------------------------
+  const declinedVerifyAdapter = new PagueloFacilGatewayAdapter(
+    { sandboxAccessToken: 'token_sandbox_valid', environment: 'sandbox', enableSandboxPayments: true },
+    async (action, params) => {
+      if (action === 'verifyTransaction') {
+        return {
+          success: true,
+          verified: false,
+          status: 'rejected',
+          amountPaid: 142.0,
+          currency: 'USD',
+          gatewayOperationId: params.gatewayOperationId,
+        };
+      }
+      return { success: false };
+    }
+  );
+  const declinedRes = await declinedVerifyAdapter.verifyTransaction({ gatewayOperationId: 'OP-DEC-001', environment: 'sandbox' });
+
+  assert(
+    'Test 51: Authoritative verification identifies declined transaction as unverified',
+    declinedRes.verified === false && declinedRes.status === 'rejected',
+    'verified=false, status=rejected',
+    `verified=${declinedRes.verified}, status=${declinedRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 52: AMOUNT MISMATCH REJECTION IN VERIFICATION
+  // -------------------------------------------------------------
+  const origFetch = global.fetch;
+  global.fetch = async (url: any, init: any) => {
+    return {
+      ok: true,
+      json: async () => ({
+        data: {
+          codOper: 'OP-MIS-001',
+          status: 'Aprobada',
+          amount: 50.0, // Less than expected 142.0
+          currency: 'USD',
+        },
+      }),
+    } as any;
+  };
+
+  const realFetchAdapter = new PagueloFacilGatewayAdapter({
+    sandboxAccessToken: 'token_sandbox_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const amountMismatchRes = await realFetchAdapter.verifyTransaction({
+    gatewayOperationId: 'OP-MIS-001',
+    expectedAmount: 142.0,
+    environment: 'sandbox',
+  });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 52: Amount mismatch between paid amount and expected amount rejects verification',
+    amountMismatchRes.verified === false && amountMismatchRes.status === 'rejected',
+    'verified=false, status=rejected due to amount mismatch',
+    `verified=${amountMismatchRes.verified}, status=${amountMismatchRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 53: MISSING CURRENCY OR MERCHANT IDENTITY REJECTS VERIFICATION
+  // -------------------------------------------------------------
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-MISSING-METADATA',
+        status: 'Aprobada',
+        amount: 142.0,
+        currency: '', // Missing currency
+        cclw: '', // Missing merchant CCLW
+      },
+    }),
+  } as any);
+
+  const missingMetaAdapter = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'TEST_CCLW',
+    sandboxAccessToken: 'token_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const missingMetaRes = await missingMetaAdapter.verifyTransaction({ gatewayOperationId: 'OP-MISSING-METADATA', environment: 'sandbox' });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 53: Missing currency or merchant identity rejects verification',
+    missingMetaRes.verified === false && missingMetaRes.status === 'rejected',
+    'verified=false, status=rejected due to missing currency/merchant',
+    `verified=${missingMetaRes.verified}, status=${missingMetaRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 54: NON-CAPTURE OPERATIONS (REFUND, VOID, STATUS 2) REJECT VERIFICATION
+  // -------------------------------------------------------------
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-REFUND',
+        status: 2, // Numeric status 2 without capture/sale
+        type: 'refund',
+        amount: 142.0,
+        currency: 'USD',
+        cclw: 'TEST_CCLW',
+      },
+    }),
+  } as any);
+
+  const refundAdapter = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'TEST_CCLW',
+    sandboxAccessToken: 'token_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const refundRes = await refundAdapter.verifyTransaction({ gatewayOperationId: 'OP-REFUND', environment: 'sandbox' });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 54: Non-capture operations (refund, status 2) reject verification',
+    refundRes.verified === false && refundRes.status === 'rejected',
+    'verified=false, status=rejected for refund/status 2',
+    `verified=${refundRes.verified}, status=${refundRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 55: BOOKING REFERENCE CONFLICT REJECTS VERIFICATION
+  // -------------------------------------------------------------
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-REF-CONFLICT',
+        status: 'Aprobada',
+        customParm1: 'GNY-WRONG-REF',
+        amount: 142.0,
+        currency: 'USD',
+        cclw: 'TEST_CCLW',
+      },
+    }),
+  } as any);
+
+  const conflictAdapter = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'TEST_CCLW',
+    sandboxAccessToken: 'token_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const conflictRes = await conflictAdapter.verifyTransaction({
+    gatewayOperationId: 'OP-REF-CONFLICT',
+    bookingReference: 'GNY-EXPECTED-REF',
+    environment: 'sandbox',
+  });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 55: Booking reference conflict between gateway record and request rejects verification',
+    conflictRes.verified === false && conflictRes.status === 'rejected',
+    'verified=false, status=rejected due to reference mismatch',
+    `verified=${conflictRes.verified}, status=${conflictRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 56: AMBIGUOUS MULTIPLE RECORDS WITHOUT OPERATION ID REJECT VERIFICATION
+  // -------------------------------------------------------------
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        { codOper: 'OP-1', status: 'Aprobada', customParm1: 'GNY-MULTI', amount: 142.0, currency: 'USD', cclw: 'TEST_CCLW' },
+        { codOper: 'OP-2', status: 'Aprobada', customParm1: 'GNY-MULTI', amount: 142.0, currency: 'USD', cclw: 'TEST_CCLW' },
+      ],
+    }),
+  } as any);
+
+  const ambiguousAdapter = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'TEST_CCLW',
+    sandboxAccessToken: 'token_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const ambiguousVerifyRes = await ambiguousAdapter.verifyTransaction({
+    bookingReference: 'GNY-MULTI',
+    environment: 'sandbox',
+  });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 56: Ambiguous multiple records without gatewayOperationId reject verification',
+    ambiguousVerifyRes.verified === false && ambiguousVerifyRes.status === 'pending',
+    'verified=false, status=pending due to ambiguity',
+    `verified=${ambiguousVerifyRes.verified}, status=${ambiguousVerifyRes.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 57: APPROVED LEGITIMATE PAYMENT WITH EXACT CENTS AND MATCHING MERCHANT CCLW SUCCEEDS
+  // -------------------------------------------------------------
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-LEGIT-OK',
+        status: 'Aprobada',
+        type: 'sale',
+        customParm1: 'GNY-LEGIT-001',
+        amount: 142.00,
+        currency: 'USD',
+        cclw: 'TEST_CCLW',
+        cardType: 'VISA',
+        authCode: 'AUTH12345',
+      },
+    }),
+  } as any);
+
+  const legitAdapter = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'TEST_CCLW',
+    sandboxAccessToken: 'token_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const legitRes = await legitAdapter.verifyTransaction({
+    gatewayOperationId: 'OP-LEGIT-OK',
+    bookingReference: 'GNY-LEGIT-001',
+    expectedAmount: 142.00,
+    environment: 'sandbox',
+  });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 57: Approved legitimate payment with exact cents, correct currency, operation type, and matching CCLW succeeds',
+    legitRes.verified === true && legitRes.status === 'approved' && legitRes.amountPaid === 142.00,
+    'verified=true, status=approved',
+    `verified=${legitRes.verified}, status=${legitRes.status}, amount=${legitRes.amountPaid}`
+  );
+
+  // -------------------------------------------------------------
   // PRINT TEST MATRIX
   // -------------------------------------------------------------
   console.log('----------------------------------------------------');

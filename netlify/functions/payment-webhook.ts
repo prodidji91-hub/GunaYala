@@ -204,6 +204,7 @@ export const handler = async (event: NetlifyEvent) => {
       // 4. Quaternary lookup: By booking reference (PARM_1) with strict uniqueness checks
       // Handles newly received webhooks where gateway_operation_id was initially null when session was created
       if (!existingTx && parsed.bookingReference) {
+        lookupMethodUsed = 'booking_reference_fallback';
         const { data: attempts } = await supabase
           .from('payment_transactions')
           .select('id, status, environment, expected_amount, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
@@ -213,6 +214,7 @@ export const handler = async (event: NetlifyEvent) => {
           lookupMethodUsed = 'booking_reference_strict_unique';
           existingTx = attempts[0];
         } else if (attempts && attempts.length > 1) {
+          lookupMethodUsed = 'booking_reference_ambiguous';
           logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, lookupMethodUsed: 'booking_reference_ambiguous' });
           logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Ambiguous booking attempts' });
           return {

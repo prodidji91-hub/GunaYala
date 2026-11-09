@@ -238,7 +238,7 @@ export function calculateAuthoritativeDayTripAmount(
 export const PAGUELOFACIL_ENDPOINTS = {
   SANDBOX_LINK_DAEMON: 'https://sandbox.paguelofacil.com/LinkDeamon.cfm',
   PRODUCTION_LINK_DAEMON: 'https://secure.paguelofacil.com/LinkDeamon.cfm',
-  SANDBOX_VERIFY: 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions',
+  SANDBOX_VERIFY: 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions',
   PRODUCTION_VERIFY: 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions',
 };
 
@@ -579,7 +579,7 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       const response = await fetch(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${activeToken}`,
+          Authorization: activeToken,
           Accept: 'application/json',
         },
       });
@@ -594,12 +594,9 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       }
 
       const data = await response.json();
-      const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : []);
-      const matched = records.find((r: any) =>
-        r.codOper === params.gatewayOperationId || r.customParm1 === params.bookingReference
-      );
-
-      if (!matched) {
+      const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
+      
+      if (records.length === 0) {
         return {
           success: false,
           verified: false,
@@ -608,18 +605,112 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         };
       }
 
-      const isApproved = String(matched.status).toLowerCase() === 'aprobada' || matched.status === 1 || matched.status === 2;
+      // 1. Transaction matching & ambiguity rejection
+      const matched = params.gatewayOperationId
+        ? records.find((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(params.gatewayOperationId).trim())
+        : records.length === 1 ? records[0] : null;
+
+      if (!matched) {
+        return {
+          success: false,
+          verified: false,
+          status: 'pending',
+          error: `Ambiguous or missing transaction record for identifier ${params.gatewayOperationId || params.bookingReference}.`,
+        };
+      }
+
+      // Validate optional returned booking reference against requested booking reference if both are present
+      const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
+      if (params.bookingReference && returnedRef && returnedRef !== params.bookingReference) {
+        return {
+          success: false,
+          verified: false,
+          status: 'rejected',
+          error: `Booking reference conflict: Gateway record reference "${returnedRef}" does not match requested "${params.bookingReference}".`,
+        };
+      }
+
+      // 4. Operation Type & Status: Require evidence of completed approved/captured payment (reject refund/void/reversal/auth-only and unverified status 2)
+      const rawStatus = String(matched.status || matched.estado || '').trim().toLowerCase();
+      const opType = String(matched.type || matched.operationType || matched.tipo || matched.opType || 'sale').trim().toLowerCase();
+      
+      const isStatusApproved = rawStatus === 'aprobada' || rawStatus === 'approved' || matched.status === 1 || rawStatus === '1';
+      const isCaptureOrSale = !['refund', 'void', 'reversal', 'auth', 'authorization', 'debit_memo'].includes(opType);
+      const isApproved = isStatusApproved && isCaptureOrSale;
+
+      // 2. Exact amount comparison in integer cents
+      const rawAmount = matched.amount ?? matched.total ?? matched.TotalPagado;
+      if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
+        return {
+          success: false,
+          verified: false,
+          status: 'rejected',
+          error: 'Gateway record missing amount.',
+        };
+      }
+      const amountPaid = Number(rawAmount);
+      if (isNaN(amountPaid)) {
+        return {
+          success: false,
+          verified: false,
+          status: 'rejected',
+          error: 'Invalid amount format in gateway record.',
+        };
+      }
+
+      if (params.expectedAmount !== undefined) {
+        const amountCents = Math.round(amountPaid * 100);
+        const expectedCents = Math.round(params.expectedAmount * 100);
+        if (amountCents !== expectedCents) {
+          return {
+            success: false,
+            verified: false,
+            status: 'rejected',
+            error: `Exact amount mismatch: Paid $${amountPaid} (${amountCents} cents) does not match expected $${params.expectedAmount} (${expectedCents} cents).`,
+          };
+        }
+      }
+
+      // 3. Currency and Merchant Identity Validation (No silent defaults)
+      const currency = String(matched.currency || matched.moneda || '').trim().toUpperCase();
+      if (!currency || currency !== 'USD') {
+        return {
+          success: false,
+          verified: false,
+          status: 'rejected',
+          error: `Invalid or missing currency "${currency}". USD currency is strictly required.`,
+        };
+      }
+
+      const merchantCclw = String(matched.cclw || matched.CCLW || matched.merchant || '').trim();
+      const expectedCclw = isSandbox ? this.config.sandboxCclw : this.config.cclw;
+      if (!merchantCclw) {
+        return {
+          success: false,
+          verified: false,
+          status: 'rejected',
+          error: 'Merchant identity (CCLW) missing from gateway response.',
+        };
+      }
+      if (expectedCclw && merchantCclw !== expectedCclw) {
+        return {
+          success: false,
+          verified: false,
+          status: 'rejected',
+          error: 'Merchant identity mismatch in verification response.',
+        };
+      }
 
       return {
         success: true,
         verified: isApproved,
         status: isApproved ? 'approved' : 'rejected',
-        amountPaid: Number(matched.amount || matched.total || 0),
-        currency: 'USD',
-        cardType: matched.cardType,
-        authCode: matched.authCode,
-        gatewayOperationId: matched.codOper,
-        rawGatewayStatus: String(matched.status),
+        amountPaid,
+        currency: 'USD' as const,
+        cardType: matched.cardType || matched.Tipo,
+        authCode: matched.authCode || matched.authStatus,
+        gatewayOperationId: matched.codOper || matched.oper || matched.id,
+        rawGatewayStatus: String(matched.status || matched.estado),
       };
     } catch (err: any) {
       return {
