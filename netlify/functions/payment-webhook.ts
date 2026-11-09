@@ -201,22 +201,26 @@ export const handler = async (event: NetlifyEvent) => {
         existingTx = data;
       }
 
-      // If no unique record was matched, check if booking has multiple attempts to prevent arbitrary selection
+      // 4. Quaternary lookup: By booking reference (PARM_1) with strict uniqueness checks
+      // Handles newly received webhooks where gateway_operation_id was initially null when session was created
       if (!existingTx && parsed.bookingReference) {
         const { data: attempts } = await supabase
           .from('payment_transactions')
-          .select('id, status, environment')
+          .select('id, status, environment, expected_amount, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
           .eq('booking_reference', parsed.bookingReference);
 
-        if (attempts && attempts.length > 0) {
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, lookupMethodUsed });
+        if (attempts && attempts.length === 1) {
+          lookupMethodUsed = 'booking_reference_strict_unique';
+          existingTx = attempts[0];
+        } else if (attempts && attempts.length > 1) {
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, lookupMethodUsed: 'booking_reference_ambiguous' });
           logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Ambiguous booking attempts' });
           return {
             statusCode: 400,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               success: false,
-              error: `Ambiguous callback rejected: Booking "${parsed.bookingReference}" has ${attempts.length} payment record(s), but none match the provided gateway identifiers. Arbitrary selection by booking reference is prohibited.`,
+              error: `Ambiguous callback rejected: Booking "${parsed.bookingReference}" has ${attempts.length} payment records. Cannot uniquely identify transaction by booking reference alone when multiple attempts exist.`,
             }),
           };
         }

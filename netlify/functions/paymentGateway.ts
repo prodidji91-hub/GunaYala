@@ -666,7 +666,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
     const gatewayLinkCode = String(payload.code || payload.linkCode || payload.gatewayLinkCode || '').trim() || undefined;
     const idempotencyKey = String(payload.PARM_2 || payload.idempotencyKey || payload.customParm2 || '').trim() || undefined;
 
-    const detectedEnv: 'sandbox' | 'production' = isSandboxMatch ? 'sandbox' : 'production';
+    const detectedEnv: 'sandbox' | 'production' = isSandboxMatch
+      ? 'sandbox'
+      : isLiveMatch
+      ? 'production'
+      : this.config.environment === 'sandbox' || process.env.PAGUELOFACIL_ENV === 'sandbox'
+      ? 'sandbox'
+      : 'production';
 
     if (estado === 'aprobada' || estado === 'approved' || estado === '1' || estado === '2') {
       return {

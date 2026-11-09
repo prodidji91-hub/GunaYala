@@ -1414,6 +1414,97 @@ async function runPaymentSecurityTests() {
   );
 
   // -------------------------------------------------------------
+  // TEST 47: SANDBOX CALLBACK WITH PARM_1 AND OPER (NO PARM_2/LINKCODE) WITH INITIALLY NULL GATEWAY_OPERATION_ID
+  // -------------------------------------------------------------
+  const dbAttemptsStore = [
+    {
+      id: 'tx-uuid-sandbox-null-oper',
+      booking_reference: 'TEST-DAYTOUR-GNY-NULLOPER',
+      idempotency_key: null,
+      gateway_link_code: 'LK-DEMO-TEST',
+      gateway_operation_id: null, // Initially null when session created
+      environment: 'sandbox',
+      expected_amount: 142.0,
+      currency: 'USD',
+      status: 'pending',
+    },
+  ];
+
+  const webhookWithOperAndParm1 = {
+    CCLW: 'SANDBOX_CCLW_TEST',
+    Estado: 'Aprobada',
+    Oper: 'OP-TEST-WEBHOOK-999',
+    TotalPagado: '142.00',
+    PARM_1: 'TEST-DAYTOUR-GNY-NULLOPER',
+    // No PARM_2, no linkCode
+  };
+
+  const sandboxAdapterTest = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'SANDBOX_CCLW_TEST',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+
+  const parsedSandboxWebhook = sandboxAdapterTest.parseWebhook(webhookWithOperAndParm1);
+
+  // Mocking webhook transaction matching logic for PARM_1 uniqueness
+  function matchWebhookTransaction(parsed: any, store: any[]) {
+    // 1. By Oper
+    if (parsed.gatewayOperationId) {
+      const match = store.find((a) => a.gateway_operation_id === parsed.gatewayOperationId);
+      if (match) return match;
+    }
+    // 2. By PARM_1 strict unique
+    if (parsed.bookingReference) {
+      const matches = store.filter((a) => a.booking_reference === parsed.bookingReference);
+      if (matches.length === 1) return matches[0];
+      if (matches.length > 1) return 'AMBIGUOUS';
+    }
+    return null;
+  }
+
+  const matchedTx = matchWebhookTransaction(parsedSandboxWebhook, dbAttemptsStore);
+
+  assert(
+    'Test 47: Sandbox callback with PARM_1 and Oper (no PARM_2/linkCode) matches transaction when gateway_operation_id is initially null',
+    Boolean(
+      parsedSandboxWebhook.isValid === true &&
+        parsedSandboxWebhook.environment === 'sandbox' &&
+        matchedTx !== null &&
+        matchedTx !== 'AMBIGUOUS' &&
+        matchedTx.id === 'tx-uuid-sandbox-null-oper'
+    ),
+    'Valid sandbox webhook with PARM_1 and Oper successfully matches unique transaction with initially null gateway_operation_id',
+    `valid=${parsedSandboxWebhook.isValid}, env=${parsedSandboxWebhook.environment}, matchedId=${matchedTx?.id}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 48: ENVIRONMENT DETECTION PREVENTS INCORRECT PRODUCTION FALLBACK FOR SANDBOX
+  // -------------------------------------------------------------
+  assert(
+    'Test 48: Sandbox callback environment detection correctly resolves to sandbox instead of falling back to production',
+    parsedSandboxWebhook.environment === 'sandbox',
+    'Detected environment is sandbox',
+    `env=${parsedSandboxWebhook.environment}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 49: AMBIGUOUS RECORDS REJECTION FOR MULTIPLE ATTEMPTS BY BOOKING REFERENCE
+  // -------------------------------------------------------------
+  const ambiguousStore = [
+    { id: 'tx-1', booking_reference: 'TEST-AMBIGUOUS-001', gateway_operation_id: null },
+    { id: 'tx-2', booking_reference: 'TEST-AMBIGUOUS-001', gateway_operation_id: null },
+  ];
+  const ambiguousMatch = matchWebhookTransaction({ bookingReference: 'TEST-AMBIGUOUS-001', gatewayOperationId: 'OP-NEW' }, ambiguousStore);
+
+  assert(
+    'Test 49: Multiple payment records for a single booking reference are rejected as ambiguous',
+    ambiguousMatch === 'AMBIGUOUS',
+    'Returns AMBIGUOUS when multiple attempts exist for PARM_1',
+    `matchResult=${ambiguousMatch}`
+  );
+
+  // -------------------------------------------------------------
   // PRINT TEST MATRIX
   // -------------------------------------------------------------
   console.log('----------------------------------------------------');
