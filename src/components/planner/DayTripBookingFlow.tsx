@@ -72,6 +72,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
 
   // Checkout & Submission State
   const [termsAccepted, setTermsAccepted] = useState<boolean>(true);
+  const [beforeYouTravelAccepted, setBeforeYouTravelAccepted] = useState<boolean>(true);
   const [isProcessingCheckout, setIsProcessingCheckout] = useState<boolean>(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [idempotencyKey] = useState<string>(() => {
@@ -118,8 +119,12 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   };
 
   const handleBookAndPayNow = async () => {
-    if (!termsAccepted) {
-      setCheckoutError(isEs ? 'Debe aceptar los Términos y Condiciones para continuar.' : 'Please acknowledge the Terms & Conditions to proceed.');
+    if (!termsAccepted || !beforeYouTravelAccepted) {
+      setCheckoutError(
+        isEs
+          ? 'Debe aceptar los Términos y Condiciones y los Requisitos de Antes de Viajar para continuar.'
+          : 'Please acknowledge both the Terms & Conditions and Before You Travel requirements to proceed.'
+      );
       return;
     }
 
@@ -350,6 +355,24 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
               );
             })}
           </div>
+
+          {selectedPackageId === 'day-tour-port' && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 space-y-2">
+              <div className="font-semibold flex items-center gap-1.5 text-amber-950">
+                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>
+                  {isEs
+                    ? 'Aviso Importante para Conducción Propia (Self-Drive — Puerto Cartí):'
+                    : 'Important Self-Drive Advisory (Cartí Port):'}
+                </span>
+              </div>
+              <p className="leading-relaxed">
+                {isEs
+                  ? 'Se requiere estrictamente un vehículo SUV 4x4 genuino (los autos 2WD están prohibidos). Llegada obligatoria al muelle de Cartí antes de las 8:30 AM. Tasa de entrada vehicular a la Comarca desde ~$15 y estacionamiento en el muelle de $3 por vehículo. Prevea ~3 horas desde Ciudad de Panamá y revise los requisitos de pasaporte original.'
+                  : 'Genuine 4x4 SUV strictly required (2WD vehicles prohibited). Arrival at Cartí Port meeting point required by no later than 8:30 AM. Comarca vehicle entry fee starts at ~$15; port parking is $3 per vehicle. Allow ~3 hours from Panama City and note original passport requirement.'}
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end pt-4">
             <button
@@ -776,14 +799,36 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                 <ul className="list-disc pl-5 space-y-1 font-light text-[11px]">
                   <li>
                     {isEs
-                      ? 'Entrada a la Comarca Guna Yala: $22 USD por visitante extranjero (mayores de 10 años) o $7 USD por ciudadano/residente panameño. (Se paga en efectivo en el puesto de control de Llano Cartí).'
-                      : 'Guna Yala Comarca Entrance Fee: $22 USD per foreign visitor (ages 10+) or $7 USD per Panamanian citizen/resident. (Payable in cash at the checkpoint).'}
+                      ? 'Entrada a la Comarca Guna Yala: $22 USD por visitante extranjero (mayores de 10 años) o $7 USD por ciudadano/residente panameño. (Se paga en efectivo en el puesto de control de Llano Cartí). Los totales ya incluyen la tasa portuaria de $2.'
+                      : 'Guna Yala Comarca Entrance Fee: $22 USD per foreign visitor (ages 10+) or $7 USD per Panamanian citizen/resident. (Payable in cash at the checkpoint). Totals already include the $2 port usage fee.'}
                   </li>
                   <li>
                     {isEs
-                      ? 'Tasa Portuaria de Cartí: $2 a $3 USD por persona (se paga al zarpar en el muelle).'
-                      : 'Cartí Port Tax: $2 to $3 USD per person (payable at the dock prior to boarding).'}
+                      ? 'Tasa Portuaria de Cartí: $2 (incluida en la entrada comarcal) o hasta $3 por vehículo en estacionamiento del muelle.'
+                      : 'Cartí Port Fee: $2 (included in Comarca entrance) or up to $3 per vehicle for port parking.'}
                   </li>
+                </ul>
+              </div>
+
+              {/* Before You Travel / Antes de Viajar Summary Box */}
+              <div className="p-4 bg-[#f8fafc] border border-[#e2e8f0] rounded-2xl text-[#334155] space-y-2">
+                <div className="font-semibold text-xs text-[#06121e] flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#0e7490] shrink-0" />
+                  <span>{isEs ? 'Antes de Viajar — Requisitos Clave:' : 'Before You Travel — Key Requirements:'}</span>
+                </div>
+                <ul className="list-disc pl-5 space-y-1 font-light text-[11px] text-[#475569]">
+                  <li>
+                    {isEs
+                      ? 'Identificación obligatoria: Pasaporte físico original (extranjeros) o cédula/residencia original (panameños/residentes). Copias digitales no aceptadas.'
+                      : 'Mandatory ID: Original physical passport (foreigners) or original cédula/residency card (Panamanians/residents). Digital copies not accepted.'}
+                  </li>
+                  {selectedPackageId === 'day-tour-port' && (
+                    <li className="font-medium text-amber-900">
+                      {isEs
+                        ? 'Conducción Propia (Self-Drive): SUV 4x4 genuino obligatorio (2WD prohibido). Llegada al muelle de Cartí antes de las 8:30 AM. Tasa vehicular desde ~$15, estacionamiento $3.'
+                        : 'Self-Drive: Genuine 4x4 SUV mandatory (2WD prohibited). Arrival at Cartí Port by 8:30 AM. Vehicle entry fee ~ $15+, parking $3.'}
+                    </li>
+                  )}
                 </ul>
               </div>
             </div>
@@ -895,6 +940,50 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                 </label>
               </div>
 
+              {/* Before You Travel / Antes de Viajar Mandatory Checkbox */}
+              <div className="flex items-start gap-2.5 p-3.5 bg-[#FAF8F5] border border-[#E2D8C5] rounded-xl text-xs text-[#334155]">
+                <input
+                  type="checkbox"
+                  id="day-tour-before-you-travel"
+                  checked={beforeYouTravelAccepted}
+                  onChange={(e) => setBeforeYouTravelAccepted(e.target.checked)}
+                  className="mt-0.5 rounded border-[#C8AC75] text-[#061815] focus:ring-[#061815]"
+                />
+                <label htmlFor="day-tour-before-you-travel" className="cursor-pointer select-none">
+                  {isEs ? (
+                    <>
+                      Reconozco las tasas de entrada a Guna Yala ($22 extranjeros / $7 locales en efectivo, incluyendo la tasa portuaria de $2), la exigencia de pasaporte o cédula física original y los requisitos de vehículo 4x4 (prohibido 2WD). Ver detalles en{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.history.pushState({}, '', '/terms-and-conditions/day-tour');
+                          window.dispatchEvent(new Event('popstate'));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                      >
+                        Antes de Viajar
+                      </button>.
+                    </>
+                  ) : (
+                    <>
+                      I acknowledge the Guna Yala entrance fees ($22 foreign / $7 local in cash, including the $2 port fee), mandatory original physical ID, and 4x4 self-drive requirements (2WD prohibited). See{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.history.pushState({}, '', '/terms-and-conditions/day-tour');
+                          window.dispatchEvent(new Event('popstate'));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#C8AC75]"
+                      >
+                        Before You Travel
+                      </button>.
+                    </>
+                  )}
+                </label>
+              </div>
+
               {checkoutError && (
                 <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 space-y-1">
                   <div className="font-semibold flex items-center gap-1.5">
@@ -912,7 +1001,7 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
                 className={`w-full py-4 px-6 rounded-xl text-xs uppercase tracking-[0.18em] font-semibold transition-all flex items-center justify-center gap-2.5 shadow-md cursor-pointer ${
                   isProcessingCheckout
                     ? 'bg-gray-400 text-white cursor-wait'
-                    : termsAccepted
+                    : termsAccepted && beforeYouTravelAccepted
                     ? 'bg-[#06121e] hover:bg-[#0e7490] text-white shadow-lg'
                     : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}

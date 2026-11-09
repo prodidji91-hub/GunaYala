@@ -474,6 +474,45 @@ export const TermsAndConditionsPage: React.FC<TermsAndConditionsPageProps> = ({
                 </p>
               </div>
 
+              {/* Section 6: Before You Travel / Antes de Viajar */}
+              <div className="space-y-3 bg-[#FAF8F5] p-5 rounded-2xl border border-[#C8AC75]/40">
+                <h3 className="font-serif font-bold text-[#0E3B2F] text-base border-l-2 border-[#C8AC75] pl-3">
+                  {isEs ? '6. Antes de Viajar — Tasas, Identificación y Requisitos de Conducción (Self-Drive)' : '6. Before You Travel — Entrance Fees, Identification & Self-Drive Requirements'}
+                </h3>
+                <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm">
+                  <li>
+                    <strong>{isEs ? 'Tasas de Entrada a la Comarca:' : 'Comarca Entrance Fees:'}</strong>{' '}
+                    {isEs
+                      ? '$22 USD por visitante extranjero (mayores de 10 años), $7 USD por ciudadanos y residentes panameños. Menores de 10 años gratis (sujeto a reglas aplicables). Pagaderas localmente en efectivo USD, separadas del precio online del tour. Nota: Los totales de $22/$7 ya incluyen la tasa portuaria de $2 (aclarando referencias previas a un cobro portuario separado de $3).'
+                      : '$22 USD per foreign visitor (ages 10+), $7 USD per Panamanian citizen/resident, under 10 free (subject to applicable rules). Payable locally in USD cash, separate from online tour price. Note: The $22/$7 totals already include the $2 port usage fee (clarifying previous references to a separate $3 port fee).'}
+                  </li>
+                  <li>
+                    <strong>{isEs ? 'Identificación Oficial Obligatoria:' : 'Mandatory Official Identification:'}</strong>{' '}
+                    {isEs
+                      ? 'Es obligatorio portar pasaporte físico original (extranjeros) o cédula/tarjeta de residencia original (panameños/residentes). Las copias digitales, fotos o fotocopias no son aceptadas por las autoridades de control fronterizo.'
+                      : 'Original physical passport (foreigners) or original cédula/residency card (Panamanians/residents) strictly required depending on visitor category. Digital copies or photos are not accepted.'}
+                  </li>
+                  <li>
+                    <strong>{isEs ? 'Requisitos de Conducción Propia (Self-Drive — Especialmente para Puerto Cartí):' : 'Self-Drive Requirements (Especially for Cartí Port Guests):'}</strong>{' '}
+                    {isEs
+                      ? 'Se requiere vehículo SUV 4x4 genuino obligatorio; los vehículos 2WD (sedanes/4x2) están estrictamente prohibidos por los inspectores del puesto de control. La tasa de entrada vehicular a la Comarca inicia en aprox. $15 (puede ser mayor). El estacionamiento en el muelle de Cartí es de $3 por vehículo. Los conductores deben llegar al punto de encuentro en Puerto Cartí a más tardar a las 8:30 AM.'
+                      : 'Genuine 4x4 SUV mandatory; 2WD vehicles are prohibited by checkpoint authorities. Vehicle Comarca entry fee starts at approx. $15 (may be higher). Port parking is $3 per vehicle. Self-drive arrival at meeting point (Cartí Port) no later than 8:30 AM.'}
+                  </li>
+                  <li>
+                    <strong>{isEs ? 'Logística de Vialidad y Horarios:' : 'Road Logistics & Timing:'}</strong>{' '}
+                    {isEs
+                      ? 'El trayecto desde Ciudad de Panamá toma aproximadamente 3 horas a través de carreteras de montaña sinuosas; prevea tiempo adicional por tráfico o condiciones climáticas. El servicio de telefonía móvil es limitado en la Comarca. Verifique los horarios de operación de los puestos de control para el viaje de regreso.'
+                      : 'Approximately 3 hours from Panama City; allow extra travel time. Mountain roads, possible traffic delays, limited mobile service. Check checkpoint operating hours for return travel.'}
+                  </li>
+                  <li>
+                    <strong>{isEs ? 'Responsabilidad por Llegadas Tardías y No-Shows:' : 'Late Arrivals & Missed Departures:'}</strong>{' '}
+                    {isEs
+                      ? 'Llegadas tardías, denegación de entrada en puestos de control por problemas mecánicos o falta de identificación original, y pérdida de zarpes en lancha no son reembolsables y están sujetas a gastos potenciales, conforme a la ley aplicable y los términos de reserva.'
+                      : 'Late arrival, denied entry at checkpoints, missed boat departures, and potential expenses are non-refundable and subject to applicable law and booking terms.'}
+                  </li>
+                </ul>
+              </div>
+
             </div>
 
             {/* Footer action */}
