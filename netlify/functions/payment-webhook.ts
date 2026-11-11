@@ -89,9 +89,16 @@ export const handler = async (event: NetlifyEvent) => {
   const gateway = new PagueloFacilGatewayAdapter();
   const parsed = gateway.parseWebhook(payload, event.headers);
 
-  // 3. Diagnostic: Identifiers Present
+  // 3. Diagnostic: Identifiers Present & PARM_1 Exact Match Check against TEST-DAYTOUR-GNY-643300
+  const targetBookingRef = 'TEST-DAYTOUR-GNY-643300';
+  const parm1Value = parsed.bookingReference || '';
+  const parm1ExactMatch = parm1Value === targetBookingRef;
+  const parm1TrimmedMatch = parm1Value.trim() === targetBookingRef;
   logWebhookDiagnostic(3, 'Identifiers Present', {
-    hasPARM1: Boolean(parsed.bookingReference),
+    hasPARM1: Boolean(parm1Value),
+    parm1Length: parm1Value.length,
+    parm1ExactMatch,
+    parm1TrimmedMatch,
     hasPARM2: Boolean(parsed.idempotencyKey),
     hasOper: Boolean(parsed.gatewayOperationId),
     hasLinkCode: Boolean(parsed.gatewayLinkCode),
@@ -211,8 +218,15 @@ export const handler = async (event: NetlifyEvent) => {
           .eq('booking_reference', parsed.bookingReference);
 
         if (selectError) {
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, dbErrorCode: selectError.code || 'SELECT_ERROR', lookupMethodUsed: 'booking_reference_error' });
-          console.error('[PaymentWebhook] Supabase select error during fallback:', selectError.code, selectError.message);
+          const isPermOrAuthError = selectError.code === '42501' || selectError.code === 'PGRST301' || /auth|permission|rls|jwt|role/i.test(selectError.message || '');
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', {
+            found: false,
+            dbErrorCode: selectError.code || 'SELECT_ERROR',
+            dbErrorCategory: isPermOrAuthError ? 'PERMISSION_OR_AUTHENTICATION_FAILURE' : 'DATABASE_QUERY_ERROR',
+            lookupMethodUsed: 'booking_reference_error',
+            matchCount: 0,
+          });
+          console.error('[PaymentWebhook] Supabase select error during fallback:', selectError.code, selectError.message, isPermOrAuthError ? '[Auth/Perm Failure]' : '[Query Error]');
         } else if (attempts && attempts.length === 1) {
           lookupMethodUsed = 'booking_reference_strict_unique';
           existingTx = attempts[0];
@@ -225,7 +239,7 @@ export const handler = async (event: NetlifyEvent) => {
           });
         } else if (attempts && attempts.length > 1) {
           lookupMethodUsed = 'booking_reference_ambiguous';
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, lookupMethodUsed: 'booking_reference_ambiguous' });
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, matchCount: attempts.length, lookupMethodUsed: 'booking_reference_ambiguous' });
           logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Ambiguous booking attempts' });
           return {
             statusCode: 400,
@@ -236,7 +250,14 @@ export const handler = async (event: NetlifyEvent) => {
             }),
           };
         } else {
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, matchCount: 0, lookupMethodUsed: 'booking_reference_fallback_zero' });
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', {
+            found: false,
+            matchCount: 0,
+            lookupMethodUsed: 'booking_reference_fallback_zero',
+            searchedReference: parsed.bookingReference,
+            exactMatchTarget: targetBookingRef,
+            isExactTarget: parsed.bookingReference === targetBookingRef,
+          });
         }
       }
     } catch (err: any) {

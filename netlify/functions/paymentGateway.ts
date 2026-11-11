@@ -585,11 +585,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       });
 
       if (!response.ok) {
+        const errReason = `Verification API returned HTTP ${response.status}.`;
+        console.error('[PaymentGateway] verifyTransaction failure (HTTP Error):', errReason);
         return {
           success: false,
           verified: false,
           status: 'pending',
-          error: `Verification API returned HTTP ${response.status}.`,
+          error: errReason,
         };
       }
 
@@ -597,11 +599,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
       
       if (records.length === 0) {
+        const errReason = `No authoritative record found for operation ${params.gatewayOperationId || params.bookingReference}.`;
+        console.error('[PaymentGateway] verifyTransaction failure (Zero Records Found):', errReason);
         return {
           success: false,
           verified: false,
           status: 'pending',
-          error: `No authoritative record found for operation ${params.gatewayOperationId || params.bookingReference}.`,
+          error: errReason,
         };
       }
 
@@ -611,22 +615,26 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         : records.length === 1 ? records[0] : null;
 
       if (!matched) {
+        const errReason = `Ambiguous or missing transaction record for identifier ${params.gatewayOperationId || params.bookingReference}.`;
+        console.error('[PaymentGateway] verifyTransaction failure (Ambiguous or Missing Match):', errReason);
         return {
           success: false,
           verified: false,
           status: 'pending',
-          error: `Ambiguous or missing transaction record for identifier ${params.gatewayOperationId || params.bookingReference}.`,
+          error: errReason,
         };
       }
 
       // Validate optional returned booking reference against requested booking reference if both are present
       const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
       if (params.bookingReference && returnedRef && returnedRef !== params.bookingReference) {
+        const errReason = `Booking reference conflict: Gateway record reference "${returnedRef}" does not match requested "${params.bookingReference}".`;
+        console.error('[PaymentGateway] verifyTransaction failure (Booking Reference Conflict):', errReason);
         return {
           success: false,
           verified: false,
           status: 'rejected',
-          error: `Booking reference conflict: Gateway record reference "${returnedRef}" does not match requested "${params.bookingReference}".`,
+          error: errReason,
         };
       }
 
@@ -639,33 +647,43 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       const isAuthCapture = txType === 'AUTH_CAPTURE' || txType === 'SALE' || txType === 'CAPTURE';
 
       if (isStatusDeclined) {
+        const errReason = 'Transaction was declined by gateway (status 0).';
+        console.error('[PaymentGateway] verifyTransaction failure (Declined Status 0):', errReason, { rawStatus, txType });
         return {
           success: true,
           verified: false,
           status: 'rejected',
-          error: 'Transaction was declined by gateway (status 0).',
+          error: errReason,
         };
       }
 
       const isApproved = isStatusApproved && isAuthCapture;
+      if (!isApproved) {
+        const errReason = `Status or operation type not approved: status=${rawStatus} (isApproved=${isStatusApproved}), txType=${txType} (isAuthCapture=${isAuthCapture}).`;
+        console.error('[PaymentGateway] verifyTransaction failure (Status or AuthCapture Mismatch):', errReason);
+      }
 
       // 2. Exact amount comparison in integer cents (supporting authAmount or amount in dollars/cents)
       const rawAmount = matched.authAmount ?? matched.amount ?? matched.total ?? matched.TotalPagado;
       if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
+        const errReason = 'Gateway record missing amount.';
+        console.error('[PaymentGateway] verifyTransaction failure (Missing Amount):', errReason);
         return {
           success: false,
           verified: false,
           status: 'rejected',
-          error: 'Gateway record missing amount.',
+          error: errReason,
         };
       }
       const amountPaid = Number(rawAmount);
       if (isNaN(amountPaid)) {
+        const errReason = 'Invalid amount format in gateway record.';
+        console.error('[PaymentGateway] verifyTransaction failure (Invalid Amount Format):', errReason, { rawAmount });
         return {
           success: false,
           verified: false,
           status: 'rejected',
-          error: 'Invalid amount format in gateway record.',
+          error: errReason,
         };
       }
 
@@ -674,11 +692,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         const expectedCents = params.expectedAmount < 1000 ? Math.round(params.expectedAmount * 100) : Math.round(params.expectedAmount);
         
         if (amountCents !== expectedCents) {
+          const errReason = `Exact amount mismatch: Paid ${amountCents} cents does not match expected ${expectedCents} cents.`;
+          console.error('[PaymentGateway] verifyTransaction failure (Amount Mismatch):', errReason);
           return {
             success: false,
             verified: false,
             status: 'rejected',
-            error: `Exact amount mismatch: Paid ${amountCents} cents does not match expected ${expectedCents} cents.`,
+            error: errReason,
           };
         }
       }
@@ -688,11 +708,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       const currencyStr = String(rawCurrency || '').trim().toUpperCase();
       const isUsd = currencyStr === 'USD' || currencyStr === '840' || currencyStr === 'US_DOLLAR';
       if (!isUsd) {
+        const errReason = `Invalid or missing currency "${rawCurrency}". USD currency (840) is strictly required.`;
+        console.error('[PaymentGateway] verifyTransaction failure (Currency Mismatch):', errReason);
         return {
           success: false,
           verified: false,
           status: 'rejected',
-          error: `Invalid or missing currency "${rawCurrency}". USD currency (840) is strictly required.`,
+          error: errReason,
         };
       }
 
@@ -700,11 +722,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       const expectedCclw = isSandbox ? this.config.sandboxCclw : this.config.cclw;
       
       if (expectedCclw && merchantId && merchantId !== expectedCclw) {
+        const errReason = 'Merchant identity mismatch in verification response.';
+        console.error('[PaymentGateway] verifyTransaction failure (Merchant Identity Mismatch):', errReason, { expected: expectedCclw, received: merchantId });
         return {
           success: false,
           verified: false,
           status: 'rejected',
-          error: 'Merchant identity mismatch in verification response.',
+          error: errReason,
         };
       }
 
@@ -720,11 +744,13 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         rawGatewayStatus: String(matched.status ?? matched.estado),
       };
     } catch (err: any) {
+      const errReason = `Verification query error: ${err.message}`;
+      console.error('[PaymentGateway] verifyTransaction failure (Exception):', errReason);
       return {
         success: false,
         verified: false,
         status: 'pending',
-        error: `Verification query error: ${err.message}`,
+        error: errReason,
       };
     }
   }
