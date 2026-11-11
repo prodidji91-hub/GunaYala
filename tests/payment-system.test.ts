@@ -8,7 +8,7 @@ import {
   validatePagueloFacilCheckoutUrl,
   TRUSTED_CHECKOUT_HOSTNAMES,
 } from '../netlify/functions/paymentGateway.js';
-import { reconcilePaymentTransaction } from '../netlify/functions/paymentReconciliation.js';
+import { reconcilePaymentTransaction, validatePaymentRelationship } from '../netlify/functions/paymentReconciliation.js';
 import { handler as checkoutHandler } from '../netlify/functions/payment-checkout.js';
 import { handler as webhookHandler } from '../netlify/functions/payment-webhook.js';
 import {
@@ -2377,6 +2377,51 @@ async function runPaymentSecurityTests() {
     largeResult.success === true && largeResult.category === 'approved' && persistedAmountPaid === 1250.00,
     'success=true, amountPaid=1250.00',
     `success=${largeResult.success}, amountPaid=${persistedAmountPaid}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 67: VALIDATE PAYMENT RELATIONSHIP WITH URLSTRING & DIAGNOSTIC DETAILS
+  // -------------------------------------------------------------
+  const urlStringMatchResult = validatePaymentRelationship(
+    {
+      urlString: 'https://sandbox.paguelofacil.com/checkout?code=LK-BMMRPXP4MZDB&bookingReference=TEST-DAYTOUR-GNY-643300',
+    },
+    {
+      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+      environment: 'sandbox',
+    }
+  );
+
+  assert(
+    'Test 67: validatePaymentRelationship verifies urlString with trusted parameter and returns privacy-safe diagnostic details',
+    urlStringMatchResult.verified === true &&
+      urlStringMatchResult.evidence === 'urlString_parameter' &&
+      urlStringMatchResult.diagnosticDetails?.urlFormatValid === true &&
+      urlStringMatchResult.diagnosticDetails?.recognizedQueryParameters.includes('bookingReference') === true &&
+      urlStringMatchResult.diagnosticDetails?.matchingParameterNames.includes('bookingReference') === true,
+    'verified=true, urlFormatValid=true, recognized and matching parameter verified',
+    `verified=${urlStringMatchResult.verified}, valid=${urlStringMatchResult.diagnosticDetails?.urlFormatValid}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 68: REJECT UNTRUSTED ORIGIN / MALFORMED URL IN URLSTRING
+  // -------------------------------------------------------------
+  const untrustedUrlResult = validatePaymentRelationship(
+    {
+      urlString: 'https://evil-phishing.com/checkout?bookingReference=TEST-DAYTOUR-GNY-643300',
+    },
+    {
+      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+      environment: 'sandbox',
+    }
+  );
+
+  assert(
+    'Test 68: validatePaymentRelationship rejects untrusted origin in urlString without weakening security',
+    untrustedUrlResult.verified === false &&
+      untrustedUrlResult.diagnosticDetails?.rejectionReason === 'untrusted_origin_or_malformed_url',
+    'verified=false, rejectionReason=untrusted_origin_or_malformed_url',
+    `verified=${untrustedUrlResult.verified}, reason=${untrustedUrlResult.diagnosticDetails?.rejectionReason}`
   );
 
   // -------------------------------------------------------------

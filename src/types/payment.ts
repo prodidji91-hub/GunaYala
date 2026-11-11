@@ -207,9 +207,16 @@ export interface ExistingTransactionDiagnosticResult {
   }>;
   relationshipVerification: {
     verified: boolean;
-    evidence: 'customParm1' | 'linkCode' | 'parm1' | 'bookingReference' | 'code' | 'gatewayLinkCode' | 'none';
+    evidence: 'customParm1' | 'linkCode' | 'parm1' | 'bookingReference' | 'PARM_1' | 'code' | 'gatewayLinkCode' | 'urlString_parameter' | 'none';
     provingField?: string;
     details: string;
+    diagnosticDetails?: {
+      urlFormatValid: boolean;
+      recognizedQueryParameters: string[];
+      matchingParameterNames: string[];
+      hasConflicts: boolean;
+      rejectionReason: string;
+    };
   };
   message: string;
   timestamp: string;

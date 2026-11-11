@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import { validatePagueloFacilCheckoutUrl } from './paymentGateway.js';
 
 export interface ReconciliationParams {
   bookingReference?: string;
@@ -28,12 +29,20 @@ export interface RelationshipValidationResult {
   evidence: 'customParm1' | 'parm1' | 'PARM_1' | 'bookingReference' | 'linkCode' | 'code' | 'gatewayLinkCode' | 'urlString_parameter' | 'none';
   provingField?: string;
   details: string;
+  diagnosticDetails?: {
+    urlFormatValid: boolean;
+    recognizedQueryParameters: string[];
+    matchingParameterNames: string[];
+    hasConflicts: boolean;
+    rejectionReason: string;
+  };
 }
 
 /**
  * Strict Authoritative Relationship Validation Helper
  * Validates trusted gateway parameters, link codes, and safely parsed urlString query parameters.
- * Rejects substring matches, malformed URLs, and conflicting identifiers.
+ * Rejects substring matches, malformed URLs, untrusted origins, and conflicting identifiers.
+ * Privacy-safe: never returns raw URLs, query values, tokens, or customer data.
  */
 export function validatePaymentRelationship(matched: any, existingTx: any): RelationshipValidationResult {
   if (!matched || !existingTx) {
@@ -41,17 +50,32 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
       verified: false,
       evidence: 'none',
       details: 'Missing gateway record or existing transaction for relationship validation.',
+      diagnosticDetails: {
+        urlFormatValid: false,
+        recognizedQueryParameters: [],
+        matchingParameterNames: [],
+        hasConflicts: false,
+        rejectionReason: 'missing_records',
+      },
     };
   }
 
   const storedRef = String(existingTx.booking_reference || '').trim();
   const storedLinkCode = String(existingTx.gateway_link_code || '').trim();
+  const env = existingTx.environment === 'production' ? 'production' : 'sandbox';
 
   if (!storedRef && !storedLinkCode) {
     return {
       verified: false,
       evidence: 'none',
       details: 'Missing stored booking reference and link code for relationship validation.',
+      diagnosticDetails: {
+        urlFormatValid: false,
+        recognizedQueryParameters: [],
+        matchingParameterNames: [],
+        hasConflicts: false,
+        rejectionReason: 'missing_stored_identifiers',
+      },
     };
   }
 
@@ -67,6 +91,13 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
           evidence: field as any,
           provingField: actualKey,
           details: `Verified via trusted gateway parameter "${actualKey}" matching stored booking reference.`,
+          diagnosticDetails: {
+            urlFormatValid: false,
+            recognizedQueryParameters: [],
+            matchingParameterNames: [actualKey],
+            hasConflicts: false,
+            rejectionReason: 'none',
+          },
         };
       }
       if (storedRef && val && val !== storedRef) {
@@ -74,7 +105,14 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
           verified: false,
           evidence: field as any,
           provingField: actualKey,
-          details: `Booking reference conflict: gateway field "${actualKey}" contains "${val}", expected "${storedRef}".`,
+          details: `Booking reference conflict: gateway field "${actualKey}" contains mismatching identifier.`,
+          diagnosticDetails: {
+            urlFormatValid: false,
+            recognizedQueryParameters: [],
+            matchingParameterNames: [],
+            hasConflicts: true,
+            rejectionReason: 'parameter_conflict',
+          },
         };
       }
     }
@@ -92,6 +130,13 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
           evidence: field as any,
           provingField: actualKey,
           details: `Verified via trusted gateway link code correlation in field "${actualKey}".`,
+          diagnosticDetails: {
+            urlFormatValid: false,
+            recognizedQueryParameters: [],
+            matchingParameterNames: [actualKey],
+            hasConflicts: false,
+            rejectionReason: 'none',
+          },
         };
       }
     }
@@ -100,36 +145,112 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
   // 3. Check urlString trusted URL parameters safely (Requirements 1 & 2)
   const urlStringVal = matched.urlString || matched.url || matched.returnUrl || matched.callbackUrl;
   if (urlStringVal && typeof urlStringVal === 'string' && urlStringVal.trim() !== '') {
+    const urlCheck = validatePagueloFacilCheckoutUrl(urlStringVal, env);
+    if (!urlCheck.valid) {
+      return {
+        verified: false,
+        evidence: 'none',
+        details: `URL validation failed in urlString: ${urlCheck.error}`,
+        diagnosticDetails: {
+          urlFormatValid: false,
+          recognizedQueryParameters: [],
+          matchingParameterNames: [],
+          hasConflicts: false,
+          rejectionReason: 'untrusted_origin_or_malformed_url',
+        },
+      };
+    }
+
     try {
       const parsedUrl = new URL(urlStringVal);
       const searchParams = parsedUrl.searchParams;
-      const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'];
+      const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference', 'linkCode', 'code'];
+      const recognizedQueryParameters: string[] = [];
+      const matchingParameterNames: string[] = [];
+      let hasConflicts = false;
 
       for (const param of trustedParams) {
-        const paramVal = searchParams.get(param);
-        if (paramVal && storedRef && paramVal.trim() === storedRef) {
-          return {
-            verified: true,
-            evidence: 'urlString_parameter',
-            provingField: `urlString?${param}`,
-            details: `Verified via trusted URL parameter "${param}" in urlString matching stored booking reference.`,
-          };
-        }
-        if (paramVal && storedRef && paramVal.trim() !== storedRef) {
-          return {
-            verified: false,
-            evidence: 'urlString_parameter',
-            provingField: `urlString?${param}`,
-            details: `URL parameter conflict in urlString: parameter "${param}" contains "${paramVal.trim()}", expected "${storedRef}".`,
-          };
+        if (searchParams.has(param)) {
+          recognizedQueryParameters.push(param);
+          const paramVal = searchParams.get(param);
+          if (paramVal !== null && paramVal !== undefined) {
+            const trimmedVal = paramVal.trim();
+            const isBookingRefParam = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'].includes(param);
+            const isLinkCodeParam = ['linkCode', 'code'].includes(param);
+
+            if (isBookingRefParam) {
+              if (storedRef && trimmedVal === storedRef) {
+                matchingParameterNames.push(param);
+              } else if (storedRef && trimmedVal !== '' && trimmedVal !== storedRef) {
+                hasConflicts = true;
+              }
+            } else if (isLinkCodeParam) {
+              if (storedLinkCode && trimmedVal === storedLinkCode) {
+                matchingParameterNames.push(param);
+              } else if (storedLinkCode && trimmedVal !== '' && trimmedVal !== storedLinkCode) {
+                hasConflicts = true;
+              }
+            }
+          }
         }
       }
+
+      if (hasConflicts) {
+        return {
+          verified: false,
+          evidence: 'urlString_parameter',
+          details: 'URL parameter conflict detected in urlString.',
+          diagnosticDetails: {
+            urlFormatValid: true,
+            recognizedQueryParameters,
+            matchingParameterNames,
+            hasConflicts: true,
+            rejectionReason: 'parameter_conflict',
+          },
+        };
+      }
+
+      if (matchingParameterNames.length > 0) {
+        const proving = matchingParameterNames[0];
+        return {
+          verified: true,
+          evidence: 'urlString_parameter',
+          provingField: `urlString?${proving}`,
+          details: `Verified via trusted URL parameter "${proving}" in urlString matching stored booking reference.`,
+          diagnosticDetails: {
+            urlFormatValid: true,
+            recognizedQueryParameters,
+            matchingParameterNames,
+            hasConflicts: false,
+            rejectionReason: 'none',
+          },
+        };
+      }
+
+      return {
+        verified: false,
+        evidence: 'urlString_parameter',
+        details: 'Recognized URL parameters in urlString did not match stored booking reference.',
+        diagnosticDetails: {
+          urlFormatValid: true,
+          recognizedQueryParameters,
+          matchingParameterNames: [],
+          hasConflicts: false,
+          rejectionReason: 'no_matching_trusted_parameters',
+        },
+      };
     } catch {
-      // Malformed URL in urlString - reject per requirement 2
       return {
         verified: false,
         evidence: 'none',
         details: 'Malformed URL in urlString; rejected per strict relationship validation rules.',
+        diagnosticDetails: {
+          urlFormatValid: false,
+          recognizedQueryParameters: [],
+          matchingParameterNames: [],
+          hasConflicts: false,
+          rejectionReason: 'malformed_url',
+        },
       };
     }
   }
@@ -138,6 +259,13 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
     verified: false,
     evidence: 'none',
     details: 'Relationship evidence unavailable.',
+    diagnosticDetails: {
+      urlFormatValid: false,
+      recognizedQueryParameters: [],
+      matchingParameterNames: [],
+      hasConflicts: false,
+      rejectionReason: 'relationship_evidence_unavailable',
+    },
   };
 }
 
@@ -428,6 +556,59 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
           operationCode: opToQuery,
           message: `Approved payment revalidation relationship check failed: ${relCheck.details}`,
           error: 'Missing or conflicting relationship evidence.',
+        };
+      }
+
+      // Revalidate amount and currency in approved-payment recovery path (Requirement 4)
+      const rawAmount = matched.authAmount ?? matched.totalPagado ?? matched.amount ?? matched.total;
+      if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
+        return {
+          success: false,
+          category: 'validation_rejection',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: 'Gateway record missing amount field during revalidation.',
+          error: 'Missing amount.',
+        };
+      }
+
+      const amountPaid = Number(rawAmount);
+      if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+        return {
+          success: false,
+          category: 'validation_rejection',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Invalid amount paid value: ${rawAmount}.`,
+          error: 'Invalid amount.',
+        };
+      }
+
+      const amountCents = Math.round(amountPaid * 100);
+      const expectedCents = existingTx.amount_in_cents || Math.round((existingTx.expected_amount || 0) * 100);
+
+      if (amountCents !== expectedCents) {
+        return {
+          success: false,
+          category: 'validation_rejection',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Exact amount mismatch: Paid ${amountCents} cents does not match expected ${expectedCents} cents.`,
+          error: 'Amount mismatch.',
+        };
+      }
+
+      const rawCurrency = matched.authCurrency ?? matched.currency ?? matched.moneda;
+      const currencyStr = String(rawCurrency || '').trim().toUpperCase();
+      const isUsd = currencyStr === 'USD' || currencyStr === '840' || currencyStr === 'US_DOLLAR';
+      if (!isUsd) {
+        return {
+          success: false,
+          category: 'validation_rejection',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Invalid or missing currency "${rawCurrency}". USD (840) required.`,
+          error: 'Invalid currency.',
         };
       }
 

@@ -11,7 +11,7 @@ import {
   PagueloFacilLinkDaemonResponse,
   ExistingTransactionDiagnosticResult,
 } from '../../src/types/payment.js';
-import { reconcilePaymentTransaction } from './paymentReconciliation.js';
+import { reconcilePaymentTransaction, validatePaymentRelationship } from './paymentReconciliation.js';
 
 // In-memory rate limiting and cooldown state
 interface RateLimitRecord {
@@ -280,39 +280,16 @@ export async function executeExistingTransactionDiagnostic(
     }
   }
 
-  let relationshipVerified = false;
-  let relationshipEvidence: ExistingTransactionDiagnosticResult['relationshipVerification']['evidence'] = 'none';
-  let provingField: string | undefined = undefined;
-  let relationshipDetails = 'Relationship evidence unavailable.';
+  const relCheck = validatePaymentRelationship(matchedRawRecord, {
+    booking_reference: storedRef,
+    gateway_link_code: storedLinkCode,
+    environment: dbTxRecord?.environment || 'sandbox',
+  });
 
-  if (matchedRawRecord) {
-    for (const key of ['customParm1', 'parm1', 'PARM_1', 'bookingReference']) {
-      const actualKey = key in matchedRawRecord ? key : Object.keys(matchedRawRecord).find(k => k.toLowerCase() === key.toLowerCase());
-      if (actualKey && matchedRawRecord[actualKey] !== undefined && String(matchedRawRecord[actualKey]).trim() === storedRef) {
-        relationshipVerified = true;
-        relationshipEvidence = key as any;
-        provingField = actualKey;
-        relationshipDetails = `Verified via matching booking reference in field "${actualKey}".`;
-        break;
-      }
-    }
-    if (!relationshipVerified && storedLinkCode) {
-      for (const key of ['linkCode', 'code', 'gatewayLinkCode']) {
-        const actualKey = key in matchedRawRecord ? key : Object.keys(matchedRawRecord).find(k => k.toLowerCase() === key.toLowerCase());
-        if (actualKey && matchedRawRecord[actualKey] !== undefined && String(matchedRawRecord[actualKey]).trim() === storedLinkCode) {
-          relationshipVerified = true;
-          relationshipEvidence = key as any;
-          provingField = actualKey;
-          relationshipDetails = `Verified via matching link code in field "${actualKey}".`;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!relationshipVerified) {
-    relationshipDetails = 'Relationship evidence unavailable.';
-  }
+  const relationshipVerified = relCheck.verified;
+  const relationshipEvidence = relCheck.evidence;
+  const provingField = relCheck.provingField;
+  const relationshipDetails = relCheck.details;
 
   // Additional Field Inspections (customFields, urlString, txDescription, txConcept)
   const additionalFieldsToInspect = ['customFields', 'urlString', 'txDescription', 'txConcept'];
@@ -391,12 +368,7 @@ export async function executeExistingTransactionDiagnostic(
     identifierFieldsPresence,
     identifierFieldMatches,
     additionalFieldInspections,
-    relationshipVerification: {
-      verified: relationshipVerified,
-      evidence: relationshipEvidence,
-      provingField,
-      details: relationshipDetails,
-    },
+    relationshipVerification: relCheck,
     message: `Read-only sandbox diagnostic completed. Gateway Category: ${diagnosticCategory}, Relationship Verified: ${relationshipVerified}. Database rows found: ${matchCount}.`,
     timestamp: new Date().toISOString(),
   };
