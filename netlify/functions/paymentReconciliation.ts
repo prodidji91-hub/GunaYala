@@ -23,6 +23,124 @@ export interface ReconciliationResult {
   audit?: any;
 }
 
+export interface RelationshipValidationResult {
+  verified: boolean;
+  evidence: 'customParm1' | 'parm1' | 'PARM_1' | 'bookingReference' | 'linkCode' | 'code' | 'gatewayLinkCode' | 'urlString_parameter' | 'none';
+  provingField?: string;
+  details: string;
+}
+
+/**
+ * Strict Authoritative Relationship Validation Helper
+ * Validates trusted gateway parameters, link codes, and safely parsed urlString query parameters.
+ * Rejects substring matches, malformed URLs, and conflicting identifiers.
+ */
+export function validatePaymentRelationship(matched: any, existingTx: any): RelationshipValidationResult {
+  if (!matched || !existingTx) {
+    return {
+      verified: false,
+      evidence: 'none',
+      details: 'Missing gateway record or existing transaction for relationship validation.',
+    };
+  }
+
+  const storedRef = String(existingTx.booking_reference || '').trim();
+  const storedLinkCode = String(existingTx.gateway_link_code || '').trim();
+
+  if (!storedRef && !storedLinkCode) {
+    return {
+      verified: false,
+      evidence: 'none',
+      details: 'Missing stored booking reference and link code for relationship validation.',
+    };
+  }
+
+  // 1. Check direct structured gateway parameters (customParm1, parm1, PARM_1, bookingReference)
+  const directFields = ['customParm1', 'parm1', 'PARM_1', 'bookingReference'];
+  for (const field of directFields) {
+    const actualKey = field in matched ? field : Object.keys(matched).find(k => k.toLowerCase() === field.toLowerCase());
+    if (actualKey && matched[actualKey] !== undefined && matched[actualKey] !== null) {
+      const val = String(matched[actualKey]).trim();
+      if (storedRef && val === storedRef) {
+        return {
+          verified: true,
+          evidence: field as any,
+          provingField: actualKey,
+          details: `Verified via trusted gateway parameter "${actualKey}" matching stored booking reference.`,
+        };
+      }
+      if (storedRef && val && val !== storedRef) {
+        return {
+          verified: false,
+          evidence: field as any,
+          provingField: actualKey,
+          details: `Booking reference conflict: gateway field "${actualKey}" contains "${val}", expected "${storedRef}".`,
+        };
+      }
+    }
+  }
+
+  // 2. Check gateway link code correlation (linkCode, code, gatewayLinkCode)
+  const linkFields = ['linkCode', 'code', 'gatewayLinkCode'];
+  for (const field of linkFields) {
+    const actualKey = field in matched ? field : Object.keys(matched).find(k => k.toLowerCase() === field.toLowerCase());
+    if (actualKey && matched[actualKey] !== undefined && matched[actualKey] !== null) {
+      const val = String(matched[actualKey]).trim();
+      if (storedLinkCode && val === storedLinkCode) {
+        return {
+          verified: true,
+          evidence: field as any,
+          provingField: actualKey,
+          details: `Verified via trusted gateway link code correlation in field "${actualKey}".`,
+        };
+      }
+    }
+  }
+
+  // 3. Check urlString trusted URL parameters safely (Requirements 1 & 2)
+  const urlStringVal = matched.urlString || matched.url || matched.returnUrl || matched.callbackUrl;
+  if (urlStringVal && typeof urlStringVal === 'string' && urlStringVal.trim() !== '') {
+    try {
+      const parsedUrl = new URL(urlStringVal);
+      const searchParams = parsedUrl.searchParams;
+      const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'];
+
+      for (const param of trustedParams) {
+        const paramVal = searchParams.get(param);
+        if (paramVal && storedRef && paramVal.trim() === storedRef) {
+          return {
+            verified: true,
+            evidence: 'urlString_parameter',
+            provingField: `urlString?${param}`,
+            details: `Verified via trusted URL parameter "${param}" in urlString matching stored booking reference.`,
+          };
+        }
+        if (paramVal && storedRef && paramVal.trim() !== storedRef) {
+          return {
+            verified: false,
+            evidence: 'urlString_parameter',
+            provingField: `urlString?${param}`,
+            details: `URL parameter conflict in urlString: parameter "${param}" contains "${paramVal.trim()}", expected "${storedRef}".`,
+          };
+        }
+      }
+    } catch {
+      // Malformed URL in urlString - reject per requirement 2
+      return {
+        verified: false,
+        evidence: 'none',
+        details: 'Malformed URL in urlString; rejected per strict relationship validation rules.',
+      };
+    }
+  }
+
+  return {
+    verified: false,
+    evidence: 'none',
+    details: 'Relationship evidence unavailable.',
+  };
+}
+
 /**
  * Shared Authoritative Payment Reconciliation Helper
  * Used by both normal payment-webhook.ts and admin-payment-sandbox-test.ts (reconcile_existing_transaction action).
@@ -160,7 +278,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
   async function syncBookingRequest(bookingRef: string): Promise<{ success: boolean; error?: any }> {
     if (!bookingRef) return { success: true };
 
-    // Check existing special notes to ensure TEST tagging is preserved
     const { data: currentBooking } = await supabaseClient
       .from('booking_requests')
       .select('special_notes')
@@ -193,7 +310,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
 
   // 2. Idempotency Check & Approved Payment Repair
   if (existingTx.status === 'approved') {
-    // Check if corresponding booking_request is already fully confirmed
     let bookingNeedsRepair = false;
     if (existingTx.booking_reference) {
       const { data: bookingRec } = await supabaseClient
@@ -219,9 +335,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       };
     }
 
-    // Approved payment but booking is pending.
-    // REQUIREMENT 1: Revalidate transaction against PagueloFacil MerchantTransactions using stored codOper before confirming pending booking.
-    // Stored verified_at and booking_reference alone are insufficient. Require independently verified booking relationship.
+    // Approved payment but booking is pending. Revalidate against gateway and check strict relationship validation.
     const opToQuery = existingTx.gateway_operation_id;
     if (!opToQuery) {
       return {
@@ -305,21 +419,15 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         };
       }
 
-      // Authoritative relationship check from gateway response
-      const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
-      const storedRef = String(existingTx.booking_reference || '').trim();
-      const hasValidRelationship =
-        (returnedRef && storedRef && returnedRef === storedRef) ||
-        (existingTx.gateway_link_code && (matched.linkCode === existingTx.gateway_link_code || matched.code === existingTx.gateway_link_code));
-
-      if (!hasValidRelationship) {
+      const relCheck = validatePaymentRelationship(matched, existingTx);
+      if (!relCheck.verified) {
         return {
           success: false,
-          category: 'needs_manual_review',
-          bookingReference: storedRef,
+          category: relCheck.details.includes('conflict') ? 'mismatched_identifiers' : 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
           operationCode: opToQuery,
-          message: 'Approved payment revalidation failed: Independent booking relationship evidence (matching PARM_1/customParm1 or gateway link code) could not be established.',
-          error: 'Missing relationship evidence.',
+          message: `Approved payment revalidation relationship check failed: ${relCheck.details}`,
+          error: 'Missing or conflicting relationship evidence.',
         };
       }
 
@@ -469,32 +577,16 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       };
     }
 
-    // Authoritative relationship validation (must match booking reference or link code correlation)
-    const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
-    const storedRef = String(existingTx.booking_reference || '').trim();
-    const hasValidRelationship =
-      (returnedRef && storedRef && returnedRef === storedRef) ||
-      (existingTx.gateway_link_code && (matched.linkCode === existingTx.gateway_link_code || matched.code === existingTx.gateway_link_code));
-
-    if (!hasValidRelationship) {
+    // Authoritative relationship validation using shared helper
+    const relCheck = validatePaymentRelationship(matched, existingTx);
+    if (!relCheck.verified) {
       return {
         success: false,
-        category: 'needs_manual_review',
-        bookingReference: storedRef,
+        category: relCheck.details.includes('conflict') ? 'mismatched_identifiers' : 'needs_manual_review',
+        bookingReference: existingTx.booking_reference,
         operationCode: opToQuery,
-        message: 'Relationship between gateway transaction and database booking could not be authoritatively established via matching booking reference or link code correlation.',
-        error: 'Missing relationship evidence.',
-      };
-    }
-
-    if (returnedRef && storedRef && returnedRef !== storedRef) {
-      return {
-        success: false,
-        category: 'mismatched_identifiers',
-        bookingReference: storedRef,
-        operationCode: opToQuery,
-        message: `Booking reference conflict: Gateway record reference "${returnedRef}" does not match stored "${storedRef}".`,
-        error: 'Reference conflict.',
+        message: `Relationship verification failed: ${relCheck.details}`,
+        error: 'Missing or conflicting relationship evidence.',
       };
     }
 
@@ -569,6 +661,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
           gateway_operation_id: opToQuery,
           auth_code: matched.authCode || matched.authStatus,
           card_type: matched.cardType || matched.Tipo,
+          relationship_evidence: relCheck.evidence,
         },
       })
       .eq('id', existingTx.id)
@@ -623,6 +716,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         txId: existingTx.id,
         authCode: matched.authCode || matched.authStatus,
         cardType: matched.cardType || matched.Tipo,
+        relationshipEvidence: relCheck.evidence,
       },
     };
   } catch (err: any) {
