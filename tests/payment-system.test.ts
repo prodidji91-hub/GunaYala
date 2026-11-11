@@ -1739,11 +1739,11 @@ async function runPaymentSecurityTests() {
     json: async () => ({
       data: {
         codOper: 'OP-LEGIT-OK',
-        status: 'Aprobada',
-        type: 'sale',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
         customParm1: 'GNY-LEGIT-001',
         amount: 142.00,
-        currency: 'USD',
+        authCurrency: 840,
         cclw: 'TEST_CCLW',
         cardType: 'VISA',
         authCode: 'AUTH12345',
@@ -1770,6 +1770,46 @@ async function runPaymentSecurityTests() {
     legitRes.verified === true && legitRes.status === 'approved' && legitRes.amountPaid === 142.00,
     'verified=true, status=approved',
     `verified=${legitRes.verified}, status=${legitRes.status}, amount=${legitRes.amountPaid}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 58: OFFICIAL PAGUELOFACIL RESPONSE SCHEMA (STATUS 1, AUTH_CAPTURE, AUTHRENCY 840, AUTH_AMOUNT 69.00, IDMERCHANT)
+  // -------------------------------------------------------------
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-OFFICIAL-DEMO-317773',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authStatus: '00',
+        authCurrency: 840,
+        authAmount: 69.00,
+        idMerchant: 'TEST_ID_MERCHANT',
+        customParm1: 'TEST-DAYTOUR-GNY-317773',
+      },
+    }),
+  } as any);
+
+  const officialAdapter = new PagueloFacilGatewayAdapter({
+    sandboxCclw: 'TEST_ID_MERCHANT',
+    sandboxAccessToken: 'token_sandbox_valid',
+    environment: 'sandbox',
+    enableSandboxPayments: true,
+  });
+  const officialRes = await officialAdapter.verifyTransaction({
+    gatewayOperationId: 'OP-OFFICIAL-DEMO-317773',
+    bookingReference: 'TEST-DAYTOUR-GNY-317773',
+    expectedAmount: 69.00,
+    environment: 'sandbox',
+  });
+  global.fetch = origFetch;
+
+  assert(
+    'Test 58: Official PagueloFacil response schema (status 1, AUTH_CAPTURE, authCurrency 840, authAmount 69.00, idMerchant) verifies successfully',
+    officialRes.verified === true && officialRes.status === 'approved' && officialRes.amountPaid === 69.00,
+    'verified=true, status=approved for official demo response schema',
+    `verified=${officialRes.verified}, status=${officialRes.status}, amount=${officialRes.amountPaid}`
   );
 
   // -------------------------------------------------------------

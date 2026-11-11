@@ -205,14 +205,24 @@ export const handler = async (event: NetlifyEvent) => {
       // Handles newly received webhooks where gateway_operation_id was initially null when session was created
       if (!existingTx && parsed.bookingReference) {
         lookupMethodUsed = 'booking_reference_fallback';
-        const { data: attempts } = await supabase
+        const { data: attempts, error: selectError } = await supabase
           .from('payment_transactions')
-          .select('id, status, environment, expected_amount, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
+          .select('id, status, environment, expected_amount, amount_in_cents, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
           .eq('booking_reference', parsed.bookingReference);
 
-        if (attempts && attempts.length === 1) {
+        if (selectError) {
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, dbErrorCode: selectError.code || 'SELECT_ERROR', lookupMethodUsed: 'booking_reference_error' });
+          console.error('[PaymentWebhook] Supabase select error during fallback:', selectError.code, selectError.message);
+        } else if (attempts && attempts.length === 1) {
           lookupMethodUsed = 'booking_reference_strict_unique';
           existingTx = attempts[0];
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', {
+            found: true,
+            txId: existingTx.id,
+            lookupMethodUsed,
+            matchCount: 1,
+            parm1MatchesExpected: Boolean(parsed.bookingReference && attempts[0].booking_reference === parsed.bookingReference),
+          });
         } else if (attempts && attempts.length > 1) {
           lookupMethodUsed = 'booking_reference_ambiguous';
           logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, lookupMethodUsed: 'booking_reference_ambiguous' });
@@ -225,6 +235,8 @@ export const handler = async (event: NetlifyEvent) => {
               error: `Ambiguous callback rejected: Booking "${parsed.bookingReference}" has ${attempts.length} payment records. Cannot uniquely identify transaction by booking reference alone when multiple attempts exist.`,
             }),
           };
+        } else {
+          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, matchCount: 0, lookupMethodUsed: 'booking_reference_fallback_zero' });
         }
       }
     } catch (err: any) {
@@ -323,10 +335,11 @@ export const handler = async (event: NetlifyEvent) => {
   });
 
   if (isVerificationAttempted) {
+    const authoritativeExpectedAmount = existingTx?.expected_amount ?? (existingTx?.amount_in_cents ? existingTx.amount_in_cents / 100 : parsed.amountPaid);
     const verification = await gateway.verifyTransaction({
       gatewayOperationId: parsed.gatewayOperationId,
       bookingReference: parsed.bookingReference,
-      expectedAmount: parsed.amountPaid,
+      expectedAmount: authoritativeExpectedAmount,
       environment: targetVerificationEnv,
     });
 
@@ -416,19 +429,18 @@ export const handler = async (event: NetlifyEvent) => {
       }
 
       if (existingTx?.id) {
-        const { error: updateErr } = await supabase
+        const { data: updatedRows, error: updateErr } = await supabase
           .from('payment_transactions')
           .update(updateData)
-          .eq('id', existingTx.id);
+          .eq('id', existingTx.id)
+          .select('id');
         if (updateErr) throw updateErr;
+        if (!updatedRows || updatedRows.length !== 1) {
+          throw new Error(`Database update failed to target exactly one row (updated: ${updatedRows?.length ?? 0}).`);
+        }
         dbUpdateSucceeded = true;
-      } else if (parsed.gatewayOperationId) {
-        const { error: updateErr } = await supabase
-          .from('payment_transactions')
-          .update(updateData)
-          .eq('gateway_operation_id', parsed.gatewayOperationId);
-        if (updateErr) throw updateErr;
-        dbUpdateSucceeded = true;
+      } else {
+        throw new Error('Ambiguous update rejected: No unique transaction record ID identified for persistence.');
       }
     } catch (dbErr: any) {
       dbUpdateSucceeded = false;

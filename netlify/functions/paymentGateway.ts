@@ -630,16 +630,27 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         };
       }
 
-      // 4. Operation Type & Status: Require evidence of completed approved/captured payment (reject refund/void/reversal/auth-only and unverified status 2)
-      const rawStatus = String(matched.status || matched.estado || '').trim().toLowerCase();
-      const opType = String(matched.type || matched.operationType || matched.tipo || matched.opType || 'sale').trim().toLowerCase();
-      
-      const isStatusApproved = rawStatus === 'aprobada' || rawStatus === 'approved' || matched.status === 1 || rawStatus === '1';
-      const isCaptureOrSale = !['refund', 'void', 'reversal', 'auth', 'authorization', 'debit_memo'].includes(opType);
-      const isApproved = isStatusApproved && isCaptureOrSale;
+      // 4. Operation Type & Status: Status 1 means approved, 0 means declined. Successful captured sale uses txType AUTH_CAPTURE.
+      const rawStatus = matched.status !== undefined ? Number(matched.status) : String(matched.estado || '').trim().toLowerCase();
+      const isStatusApproved = rawStatus === 1 || rawStatus === '1' || rawStatus === 'aprobada' || rawStatus === 'approved';
+      const isStatusDeclined = rawStatus === 0 || rawStatus === '0' || rawStatus === 'rechazada' || rawStatus === 'declined';
 
-      // 2. Exact amount comparison in integer cents
-      const rawAmount = matched.amount ?? matched.total ?? matched.TotalPagado;
+      const txType = String(matched.txType || matched.type || matched.operationType || matched.tipo || '').trim().toUpperCase();
+      const isAuthCapture = txType === 'AUTH_CAPTURE' || txType === 'SALE' || txType === 'CAPTURE';
+
+      if (isStatusDeclined) {
+        return {
+          success: true,
+          verified: false,
+          status: 'rejected',
+          error: 'Transaction was declined by gateway (status 0).',
+        };
+      }
+
+      const isApproved = isStatusApproved && isAuthCapture;
+
+      // 2. Exact amount comparison in integer cents (supporting authAmount or amount in dollars/cents)
+      const rawAmount = matched.authAmount ?? matched.amount ?? matched.total ?? matched.TotalPagado;
       if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
         return {
           success: false,
@@ -659,40 +670,36 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       }
 
       if (params.expectedAmount !== undefined) {
-        const amountCents = Math.round(amountPaid * 100);
-        const expectedCents = Math.round(params.expectedAmount * 100);
+        const amountCents = amountPaid < 1000 ? Math.round(amountPaid * 100) : Math.round(amountPaid);
+        const expectedCents = params.expectedAmount < 1000 ? Math.round(params.expectedAmount * 100) : Math.round(params.expectedAmount);
+        
         if (amountCents !== expectedCents) {
           return {
             success: false,
             verified: false,
             status: 'rejected',
-            error: `Exact amount mismatch: Paid $${amountPaid} (${amountCents} cents) does not match expected $${params.expectedAmount} (${expectedCents} cents).`,
+            error: `Exact amount mismatch: Paid ${amountCents} cents does not match expected ${expectedCents} cents.`,
           };
         }
       }
 
-      // 3. Currency and Merchant Identity Validation (No silent defaults)
-      const currency = String(matched.currency || matched.moneda || '').trim().toUpperCase();
-      if (!currency || currency !== 'USD') {
+      // 3. Currency (authCurrency 840 = USD) and Merchant Identity (idMerchant / cclw)
+      const rawCurrency = matched.authCurrency ?? matched.currency ?? matched.moneda;
+      const currencyStr = String(rawCurrency || '').trim().toUpperCase();
+      const isUsd = currencyStr === 'USD' || currencyStr === '840' || currencyStr === 'US_DOLLAR';
+      if (!isUsd) {
         return {
           success: false,
           verified: false,
           status: 'rejected',
-          error: `Invalid or missing currency "${currency}". USD currency is strictly required.`,
+          error: `Invalid or missing currency "${rawCurrency}". USD currency (840) is strictly required.`,
         };
       }
 
-      const merchantCclw = String(matched.cclw || matched.CCLW || matched.merchant || '').trim();
+      const merchantId = String(matched.idMerchant || matched.id_merchant || matched.cclw || matched.CCLW || matched.merchant || '').trim();
       const expectedCclw = isSandbox ? this.config.sandboxCclw : this.config.cclw;
-      if (!merchantCclw) {
-        return {
-          success: false,
-          verified: false,
-          status: 'rejected',
-          error: 'Merchant identity (CCLW) missing from gateway response.',
-        };
-      }
-      if (expectedCclw && merchantCclw !== expectedCclw) {
+      
+      if (expectedCclw && merchantId && merchantId !== expectedCclw) {
         return {
           success: false,
           verified: false,
@@ -710,7 +717,7 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         cardType: matched.cardType || matched.Tipo,
         authCode: matched.authCode || matched.authStatus,
         gatewayOperationId: matched.codOper || matched.oper || matched.id,
-        rawGatewayStatus: String(matched.status || matched.estado),
+        rawGatewayStatus: String(matched.status ?? matched.estado),
       };
     } catch (err: any) {
       return {
