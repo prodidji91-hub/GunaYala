@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { PagueloFacilGatewayAdapter } from './paymentGateway.js';
+import { reconcilePaymentTransaction } from './paymentReconciliation.js';
 
 interface NetlifyEvent {
   httpMethod: string;
@@ -55,13 +56,11 @@ export const handler = async (event: NetlifyEvent) => {
     if (!event.body) {
       throw new Error('Empty payload');
     }
-    // Handle JSON or Form URL-encoded
     if (typeof event.body === 'string') {
       try {
         payload = JSON.parse(event.body);
         parsedFormat = 'json';
       } catch {
-        // Try parsing URL-encoded parameters (PagueloFacil standard callback format)
         const params = new URLSearchParams(event.body);
         payload = {};
         params.forEach((value, key) => {
@@ -82,18 +81,17 @@ export const handler = async (event: NetlifyEvent) => {
     };
   }
 
-  // 2. Diagnostic: Parsed Callback Format
   logWebhookDiagnostic(2, 'Payload Parsed', { format: parsedFormat });
 
   // 3. Webhook Signature & Status Parsing via Gateway Adapter
   const gateway = new PagueloFacilGatewayAdapter();
   const parsed = gateway.parseWebhook(payload, event.headers);
 
-  // 3. Diagnostic: Identifiers Present & PARM_1 Exact Match Check against TEST-DAYTOUR-GNY-643300
   const targetBookingRef = 'TEST-DAYTOUR-GNY-643300';
   const parm1Value = parsed.bookingReference || '';
   const parm1ExactMatch = parm1Value === targetBookingRef;
   const parm1TrimmedMatch = parm1Value.trim() === targetBookingRef;
+
   logWebhookDiagnostic(3, 'Identifiers Present', {
     hasPARM1: Boolean(parm1Value),
     parm1Length: parm1Value.length,
@@ -143,10 +141,9 @@ export const handler = async (event: NetlifyEvent) => {
     };
   }
 
-  // 8. Diagnostic: Currency and Amount Validation Passed
   logWebhookDiagnostic(8, 'Validation Checks', { currencyValid: true, amountValid: true });
 
-  // 5. Pre-Load Existing Payment Transaction via Unique Identifier
+  // 5. Pre-Load Existing Payment Transaction via Unique Identifier (Reject ambiguous callbacks lacking unique identifiers)
   const hasUniqueOperationId = Boolean(parsed.gatewayOperationId && parsed.gatewayOperationId.trim());
   const hasUniqueAttemptId = Boolean(parsed.idempotencyKey && parsed.idempotencyKey.trim());
   const hasUniqueLinkCode = Boolean(parsed.gatewayLinkCode && parsed.gatewayLinkCode.trim());
@@ -163,325 +160,71 @@ export const handler = async (event: NetlifyEvent) => {
     };
   }
 
+  // 6. Initialize Supabase client and execute shared reconciliation helper
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  let supabase: any = null;
-  let existingTx: any = null;
-  let lookupMethodUsed = 'none';
 
-  if (supabaseUrl && supabaseKey) {
-    try {
-      supabase = createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-
-      // 1. Primary lookup: By unique gateway_operation_id
-      if (hasUniqueOperationId) {
-        lookupMethodUsed = 'gateway_operation_id';
-        const { data } = await supabase
-          .from('payment_transactions')
-          .select('id, status, environment, expected_amount, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
-          .eq('gateway_operation_id', parsed.gatewayOperationId)
-          .maybeSingle();
-        existingTx = data;
-      }
-
-      // 2. Secondary lookup: By verified payment attempt identifier (idempotency_key)
-      if (!existingTx && hasUniqueAttemptId) {
-        lookupMethodUsed = 'idempotency_key';
-        const { data } = await supabase
-          .from('payment_transactions')
-          .select('id, status, environment, expected_amount, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
-          .eq('idempotency_key', parsed.idempotencyKey)
-          .maybeSingle();
-        existingTx = data;
-      }
-
-      // 3. Tertiary lookup: By unique gateway_link_code
-      if (!existingTx && hasUniqueLinkCode) {
-        lookupMethodUsed = 'gateway_link_code';
-        const { data } = await supabase
-          .from('payment_transactions')
-          .select('id, status, environment, expected_amount, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
-          .eq('gateway_link_code', parsed.gatewayLinkCode)
-          .maybeSingle();
-        existingTx = data;
-      }
-
-      // 4. Quaternary lookup: By booking reference (PARM_1) with strict uniqueness checks
-      // Handles newly received webhooks where gateway_operation_id was initially null when session was created
-      if (!existingTx && parsed.bookingReference) {
-        lookupMethodUsed = 'booking_reference_fallback';
-        const { data: attempts, error: selectError } = await supabase
-          .from('payment_transactions')
-          .select('id, status, environment, expected_amount, amount_in_cents, currency, gateway_operation_id, booking_reference, idempotency_key, gateway_link_code')
-          .eq('booking_reference', parsed.bookingReference);
-
-        if (selectError) {
-          const isPermOrAuthError = selectError.code === '42501' || selectError.code === 'PGRST301' || /auth|permission|rls|jwt|role/i.test(selectError.message || '');
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', {
-            found: false,
-            dbErrorCode: selectError.code || 'SELECT_ERROR',
-            dbErrorCategory: isPermOrAuthError ? 'PERMISSION_OR_AUTHENTICATION_FAILURE' : 'DATABASE_QUERY_ERROR',
-            lookupMethodUsed: 'booking_reference_error',
-            matchCount: 0,
-          });
-          console.error('[PaymentWebhook] Supabase select error during fallback:', selectError.code, selectError.message, isPermOrAuthError ? '[Auth/Perm Failure]' : '[Query Error]');
-        } else if (attempts && attempts.length === 1) {
-          lookupMethodUsed = 'booking_reference_strict_unique';
-          existingTx = attempts[0];
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', {
-            found: true,
-            txId: existingTx.id,
-            lookupMethodUsed,
-            matchCount: 1,
-            parm1MatchesExpected: Boolean(parsed.bookingReference && attempts[0].booking_reference === parsed.bookingReference),
-          });
-        } else if (attempts && attempts.length > 1) {
-          lookupMethodUsed = 'booking_reference_ambiguous';
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', { found: false, attemptsCount: attempts.length, matchCount: attempts.length, lookupMethodUsed: 'booking_reference_ambiguous' });
-          logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Ambiguous booking attempts' });
-          return {
-            statusCode: 400,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              success: false,
-              error: `Ambiguous callback rejected: Booking "${parsed.bookingReference}" has ${attempts.length} payment records. Cannot uniquely identify transaction by booking reference alone when multiple attempts exist.`,
-            }),
-          };
-        } else {
-          logWebhookDiagnostic(4, 'Supabase Record Lookup', {
-            found: false,
-            matchCount: 0,
-            lookupMethodUsed: 'booking_reference_fallback_zero',
-            searchedReference: parsed.bookingReference,
-            exactMatchTarget: targetBookingRef,
-            isExactTarget: parsed.bookingReference === targetBookingRef,
-          });
-        }
-      }
-    } catch (err: any) {
-      console.error('[PaymentWebhook] Pre-load database lookup warning:', err.message);
-    }
+  if (!supabaseUrl || !supabaseKey) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ success: false, error: 'Supabase credentials are not configured in webhook environment.' }),
+    };
   }
 
-  // 4. Diagnostic: Supabase Record Found Status
-  logWebhookDiagnostic(4, 'Supabase Record Lookup', {
-    found: Boolean(existingTx),
-    txId: existingTx?.id || null,
-    lookupMethodUsed,
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // 6. Security & Relationship Verifications
-  // 6a. Booking relationship verification
-  if (existingTx && parsed.bookingReference) {
-    if (existingTx.booking_reference !== parsed.bookingReference) {
-      logWebhookDiagnostic(8, 'Validation Checks', { relationshipValid: false });
-      logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Booking relationship mismatch' });
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          error: `Booking relationship mismatch: Transaction belongs to booking "${existingTx.booking_reference}", but webhook specified "${parsed.bookingReference}".`,
-        }),
-      };
-    }
-  }
-  logWebhookDiagnostic(8, 'Validation Checks', { relationshipValid: true });
-
-  // 6b. Cross-Environment Mismatch Rejection
-  if (existingTx && existingTx.environment && parsed.environment) {
-    if (existingTx.environment !== parsed.environment) {
-      logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Cross-environment mismatch' });
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          error: `Cross-environment rejection: Webhook environment "${parsed.environment}" does not match existing transaction environment "${existingTx.environment}".`,
-        }),
-      };
-    }
-  }
-
-  // 6c. Idempotency check: see if this specific transaction has already been approved
-  if (existingTx && existingTx.status === 'approved') {
-    logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 200, success: true, duplicate: true });
+  // Only perform reconciliation for approved events; for rejected events, log and respond 200
+  if (parsed.eventType === 'payment_rejected') {
+    logWebhookDiagnostic(7, 'Verification Result', { category: 'payment_rejected', verified: false });
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: true,
-        duplicate: true,
-        message: 'Transaction already recorded and approved. Skipped duplicate processing.',
-        bookingReference: parsed.bookingReference,
-        gatewayOperationId: parsed.gatewayOperationId,
-        environment: existingTx.environment || parsed.environment,
+        verified: false,
+        eventType: parsed.eventType,
+        error: parsed.error || 'Payment was declined.',
       }),
     };
   }
 
-  // 6d. Verify payment amount against expected amount if known
-  if (existingTx && existingTx.expected_amount && parsed.amountPaid !== undefined) {
-    if (parsed.amountPaid < existingTx.expected_amount) {
-      logWebhookDiagnostic(8, 'Validation Checks', { amountMatchesExpected: false, expected: existingTx.expected_amount, paid: parsed.amountPaid });
-      logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 400, success: false, error: 'Amount less than expected' });
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          error: `Payment amount $${parsed.amountPaid} is less than expected amount $${existingTx.expected_amount}.`,
-        }),
-      };
-    }
-  }
-  logWebhookDiagnostic(8, 'Validation Checks', { amountMatchesExpected: true });
-
-  // 5. Diagnostic: Selected Environment
-  const targetVerificationEnv: 'sandbox' | 'production' =
-    existingTx?.environment || parsed.environment || 'sandbox';
-  logWebhookDiagnostic(5, 'Environment Selection', { environment: targetVerificationEnv });
-
-  // 7. Authoritative Server-to-Server Verification Scoped to Environment
-  let isAuthoritativelyApproved = false;
-  let verificationResultCategory = 'skipped';
-
-  // 6. Diagnostic: Verification API Attempted
-  const isVerificationAttempted = parsed.eventType === 'payment_approved';
-  logWebhookDiagnostic(6, 'Verification API Attempted', {
-    attempted: isVerificationAttempted,
-    environment: targetVerificationEnv,
+  const reconciliation = await reconcilePaymentTransaction({
+    bookingReference: parsed.bookingReference,
+    operationCode: parsed.gatewayOperationId,
+    linkCode: parsed.gatewayLinkCode,
+    idempotencyKey: parsed.idempotencyKey,
+    environment: parsed.environment || 'sandbox',
+    supabaseClient: supabase,
   });
 
-  if (isVerificationAttempted) {
-    const authoritativeExpectedAmount = existingTx?.expected_amount ?? (existingTx?.amount_in_cents ? existingTx.amount_in_cents / 100 : parsed.amountPaid);
-    const verification = await gateway.verifyTransaction({
-      gatewayOperationId: parsed.gatewayOperationId,
-      bookingReference: parsed.bookingReference,
-      expectedAmount: authoritativeExpectedAmount,
-      environment: targetVerificationEnv,
-    });
-
-    verificationResultCategory = verification.status || 'unknown';
-
-    // 7. Diagnostic: Verification Result Category
-    logWebhookDiagnostic(7, 'Verification Result', {
-      category: verificationResultCategory,
-      verified: verification.verified,
-      missingRequirement: Boolean(verification.missingRequirement),
-    });
-
-    if (verification.verified && verification.status === 'approved') {
-      isAuthoritativelyApproved = true;
-    } else if (verification.missingRequirement) {
-      logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 200, success: true, verified: false, status: 'pending', missingRequirement: true });
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: true,
-          verified: false,
-          status: 'pending',
-          environment: targetVerificationEnv,
-          missingRequirement: verification.missingRequirement,
-          message: 'Payment received but left unconfirmed pending merchant authoritative API token setup.',
-          bookingReference: parsed.bookingReference,
-          gatewayOperationId: parsed.gatewayOperationId,
-        }),
-      };
-    } else {
-      logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 422, success: false, verified: false, error: 'Verification failed' });
-      return {
-        statusCode: 422,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          verified: false,
-          environment: targetVerificationEnv,
-          error: 'Authoritative server-to-server transaction verification failed. Payment not marked as approved.',
-        }),
-      };
-    }
-  } else {
-    verificationResultCategory = parsed.eventType || 'non_approved_event';
-    logWebhookDiagnostic(7, 'Verification Result', {
-      category: verificationResultCategory,
-      verified: false,
-      note: 'Skipped server-to-server verification for non-approved event type',
-    });
-  }
-
-  // 8. Idempotent Supabase Persistence with Individual Record Isolation
-  let dbUpdateAttempted = false;
-  let dbUpdateSucceeded = false;
-
-  if (supabase) {
-    try {
-      dbUpdateAttempted = true;
-      const activeEnv: 'sandbox' | 'production' =
-        existingTx?.environment || parsed.environment || 'sandbox';
-
-      const updateData: Record<string, any> = {
-        status: isAuthoritativelyApproved
-          ? 'approved'
-          : parsed.eventType === 'payment_rejected'
-          ? 'rejected'
-          : 'pending',
-        gateway_operation_id: parsed.gatewayOperationId || existingTx?.gateway_operation_id,
-        amount_paid: parsed.amountPaid,
-        card_type: parsed.cardType,
-        auth_code: parsed.authCode,
-        environment: activeEnv,
-        verified_at: isAuthoritativelyApproved ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-        audit_metadata: {
-          environment: activeEnv,
-          is_demo: activeEnv === 'sandbox',
-          event_type: parsed.eventType,
-          verified: isAuthoritativelyApproved,
-          processed_at: new Date().toISOString(),
-        },
-      };
-
-      if (parsed.error) {
-        updateData.error_message = parsed.error;
-      }
-
-      if (existingTx?.id) {
-        const { data: updatedRows, error: updateErr } = await supabase
-          .from('payment_transactions')
-          .update(updateData)
-          .eq('id', existingTx.id)
-          .select('id');
-        if (updateErr) throw updateErr;
-        if (!updatedRows || updatedRows.length !== 1) {
-          throw new Error(`Database update failed to target exactly one row (updated: ${updatedRows?.length ?? 0}).`);
-        }
-        dbUpdateSucceeded = true;
-      } else {
-        throw new Error('Ambiguous update rejected: No unique transaction record ID identified for persistence.');
-      }
-    } catch (dbErr: any) {
-      dbUpdateSucceeded = false;
-      console.error('[PaymentWebhook] Database update warning:', dbErr.message);
-    }
-  }
-
-  // 9. Diagnostic: Database Update Attempted & Succeeded/Failed
   logWebhookDiagnostic(9, 'Database Update', {
-    attempted: dbUpdateAttempted,
-    succeeded: dbUpdateSucceeded,
+    attempted: true,
+    succeeded: reconciliation.success,
+    category: reconciliation.category,
   });
 
-  // 10. Diagnostic: Final Webhook Response
+  if (!reconciliation.success) {
+    logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 422, success: false, error: reconciliation.message });
+    return {
+      statusCode: 422,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: false,
+        verified: false,
+        category: reconciliation.category,
+        error: reconciliation.message,
+      }),
+    };
+  }
+
   logWebhookDiagnostic(10, 'Webhook Response', {
     statusCode: 200,
     success: true,
-    verified: isAuthoritativelyApproved,
-    eventType: parsed.eventType,
-    bookingReference: parsed.bookingReference,
+    verified: true,
+    category: reconciliation.category,
   });
 
   return {
@@ -489,12 +232,12 @@ export const handler = async (event: NetlifyEvent) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       success: true,
-      verified: isAuthoritativelyApproved,
-      eventType: parsed.eventType,
-      bookingReference: parsed.bookingReference,
-      gatewayOperationId: parsed.gatewayOperationId,
-      amountPaid: parsed.amountPaid,
-      environment: targetVerificationEnv,
+      verified: true,
+      duplicate: reconciliation.duplicate || false,
+      bookingReference: reconciliation.bookingReference,
+      gatewayOperationId: reconciliation.operationCode,
+      amountPaid: reconciliation.amountPaid,
+      message: reconciliation.message,
     }),
   };
 };

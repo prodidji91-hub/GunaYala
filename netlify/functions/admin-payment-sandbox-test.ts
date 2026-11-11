@@ -11,6 +11,7 @@ import {
   PagueloFacilLinkDaemonResponse,
   ExistingTransactionDiagnosticResult,
 } from '../../src/types/payment.js';
+import { reconcilePaymentTransaction } from './paymentReconciliation.js';
 
 // In-memory rate limiting and cooldown state
 interface RateLimitRecord {
@@ -279,15 +280,86 @@ export async function executeExistingTransactionDiagnostic(
 }
 
 /**
+ * Admin-Only Action: Verify & Reconcile Existing Payment (TEST-DAYTOUR-GNY-643300)
+ */
+export async function executeReconcileExistingTransaction(
+  authToken: string | null,
+  requestBody: any = {},
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: { success: false, error: 'Unauthorized: Administrator Bearer token is required.' },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: { success: false, error: 'Unauthorized: Invalid or expired administrator credentials.' },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: { success: false, error: 'Forbidden: Access restricted to authorized quotation administrators.' },
+    };
+  }
+
+  const bookingRef = requestBody?.bookingReference || 'TEST-DAYTOUR-GNY-643300';
+  const operationCode = requestBody?.operationCode || 'LK-BMMRPXP4MZDB';
+
+  const reconciliation = await reconcilePaymentTransaction({
+    bookingReference: bookingRef,
+    operationCode: operationCode,
+    environment: 'sandbox',
+    supabaseClient: supabase,
+    env,
+  });
+
+  return {
+    statusCode: reconciliation.success ? 200 : 422,
+    body: {
+      success: reconciliation.success,
+      action: 'reconcile_existing_transaction',
+      bookingReference: bookingRef,
+      operationCode,
+      reconciliation,
+      message: reconciliation.message,
+    },
+  };
+}
+
+/**
  * Core test execution logic, separated for isolated unit testing with mocks.
  */
 export async function executeAdminSandboxTest(
   authToken: string | null,
   dependencies: AdminSandboxTestDependencies = {},
   requestBody: any = {}
-): Promise<{ statusCode: number; body: AdminSandboxTestResponse }> {
+): Promise<{ statusCode: number; body: any }> {
   if (requestBody?.action === 'diagnose_existing_transaction') {
     return await executeExistingTransactionDiagnostic(authToken, requestBody, dependencies);
+  }
+  if (requestBody?.action === 'reconcile_existing_transaction') {
+    return await executeReconcileExistingTransaction(authToken, requestBody, dependencies);
   }
 
   const env = dependencies.envOverride || process.env;

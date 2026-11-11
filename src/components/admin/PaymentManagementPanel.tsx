@@ -140,6 +140,50 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
     }
   };
 
+  const [isReconcilingExistingTx, setIsReconcilingExistingTx] = useState<boolean>(false);
+  const [reconciliationResult, setReconciliationResult] = useState<any>(null);
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null);
+
+  const handleReconcileExistingTransaction = async () => {
+    setIsReconcilingExistingTx(true);
+    setReconciliationError(null);
+    setReconciliationResult(null);
+
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client is not available.');
+      }
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'reconcile_existing_transaction',
+          bookingReference: 'TEST-DAYTOUR-GNY-643300',
+          operationCode: 'LK-BMMRPXP4MZDB',
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setReconciliationError(data.error || data.message || `HTTP ${response.status}: Reconciliation failed.`);
+      } else {
+        setReconciliationResult(data.reconciliation);
+      }
+    } catch (err: any) {
+      setReconciliationError(err.message || 'An unexpected error occurred during payment reconciliation.');
+    } finally {
+      setIsReconcilingExistingTx(false);
+    }
+  };
+
   const statusDefinitions: Array<{
     status: PaymentLifecycleStatus;
     labelEn: string;
@@ -564,28 +608,67 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             </p>
           </div>
 
-          <button
-            onClick={handleDiagnoseExistingTransaction}
-            disabled={isDiagnosingExistingTx}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-[#FAF8F5] text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer shrink-0"
-          >
-            {isDiagnosingExistingTx ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-[#D6BA80]" />
-                <span>Running Diagnostic...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 text-[#D6BA80]" />
-                <span>Run Existing Tx Diagnostic</span>
-              </>
-            )}
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleDiagnoseExistingTransaction}
+              disabled={isDiagnosingExistingTx}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-[#FAF8F5] text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isDiagnosingExistingTx ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-[#D6BA80]" />
+                  <span>Running Audit...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 text-[#D6BA80]" />
+                  <span>Run Existing Tx Diagnostic</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleReconcileExistingTransaction}
+              disabled={isReconcilingExistingTx}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isReconcilingExistingTx ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Reconciling...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-white" />
+                  <span>Verify &amp; Reconcile Existing Payment</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {existingTxError && (
           <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
             <strong>Diagnostic Error:</strong> {existingTxError}
+          </div>
+        )}
+
+        {reconciliationError && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
+            <strong>Reconciliation Error:</strong> {reconciliationError}
+          </div>
+        )}
+
+        {reconciliationResult && (
+          <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-950 space-y-2 font-mono">
+            <div className="flex items-center gap-2 font-bold text-sm text-emerald-900">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <span>Reconciliation Completed Successfully!</span>
+            </div>
+            <div><strong>Message:</strong> {reconciliationResult.message}</div>
+            <div><strong>Category:</strong> {reconciliationResult.category}</div>
+            <div><strong>Database Updated:</strong> {reconciliationResult.databaseUpdated ? 'Yes' : 'No (Already Approved / Skipped)'}</div>
+            <div><strong>Amount Paid:</strong> ${reconciliationResult.amountPaid?.toFixed(2)} USD</div>
           </div>
         )}
 

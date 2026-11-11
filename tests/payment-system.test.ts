@@ -8,6 +8,7 @@ import {
   validatePagueloFacilCheckoutUrl,
   TRUSTED_CHECKOUT_HOSTNAMES,
 } from '../netlify/functions/paymentGateway.js';
+import { reconcilePaymentTransaction } from '../netlify/functions/paymentReconciliation.js';
 import { handler as checkoutHandler } from '../netlify/functions/payment-checkout.js';
 import { handler as webhookHandler } from '../netlify/functions/payment-webhook.js';
 import {
@@ -1892,6 +1893,83 @@ async function runPaymentSecurityTests() {
       diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory === 'approved',
     'HTTP 200, success=true, exactOneRow=true, diagnosticCategory=approved',
     `status=${diagRes.statusCode}, success=${diagRes.body.success}, category=${diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 60: RECONCILE PAYMENT TRANSACTION HELPER (EXACT ONE-ROW PERSISTENCE & CAPTURE RECONCILIATION)
+  // -------------------------------------------------------------
+  let updatedRowsCount = 0;
+  const mockReconSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              data: [
+                {
+                  id: 'tx-reconcile-643300',
+                  booking_reference: 'TEST-DAYTOUR-GNY-643300',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 69.00,
+                  amount_in_cents: 6900,
+                  currency: 'USD',
+                },
+              ],
+              error: null,
+            }),
+          }),
+          update: (updateData: any) => ({
+            eq: () => ({
+              select: () => {
+                updatedRowsCount++;
+                return { data: [{ id: 'tx-reconcile-643300' }], error: null };
+              },
+            }),
+          }),
+        };
+      }
+      if (table === 'booking_requests') {
+        return {
+          update: () => ({
+            eq: () => ({ data: [{ id: 'br-1' }], error: null }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+
+  const origFetchForRecon = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'LK-BMMRPXP4MZDB',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authCurrency: 840,
+        authAmount: 69.00,
+        idMerchant: 'SANDBOX_MERCHANT',
+        customParm1: 'TEST-DAYTOUR-GNY-643300',
+      },
+    }),
+  } as any);
+
+  const reconResult = await reconcilePaymentTransaction({
+    bookingReference: 'TEST-DAYTOUR-GNY-643300',
+    operationCode: 'LK-BMMRPXP4MZDB',
+    environment: 'sandbox',
+    supabaseClient: mockReconSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'valid_token' },
+  });
+  global.fetch = origFetchForRecon;
+
+  assert(
+    'Test 60: Reconcile payment transaction helper successfully verifies capture and targets exactly one row for persistence',
+    reconResult.success === true && reconResult.category === 'approved' && updatedRowsCount === 1,
+    'success=true, category=approved, updatedRowsCount=1',
+    `success=${reconResult.success}, category=${reconResult.category}, updatedRows=${updatedRowsCount}`
   );
 
   // -------------------------------------------------------------
