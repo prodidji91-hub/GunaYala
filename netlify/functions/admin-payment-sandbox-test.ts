@@ -253,28 +253,65 @@ export async function executeExistingTransactionDiagnostic(
     }
   }
 
-  // Relationship verification result
+  // Detailed Record Inspection & Relationship Verification
   const rawTxRecord = dbLookupResult.transactionRecord;
   const dbTxRecord = Array.isArray(rawTxRecord) ? rawTxRecord[0] : rawTxRecord;
   const storedRef = String(dbTxRecord?.booking_reference || bookingRef).trim();
   const storedLinkCode = String(dbTxRecord?.gateway_link_code || '').trim();
-  const returnedRef = String(parsedRecord?.bookingReference || '').trim();
-  const matchedLinkCode = String(parsedRecord?.linkCode || parsedRecord?.code || '').trim();
+
+  const matchedRawRecord = gatewayRecords.length === 1 ? gatewayRecords[0] : null;
+  const matchedFieldNames = matchedRawRecord ? Object.keys(matchedRawRecord) : [];
+
+  const candidateIdentifierKeys = ['customParm1', 'parm1', 'PARM_1', 'bookingReference', 'linkCode', 'code', 'gatewayLinkCode'];
+  const identifierFieldsPresence: Record<string, boolean> = {};
+  const identifierFieldMatches: Record<string, boolean> = {};
+
+  if (matchedRawRecord) {
+    for (const key of candidateIdentifierKeys) {
+      const actualKey = key in matchedRawRecord ? key : Object.keys(matchedRawRecord).find(k => k.toLowerCase() === key.toLowerCase());
+      const hasField = Boolean(actualKey && matchedRawRecord[actualKey] !== undefined && matchedRawRecord[actualKey] !== null && String(matchedRawRecord[actualKey]).trim() !== '');
+      identifierFieldsPresence[key] = hasField;
+      if (hasField && actualKey) {
+        const val = String(matchedRawRecord[actualKey]).trim();
+        identifierFieldMatches[key] = Boolean((val === storedRef) || (storedLinkCode && val === storedLinkCode));
+      } else {
+        identifierFieldMatches[key] = false;
+      }
+    }
+  }
 
   let relationshipVerified = false;
-  let relationshipEvidence: 'customParm1' | 'linkCode' | 'none' = 'none';
-  let relationshipDetails = 'Relationship could not be established.';
+  let relationshipEvidence: ExistingTransactionDiagnosticResult['relationshipVerification']['evidence'] = 'none';
+  let provingField: string | undefined = undefined;
+  let relationshipDetails = 'Relationship evidence unavailable.';
 
-  if (returnedRef && storedRef && returnedRef === storedRef) {
-    relationshipVerified = true;
-    relationshipEvidence = 'customParm1';
-    relationshipDetails = `Verified via matching booking reference (customParm1="${returnedRef}").`;
-  } else if (storedLinkCode && matchedLinkCode && storedLinkCode === matchedLinkCode) {
-    relationshipVerified = true;
-    relationshipEvidence = 'linkCode';
-    relationshipDetails = `Verified via matching gateway link code correlation ("${storedLinkCode}").`;
-  } else if (returnedRef && storedRef && returnedRef !== storedRef) {
-    relationshipDetails = `Booking reference conflict: gateway returned "${returnedRef}", expected "${storedRef}".`;
+  if (matchedRawRecord) {
+    for (const key of ['customParm1', 'parm1', 'PARM_1', 'bookingReference']) {
+      const actualKey = key in matchedRawRecord ? key : Object.keys(matchedRawRecord).find(k => k.toLowerCase() === key.toLowerCase());
+      if (actualKey && matchedRawRecord[actualKey] !== undefined && String(matchedRawRecord[actualKey]).trim() === storedRef) {
+        relationshipVerified = true;
+        relationshipEvidence = key as any;
+        provingField = actualKey;
+        relationshipDetails = `Verified via matching booking reference in field "${actualKey}".`;
+        break;
+      }
+    }
+    if (!relationshipVerified && storedLinkCode) {
+      for (const key of ['linkCode', 'code', 'gatewayLinkCode']) {
+        const actualKey = key in matchedRawRecord ? key : Object.keys(matchedRawRecord).find(k => k.toLowerCase() === key.toLowerCase());
+        if (actualKey && matchedRawRecord[actualKey] !== undefined && String(matchedRawRecord[actualKey]).trim() === storedLinkCode) {
+          relationshipVerified = true;
+          relationshipEvidence = key as any;
+          provingField = actualKey;
+          relationshipDetails = `Verified via matching link code in field "${actualKey}".`;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!relationshipVerified) {
+    relationshipDetails = 'Relationship evidence unavailable.';
   }
 
   const overallSuccess = diagnosticCategory === 'approved' && relationshipVerified;
@@ -295,9 +332,13 @@ export async function executeExistingTransactionDiagnostic(
       parsedRecord,
       error: apiErrorMsg,
     },
+    matchedFieldNames,
+    identifierFieldsPresence,
+    identifierFieldMatches,
     relationshipVerification: {
       verified: relationshipVerified,
       evidence: relationshipEvidence,
+      provingField,
       details: relationshipDetails,
     },
     message: `Read-only sandbox diagnostic completed. Gateway Category: ${diagnosticCategory}, Relationship Verified: ${relationshipVerified}. Database rows found: ${matchCount}.`,

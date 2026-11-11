@@ -192,9 +192,13 @@ export interface ExistingTransactionDiagnosticResult {
     };
     error?: string;
   };
+  matchedFieldNames?: string[];
+  identifierFieldsPresence?: Record<string, boolean>;
+  identifierFieldMatches?: Record<string, boolean>;
   relationshipVerification: {
     verified: boolean;
-    evidence: 'customParm1' | 'linkCode' | 'none';
+    evidence: 'customParm1' | 'linkCode' | 'parm1' | 'bookingReference' | 'code' | 'gatewayLinkCode' | 'none';
+    provingField?: string;
     details: string;
   };
   message: string;
