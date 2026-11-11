@@ -195,6 +195,16 @@ export interface ExistingTransactionDiagnosticResult {
   matchedFieldNames?: string[];
   identifierFieldsPresence?: Record<string, boolean>;
   identifierFieldMatches?: Record<string, boolean>;
+  additionalFieldInspections?: Array<{
+    fieldName: string;
+    exists: boolean;
+    hasValue: boolean;
+    containsBookingRef: boolean;
+    containsLinkCode: boolean;
+    matchedIdentifier: string | null;
+    isAuthoritativeEvidence: boolean;
+    assessment: string;
+  }>;
   relationshipVerification: {
     verified: boolean;
     evidence: 'customParm1' | 'linkCode' | 'parm1' | 'bookingReference' | 'code' | 'gatewayLinkCode' | 'none';

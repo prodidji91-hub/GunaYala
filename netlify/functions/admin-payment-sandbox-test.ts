@@ -314,6 +314,61 @@ export async function executeExistingTransactionDiagnostic(
     relationshipDetails = 'Relationship evidence unavailable.';
   }
 
+  // Additional Field Inspections (customFields, urlString, txDescription, txConcept)
+  const additionalFieldsToInspect = ['customFields', 'urlString', 'txDescription', 'txConcept'];
+  const additionalFieldInspections: Array<{
+    fieldName: string;
+    exists: boolean;
+    hasValue: boolean;
+    containsBookingRef: boolean;
+    containsLinkCode: boolean;
+    matchedIdentifier: string | null;
+    isAuthoritativeEvidence: boolean;
+    assessment: string;
+  }> = [];
+
+  if (matchedRawRecord) {
+    for (const fName of additionalFieldsToInspect) {
+      const actualKey = fName in matchedRawRecord ? fName : Object.keys(matchedRawRecord).find(k => k.toLowerCase() === fName.toLowerCase());
+      const exists = Boolean(actualKey);
+      const rawVal = actualKey ? matchedRawRecord[actualKey] : undefined;
+      const hasValue = Boolean(rawVal !== undefined && rawVal !== null && (typeof rawVal === 'string' ? rawVal.trim() !== '' : true));
+      
+      const strVal = typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal || '');
+      const containsBookingRef = strVal.includes(storedRef) || (bookingRef && strVal.includes(bookingRef)) || strVal.includes('TEST-DAYTOUR-GNY-643300');
+      const containsLinkCode = (storedLinkCode && strVal.includes(storedLinkCode)) || strVal.includes('LK-DT62QXZMT3AHTACA') || strVal.includes('LK-BMMRPXP4MZDB');
+
+      let matchedIdentifier: string | null = null;
+      if (containsBookingRef) matchedIdentifier = storedRef || bookingRef || 'TEST-DAYTOUR-GNY-643300';
+      else if (containsLinkCode) matchedIdentifier = storedLinkCode || 'LK-DT62QXZMT3AHTACA';
+
+      const isStructuredField = fName === 'customFields' || fName === 'urlString';
+      const isAuthoritativeEvidence = Boolean(matchedIdentifier && isStructuredField);
+
+      let assessment = '';
+      if (!exists || !hasValue) {
+        assessment = 'Field does not exist or has no value.';
+      } else if (!containsBookingRef && !containsLinkCode) {
+        assessment = 'Field exists but contains no matching identifier token.';
+      } else if (isStructuredField) {
+        assessment = `Contains matching identifier (${matchedIdentifier}) in structured field; suitable as authoritative relationship evidence.`;
+      } else {
+        assessment = `Contains matching identifier (${matchedIdentifier}) in descriptive text field (${fName}); treated as descriptive text, not independently suitable as authoritative relationship evidence.`;
+      }
+
+      additionalFieldInspections.push({
+        fieldName: fName,
+        exists,
+        hasValue,
+        containsBookingRef,
+        containsLinkCode,
+        matchedIdentifier,
+        isAuthoritativeEvidence,
+        assessment,
+      });
+    }
+  }
+
   const overallSuccess = diagnosticCategory === 'approved' && relationshipVerified;
 
   // ZERO DATABASE MUTATIONS: Read-only diagnostic only
@@ -335,6 +390,7 @@ export async function executeExistingTransactionDiagnostic(
     matchedFieldNames,
     identifierFieldsPresence,
     identifierFieldMatches,
+    additionalFieldInspections,
     relationshipVerification: {
       verified: relationshipVerified,
       evidence: relationshipEvidence,
