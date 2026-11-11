@@ -39,6 +39,87 @@ export interface RelationshipValidationResult {
 }
 
 /**
+ * Validates merchant return URLs (e.g. gunayalapanama.com/checkout/complete) found in MerchantTransactions.urlString.
+ * Enforces HTTPS, trusted merchant origin, expected path, and validates query parameters & idempotency.
+ */
+export function validateMerchantReturnUrl(
+  rawUrl: string,
+  storedRef: string,
+  storedIdem?: string
+): { valid: boolean; recognizedParams: string[]; matchingParams: string[]; hasConflicts: boolean; rejectionReason?: string } {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') {
+      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'insecure_protocol' };
+    }
+    if (parsed.port && parsed.port !== '443') {
+      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'custom_port' };
+    }
+    if (parsed.username || parsed.password) {
+      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'embedded_credentials' };
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    const allowedDomains = ['gunayalapanama.com', 'localhost', '127.0.0.1'];
+    const isAllowedHost = allowedDomains.includes(hostname) || hostname.endsWith('.gunayalapanama.com');
+    if (!isAllowedHost) {
+      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_origin' };
+    }
+
+    const path = parsed.pathname.toLowerCase();
+    const isAllowedPath = path.includes('/checkout') || path.includes('/complete') || path.includes('/return') || path === '/';
+    if (!isAllowedPath) {
+      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_path' };
+    }
+
+    const searchParams = parsed.searchParams;
+    const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'];
+    const recognizedParams: string[] = [];
+    const matchingParams: string[] = [];
+    let hasConflicts = false;
+
+    const idemParam = searchParams.get('idem') || searchParams.get('idempotencyKey');
+    if (idemParam && storedIdem && idemParam.trim() !== storedIdem.trim()) {
+      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: true, rejectionReason: 'idem_mismatch' };
+    }
+
+    for (const param of trustedParams) {
+      if (searchParams.has(param)) {
+        recognizedParams.push(param);
+        const val = searchParams.get(param);
+        if (val !== null && val !== undefined) {
+          const trimmed = val.trim();
+          if (storedRef && trimmed === storedRef) {
+            matchingParams.push(param);
+          } else if (storedRef && trimmed !== '' && trimmed !== storedRef) {
+            hasConflicts = true;
+          }
+        }
+      }
+    }
+
+    for (const key of trustedParams) {
+      const allVals = searchParams.getAll(key);
+      if (allVals.some(v => v.trim() !== storedRef)) {
+        hasConflicts = true;
+      }
+    }
+
+    if (hasConflicts) {
+      return { valid: false, recognizedParams, matchingParams, hasConflicts: true, rejectionReason: 'parameter_conflict' };
+    }
+
+    if (matchingParams.length === 0) {
+      return { valid: false, recognizedParams, matchingParams: [], hasConflicts: false, rejectionReason: 'no_matching_trusted_parameters' };
+    }
+
+    return { valid: true, recognizedParams, matchingParams, hasConflicts: false };
+  } catch {
+    return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'malformed_url' };
+  }
+}
+
+/**
  * Strict Authoritative Relationship Validation Helper
  * Validates trusted gateway parameters, link codes, and safely parsed urlString query parameters.
  * Rejects substring matches, malformed URLs, untrusted origins, and conflicting identifiers.
@@ -142,116 +223,129 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
     }
   }
 
-  // 3. Check urlString trusted URL parameters safely (Requirements 1 & 2)
+  // 3. Check urlString trusted URL parameters safely (Merchant Return URL vs PagueloFacil Checkout URL)
   const urlStringVal = matched.urlString || matched.url || matched.returnUrl || matched.callbackUrl;
   if (urlStringVal && typeof urlStringVal === 'string' && urlStringVal.trim() !== '') {
-    const urlCheck = validatePagueloFacilCheckoutUrl(urlStringVal, env);
-    if (!urlCheck.valid) {
-      return {
-        verified: false,
-        evidence: 'none',
-        details: `URL validation failed in urlString: ${urlCheck.error}`,
-        diagnosticDetails: {
-          urlFormatValid: false,
-          recognizedQueryParameters: [],
-          matchingParameterNames: [],
-          hasConflicts: false,
-          rejectionReason: 'untrusted_origin_or_malformed_url',
-        },
-      };
-    }
+    const isPagueloFacilHost = urlStringVal.includes('paguelofacil.com');
+    if (isPagueloFacilHost) {
+      const urlCheck = validatePagueloFacilCheckoutUrl(urlStringVal, env);
+      if (!urlCheck.valid) {
+        return {
+          verified: false,
+          evidence: 'none',
+          details: `URL validation failed for gateway checkout URL: ${urlCheck.error}`,
+          diagnosticDetails: {
+            urlFormatValid: false,
+            recognizedQueryParameters: [],
+            matchingParameterNames: [],
+            hasConflicts: false,
+            rejectionReason: 'untrusted_origin_or_malformed_url',
+          },
+        };
+      }
+      try {
+        const parsedUrl = new URL(urlStringVal);
+        const searchParams = parsedUrl.searchParams;
+        const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference', 'linkCode', 'code'];
+        const recognizedQueryParameters: string[] = [];
+        const matchingParameterNames: string[] = [];
+        let hasConflicts = false;
 
-    try {
-      const parsedUrl = new URL(urlStringVal);
-      const searchParams = parsedUrl.searchParams;
-      const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference', 'linkCode', 'code'];
-      const recognizedQueryParameters: string[] = [];
-      const matchingParameterNames: string[] = [];
-      let hasConflicts = false;
+        for (const param of trustedParams) {
+          if (searchParams.has(param)) {
+            recognizedQueryParameters.push(param);
+            const paramVal = searchParams.get(param);
+            if (paramVal !== null && paramVal !== undefined) {
+              const trimmedVal = paramVal.trim();
+              const isBookingRefParam = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'].includes(param);
+              const isLinkCodeParam = ['linkCode', 'code'].includes(param);
 
-      for (const param of trustedParams) {
-        if (searchParams.has(param)) {
-          recognizedQueryParameters.push(param);
-          const paramVal = searchParams.get(param);
-          if (paramVal !== null && paramVal !== undefined) {
-            const trimmedVal = paramVal.trim();
-            const isBookingRefParam = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'].includes(param);
-            const isLinkCodeParam = ['linkCode', 'code'].includes(param);
-
-            if (isBookingRefParam) {
-              if (storedRef && trimmedVal === storedRef) {
-                matchingParameterNames.push(param);
-              } else if (storedRef && trimmedVal !== '' && trimmedVal !== storedRef) {
-                hasConflicts = true;
-              }
-            } else if (isLinkCodeParam) {
-              if (storedLinkCode && trimmedVal === storedLinkCode) {
-                matchingParameterNames.push(param);
-              } else if (storedLinkCode && trimmedVal !== '' && trimmedVal !== storedLinkCode) {
-                hasConflicts = true;
+              if (isBookingRefParam) {
+                if (storedRef && trimmedVal === storedRef) {
+                  matchingParameterNames.push(param);
+                } else if (storedRef && trimmedVal !== '' && trimmedVal !== storedRef) {
+                  hasConflicts = true;
+                }
+              } else if (isLinkCodeParam) {
+                if (storedLinkCode && trimmedVal === storedLinkCode) {
+                  matchingParameterNames.push(param);
+                } else if (storedLinkCode && trimmedVal !== '' && trimmedVal !== storedLinkCode) {
+                  hasConflicts = true;
+                }
               }
             }
           }
         }
-      }
 
-      if (hasConflicts) {
+        if (hasConflicts) {
+          return {
+            verified: false,
+            evidence: 'urlString_parameter',
+            details: 'URL parameter conflict detected in gateway checkout urlString.',
+            diagnosticDetails: {
+              urlFormatValid: true,
+              recognizedQueryParameters,
+              matchingParameterNames,
+              hasConflicts: true,
+              rejectionReason: 'parameter_conflict',
+            },
+          };
+        }
+
+        if (matchingParameterNames.length > 0) {
+          const proving = matchingParameterNames[0];
+          return {
+            verified: true,
+            evidence: 'urlString_parameter',
+            provingField: `urlString?${proving}`,
+            details: `Verified via trusted URL parameter "${proving}" in gateway checkout urlString matching stored booking reference.`,
+            diagnosticDetails: {
+              urlFormatValid: true,
+              recognizedQueryParameters,
+              matchingParameterNames,
+              hasConflicts: false,
+              rejectionReason: 'none',
+            },
+          };
+        }
+      } catch {
+        // fallback
+      }
+    } else {
+      const storedIdem = existingTx.idempotency_key || existingTx.idempotencyKey;
+      const returnUrlVal = validateMerchantReturnUrl(urlStringVal, storedRef, storedIdem);
+
+      if (!returnUrlVal.valid) {
         return {
           verified: false,
-          evidence: 'urlString_parameter',
-          details: 'URL parameter conflict detected in urlString.',
+          evidence: 'none',
+          details: `Merchant return URL validation failed in urlString: reason=${returnUrlVal.rejectionReason}`,
           diagnosticDetails: {
-            urlFormatValid: true,
-            recognizedQueryParameters,
-            matchingParameterNames,
-            hasConflicts: true,
-            rejectionReason: 'parameter_conflict',
+            urlFormatValid: false,
+            recognizedQueryParameters: returnUrlVal.recognizedParams,
+            matchingParameterNames: returnUrlVal.matchingParams,
+            hasConflicts: returnUrlVal.hasConflicts,
+            rejectionReason: returnUrlVal.rejectionReason || 'merchant_return_url_invalid',
           },
         };
       }
 
-      if (matchingParameterNames.length > 0) {
-        const proving = matchingParameterNames[0];
+      if (returnUrlVal.matchingParams.length > 0) {
+        const proving = returnUrlVal.matchingParams[0];
         return {
           verified: true,
           evidence: 'urlString_parameter',
           provingField: `urlString?${proving}`,
-          details: `Verified via trusted URL parameter "${proving}" in urlString matching stored booking reference.`,
+          details: `Verified via trusted merchant return URL parameter "${proving}" matching stored booking reference.`,
           diagnosticDetails: {
             urlFormatValid: true,
-            recognizedQueryParameters,
-            matchingParameterNames,
+            recognizedQueryParameters: returnUrlVal.recognizedParams,
+            matchingParameterNames: returnUrlVal.matchingParams,
             hasConflicts: false,
             rejectionReason: 'none',
           },
         };
       }
-
-      return {
-        verified: false,
-        evidence: 'urlString_parameter',
-        details: 'Recognized URL parameters in urlString did not match stored booking reference.',
-        diagnosticDetails: {
-          urlFormatValid: true,
-          recognizedQueryParameters,
-          matchingParameterNames: [],
-          hasConflicts: false,
-          rejectionReason: 'no_matching_trusted_parameters',
-        },
-      };
-    } catch {
-      return {
-        verified: false,
-        evidence: 'none',
-        details: 'Malformed URL in urlString; rejected per strict relationship validation rules.',
-        diagnosticDetails: {
-          urlFormatValid: false,
-          recognizedQueryParameters: [],
-          matchingParameterNames: [],
-          hasConflicts: false,
-          rejectionReason: 'malformed_url',
-        },
-      };
     }
   }
 

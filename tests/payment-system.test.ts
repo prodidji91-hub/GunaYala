@@ -2419,9 +2419,96 @@ async function runPaymentSecurityTests() {
   assert(
     'Test 68: validatePaymentRelationship rejects untrusted origin in urlString without weakening security',
     untrustedUrlResult.verified === false &&
-      untrustedUrlResult.diagnosticDetails?.rejectionReason === 'untrusted_origin_or_malformed_url',
-    'verified=false, rejectionReason=untrusted_origin_or_malformed_url',
+      (untrustedUrlResult.diagnosticDetails?.rejectionReason === 'untrusted_origin_or_malformed_url' ||
+       untrustedUrlResult.diagnosticDetails?.rejectionReason === 'untrusted_origin'),
+    'verified=false, rejectionReason=untrusted_origin or untrusted_origin_or_malformed_url',
     `verified=${untrustedUrlResult.verified}, reason=${untrustedUrlResult.diagnosticDetails?.rejectionReason}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 69: VALID MERCHANT RETURN URL VERIFICATION
+  // -------------------------------------------------------------
+  const merchantReturnResult = validatePaymentRelationship(
+    {
+      urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300',
+    },
+    {
+      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+      environment: 'sandbox',
+    }
+  );
+
+  assert(
+    'Test 69: validatePaymentRelationship successfully verifies valid merchant return URL (gunayalapanama.com)',
+    merchantReturnResult.verified === true &&
+      merchantReturnResult.diagnosticDetails?.urlFormatValid === true &&
+      merchantReturnResult.diagnosticDetails?.matchingParameterNames.includes('bookingReference') === true,
+    'verified=true, urlFormatValid=true',
+    `verified=${merchantReturnResult.verified}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 70: REJECT INCORRECT ORIGIN OR PATH IN MERCHANT RETURN URL
+  // -------------------------------------------------------------
+  const wrongOriginResult = validatePaymentRelationship(
+    {
+      urlString: 'https://gunayalapanama.com/wrong/path?bookingReference=TEST-DAYTOUR-GNY-643300',
+    },
+    {
+      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+      environment: 'sandbox',
+    }
+  );
+
+  assert(
+    'Test 70: validatePaymentRelationship rejects merchant return URL with untrusted path',
+    wrongOriginResult.verified === false &&
+      wrongOriginResult.diagnosticDetails?.rejectionReason === 'untrusted_path',
+    'verified=false, rejectionReason=untrusted_path',
+    `verified=${wrongOriginResult.verified}, reason=${wrongOriginResult.diagnosticDetails?.rejectionReason}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 71: REJECT CONFLICTING / DUPLICATE QUERY PARAMETERS IN MERCHANT RETURN URL
+  // -------------------------------------------------------------
+  const conflictReturnResult = validatePaymentRelationship(
+    {
+      urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300&PARM_1=CONFLICT-REF',
+    },
+    {
+      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+      environment: 'sandbox',
+    }
+  );
+
+  assert(
+    'Test 71: validatePaymentRelationship rejects merchant return URL with conflicting query parameters',
+    conflictReturnResult.verified === false &&
+      conflictReturnResult.diagnosticDetails?.rejectionReason === 'parameter_conflict',
+    'verified=false, rejectionReason=parameter_conflict',
+    `verified=${conflictReturnResult.verified}, reason=${conflictReturnResult.diagnosticDetails?.rejectionReason}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 72: REJECT MISMATCHED IDEMPOTENCY KEY IN MERCHANT RETURN URL
+  // -------------------------------------------------------------
+  const idemMismatchResult = validatePaymentRelationship(
+    {
+      urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300&idem=wrong-key',
+    },
+    {
+      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+      idempotency_key: 'correct-key',
+      environment: 'sandbox',
+    }
+  );
+
+  assert(
+    'Test 72: validatePaymentRelationship rejects merchant return URL with mismatched idempotency key',
+    idemMismatchResult.verified === false &&
+      idemMismatchResult.diagnosticDetails?.rejectionReason === 'idem_mismatch',
+    'verified=false, rejectionReason=idem_mismatch',
+    `verified=${idemMismatchResult.verified}, reason=${idemMismatchResult.diagnosticDetails?.rejectionReason}`
   );
 
   // -------------------------------------------------------------
