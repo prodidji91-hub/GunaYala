@@ -12,6 +12,7 @@ import { handler as checkoutHandler } from '../netlify/functions/payment-checkou
 import { handler as webhookHandler } from '../netlify/functions/payment-webhook.js';
 import {
   executeAdminSandboxTest,
+  executeExistingTransactionDiagnostic,
   handler as adminSandboxTestHandler,
 } from '../netlify/functions/admin-payment-sandbox-test.js';
 import {
@@ -1810,6 +1811,87 @@ async function runPaymentSecurityTests() {
     officialRes.verified === true && officialRes.status === 'approved' && officialRes.amountPaid === 69.00,
     'verified=true, status=approved for official demo response schema',
     `verified=${officialRes.verified}, status=${officialRes.status}, amount=${officialRes.amountPaid}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 59: EXISTING TRANSACTION READ-ONLY SANDBOX DIAGNOSTIC (TEST-DAYTOUR-GNY-643300)
+  // -------------------------------------------------------------
+  const mockDiagnosticSupabase = {
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'admin_petra_uuid' } }, error: null }),
+    },
+    from: (table: string) => {
+      if (table === 'quotation_admins') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { user_id: 'admin_petra_uuid' }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              data: [
+                {
+                  id: 'tx-existing-643300',
+                  booking_reference: 'TEST-DAYTOUR-GNY-643300',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 69.00,
+                  amount_paid: null,
+                  gateway_operation_id: null,
+                  gateway_link_code: 'LK-BMMRPXP4MZDB',
+                  currency: 'USD',
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+
+  const origFetchForDiag = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'LK-BMMRPXP4MZDB',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authCurrency: 840,
+        authAmount: 69.00,
+        idMerchant: 'SANDBOX_MERCHANT',
+        customParm1: 'TEST-DAYTOUR-GNY-643300',
+      },
+    }),
+  } as any);
+
+  const diagRes = await executeExistingTransactionDiagnostic(
+    'Bearer admin_token',
+    { action: 'diagnose_existing_transaction', bookingReference: 'TEST-DAYTOUR-GNY-643300', operationCode: 'LK-BMMRPXP4MZDB' },
+    {
+      supabaseClient: mockDiagnosticSupabase as any,
+      envOverride: {
+        PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token_sandbox_valid',
+      },
+    }
+  );
+  global.fetch = origFetchForDiag;
+
+  assert(
+    'Test 59: Existing transaction read-only sandbox diagnostic correctly verifies Supabase record and PagueloFacil MerchantTransactions API',
+    diagRes.statusCode === 200 &&
+      diagRes.body.success === true &&
+      diagRes.body.existingTransactionDiagnostic?.databaseLookup.exactOneRow === true &&
+      diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory === 'approved',
+    'HTTP 200, success=true, exactOneRow=true, diagnosticCategory=approved',
+    `status=${diagRes.statusCode}, success=${diagRes.body.success}, category=${diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory}`
   );
 
   // -------------------------------------------------------------

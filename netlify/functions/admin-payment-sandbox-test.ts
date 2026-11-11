@@ -9,6 +9,7 @@ import {
   AdminSandboxTestResponse,
   PagueloFacilLinkDaemonRequest,
   PagueloFacilLinkDaemonResponse,
+  ExistingTransactionDiagnosticResult,
 } from '../../src/types/payment.js';
 
 // In-memory rate limiting and cooldown state
@@ -64,12 +65,231 @@ export interface AdminSandboxTestDependencies {
 }
 
 /**
+ * Secure Read-Only Admin Diagnostic for Existing Approved Transaction (TEST-DAYTOUR-GNY-643300)
+ */
+export async function executeExistingTransactionDiagnostic(
+  authToken: string | null,
+  requestBody: any = {},
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: AdminSandboxTestResponse }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  // 1. Authenticate administrator server-side using quotation_admins authorization table
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        environment: 'sandbox',
+        testReference: '',
+        amount: 69.00,
+        currency: 'USD',
+        error: 'Unauthorized: Administrator Bearer token is required.',
+      },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        environment: 'sandbox',
+        testReference: '',
+        amount: 69.00,
+        currency: 'USD',
+        error: 'Unauthorized: Invalid or expired administrator credentials.',
+      },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: {
+        success: false,
+        environment: 'sandbox',
+        testReference: '',
+        amount: 69.00,
+        currency: 'USD',
+        error: 'Forbidden: Access restricted to authorized quotation administrators.',
+      },
+    };
+  }
+
+  const bookingRef = requestBody?.bookingReference || 'TEST-DAYTOUR-GNY-643300';
+  const operationCode = requestBody?.operationCode || 'LK-BMMRPXP4MZDB';
+
+  // 2. Query Supabase payment_transactions for this exact booking reference using service-role credentials
+  const { data: dbRows, error: dbError } = await supabase
+    .from('payment_transactions')
+    .select('id, booking_reference, status, environment, expected_amount, amount_paid, gateway_operation_id, gateway_link_code, currency, created_at, updated_at')
+    .eq('booking_reference', bookingRef);
+
+  const rowFound = Boolean(dbRows && dbRows.length > 0);
+  const exactOneRow = Boolean(dbRows && dbRows.length === 1);
+  const matchCount = dbRows?.length ?? 0;
+
+  const dbLookupResult = {
+    rowFound,
+    exactOneRow,
+    matchCount,
+    dbErrorCode: dbError?.code || null,
+    dbErrorMessage: dbError ? 'Sanitized Database Error' : null,
+    transactionRecord: exactOneRow && dbRows ? dbRows[0] : (rowFound && dbRows ? dbRows : null),
+  };
+
+  // 3. Query official sandbox MerchantTransactions endpoint using filter=codOper::<operation code>
+  // Authorization header sends raw access token directly without Bearer prefix
+  const sandboxToken = (
+    env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN ||
+    env.PAGUELOFACIL_DEMO_ACCESS_TOKEN ||
+    ''
+  ).trim();
+
+  const verifyUrl = 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
+  const filterParam = `codOper::${operationCode}`;
+
+  let gatewayHttpStatus: number | undefined;
+  let gatewayRecords: any[] = [];
+  let diagnosticCategory: ExistingTransactionDiagnosticResult['gatewayDiagnostic']['diagnosticCategory'] = 'absent_records';
+  let parsedRecord: any = null;
+  let apiErrorMsg: string | undefined;
+
+  if (!sandboxToken) {
+    diagnosticCategory = 'authentication_failure';
+    apiErrorMsg = 'Sandbox API access token not configured in environment.';
+  } else {
+    try {
+      const response = await fetch(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: sandboxToken, // Direct access token without Bearer
+          Accept: 'application/json',
+        },
+      });
+
+      gatewayHttpStatus = response.status;
+
+      if (response.status === 401 || response.status === 403) {
+        diagnosticCategory = 'authentication_failure';
+        apiErrorMsg = `Gateway authentication failed (HTTP ${response.status}).`;
+      } else if (!response.ok) {
+        diagnosticCategory = 'parsing_problem';
+        apiErrorMsg = `Gateway returned HTTP ${response.status} ${response.statusText}.`;
+      } else {
+        const json = await response.json();
+        gatewayRecords = Array.isArray(json?.data) ? json.data : (json?.data ? [json.data] : (Array.isArray(json) ? json : []));
+
+        if (gatewayRecords.length === 0) {
+          diagnosticCategory = 'absent_records';
+          apiErrorMsg = `No transaction records found for operation code ${operationCode}.`;
+        } else {
+          const matched = gatewayRecords[0];
+          const rawStatus = matched.status !== undefined ? Number(matched.status) : String(matched.estado || '').trim().toLowerCase();
+          const isApproved = rawStatus === 1 || rawStatus === '1' || rawStatus === 'aprobada' || rawStatus === 'approved';
+          const isDeclined = rawStatus === 0 || rawStatus === '0' || rawStatus === 'rechazada' || rawStatus === 'declined';
+          const txType = String(matched.txType || matched.type || '').trim().toUpperCase();
+          const rawAmount = matched.authAmount ?? matched.amount ?? matched.total ?? 0;
+          const amt = Number(rawAmount);
+          const rawCurrency = String(matched.authCurrency ?? matched.currency ?? 'USD').trim().toUpperCase();
+          const merchantId = String(matched.idMerchant ?? matched.id_merchant ?? '').trim();
+          const returnedRef = String(matched.customParm1 ?? matched.parm1 ?? '').trim();
+
+          parsedRecord = {
+            codOper: matched.codOper || matched.oper || matched.id,
+            status: rawStatus,
+            txType,
+            amount: amt,
+            currency: rawCurrency,
+            idMerchant: merchantId,
+            bookingReference: returnedRef,
+          };
+
+          if (isDeclined) {
+            diagnosticCategory = 'declined';
+          } else if (isApproved && (txType === 'AUTH_CAPTURE' || txType === 'SALE' || !txType)) {
+            const amtCents = amt < 1000 ? Math.round(amt * 100) : Math.round(amt);
+            if (amtCents !== 6900) {
+              diagnosticCategory = 'validation_rejection';
+              apiErrorMsg = `Amount mismatch: expected $69.00 (6900c), received ${amtCents}c.`;
+            } else if (returnedRef && returnedRef !== bookingRef) {
+              diagnosticCategory = 'mismatched_identifiers';
+              apiErrorMsg = `Booking reference conflict: expected ${bookingRef}, received ${returnedRef}.`;
+            } else {
+              diagnosticCategory = 'approved';
+            }
+          } else {
+            diagnosticCategory = 'validation_rejection';
+            apiErrorMsg = `Transaction status or type not fully captured/approved (status: ${rawStatus}, txType: ${txType}).`;
+          }
+        }
+      }
+    } catch (err: any) {
+      diagnosticCategory = 'parsing_problem';
+      apiErrorMsg = `Network or parsing error querying MerchantTransactions API: ${err.message}`;
+    }
+  }
+
+  // ZERO DATABASE MUTATIONS: Read-only diagnostic only
+  const diagnosticResult: ExistingTransactionDiagnosticResult = {
+    success: diagnosticCategory === 'approved',
+    action: 'diagnose_existing_transaction',
+    bookingReference: bookingRef,
+    targetOperationCode: operationCode,
+    databaseLookup: dbLookupResult,
+    gatewayDiagnostic: {
+      endpoint: verifyUrl,
+      tokenConfigured: Boolean(sandboxToken),
+      httpStatus: gatewayHttpStatus,
+      recordsFoundCount: gatewayRecords.length,
+      diagnosticCategory,
+      parsedRecord,
+      error: apiErrorMsg,
+    },
+    message: `Read-only sandbox diagnostic completed. Category: ${diagnosticCategory}. Database rows found: ${matchCount}.`,
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    statusCode: 200,
+    body: {
+      success: diagnosticCategory === 'approved',
+      environment: 'sandbox',
+      testReference: bookingRef,
+      amount: 69.00,
+      currency: 'USD',
+      message: diagnosticResult.message,
+      existingTransactionDiagnostic: diagnosticResult,
+    },
+  };
+}
+
+/**
  * Core test execution logic, separated for isolated unit testing with mocks.
  */
 export async function executeAdminSandboxTest(
   authToken: string | null,
-  dependencies: AdminSandboxTestDependencies = {}
+  dependencies: AdminSandboxTestDependencies = {},
+  requestBody: any = {}
 ): Promise<{ statusCode: number; body: AdminSandboxTestResponse }> {
+  if (requestBody?.action === 'diagnose_existing_transaction') {
+    return await executeExistingTransactionDiagnostic(authToken, requestBody, dependencies);
+  }
+
   const env = dependencies.envOverride || process.env;
 
   const supabaseUrl = env.SUPABASE_URL || '';
@@ -383,7 +603,16 @@ export const handler = async (event: any) => {
 
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || null;
 
-  const result = await executeAdminSandboxTest(authHeader);
+  let requestBody: any = {};
+  if (event.body) {
+    try {
+      requestBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    } catch {
+      requestBody = {};
+    }
+  }
+
+  const result = await executeAdminSandboxTest(authHeader, {}, requestBody);
 
   return {
     statusCode: result.statusCode,

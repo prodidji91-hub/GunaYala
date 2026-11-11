@@ -34,6 +34,11 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
   const [sandboxTestResult, setSandboxTestResult] = useState<AdminSandboxTestResponse | null>(null);
   const [testErrorMessage, setTestErrorMessage] = useState<string | null>(null);
 
+  // Existing Transaction Sandbox Diagnostic State (TEST-DAYTOUR-GNY-643300)
+  const [isDiagnosingExistingTx, setIsDiagnosingExistingTx] = useState<boolean>(false);
+  const [existingTxDiagnosticResult, setExistingTxDiagnosticResult] = useState<any>(null);
+  const [existingTxError, setExistingTxError] = useState<string | null>(null);
+
   // Sandbox Hosted-Checkout Return Detection State (Part 25I)
   const [sandboxReturnResult, setSandboxReturnResult] = useState<ParsedSandboxReturn | null>(() => {
     if (typeof window !== 'undefined') {
@@ -90,6 +95,48 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
       setTestErrorMessage(err.message || 'An unexpected error occurred while running the sandbox test.');
     } finally {
       setIsTestingSandbox(false);
+    }
+  };
+
+  const handleDiagnoseExistingTransaction = async () => {
+    setIsDiagnosingExistingTx(true);
+    setExistingTxError(null);
+    setExistingTxDiagnosticResult(null);
+
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client is not available.');
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'diagnose_existing_transaction',
+          bookingReference: 'TEST-DAYTOUR-GNY-643300',
+          operationCode: 'LK-BMMRPXP4MZDB',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setExistingTxError(data.error || `HTTP ${response.status}: Diagnostic failed.`);
+      } else {
+        setExistingTxDiagnosticResult(data.existingTransactionDiagnostic);
+      }
+    } catch (err: any) {
+      setExistingTxError(err.message || 'An unexpected error occurred while running the existing transaction diagnostic.');
+    } finally {
+      setIsDiagnosingExistingTx(false);
     }
   };
 
@@ -493,6 +540,107 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
                 <div><strong>Timestamp:</strong> {sandboxTestResult.diagnostic.requestTimestamp}</div>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================
+          EXISTING APPROVED TRANSACTION DIAGNOSTIC CARD (TEST-DAYTOUR-GNY-643300)
+         ======================================================== */}
+      <div className="bg-white border-2 border-[#0e3b2f]/40 rounded-2xl p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#F1F5F9] pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-[#0e3b2f]" />
+              <h3 className="text-sm sm:text-base font-bold text-[#06121e]">
+                Existing Transaction Diagnostic (TEST-DAYTOUR-GNY-643300)
+              </h3>
+              <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold">
+                Read-Only Audit
+              </span>
+            </div>
+            <p className="text-xs text-[#64748b]">
+              Verify Supabase booking record and query PagueloFacil Sandbox MerchantTransactions for approved TX ID 703537 (LK-BMMRPXP4MZDB, $69.00 USD).
+            </p>
+          </div>
+
+          <button
+            onClick={handleDiagnoseExistingTransaction}
+            disabled={isDiagnosingExistingTx}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0e3b2f] hover:bg-[#155243] text-[#FAF8F5] text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer shrink-0"
+          >
+            {isDiagnosingExistingTx ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-[#D6BA80]" />
+                <span>Running Diagnostic...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 text-[#D6BA80]" />
+                <span>Run Existing Tx Diagnostic</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {existingTxError && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
+            <strong>Diagnostic Error:</strong> {existingTxError}
+          </div>
+        )}
+
+        {existingTxDiagnosticResult && (
+          <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2D8C5] text-xs text-[#06121e] space-y-3">
+            <div className="flex items-center justify-between border-b border-[#E2D8C5] pb-2">
+              <span className="font-bold uppercase tracking-wider font-mono text-[11px] text-[#0e3b2f]">
+                Diagnostic Results — Category: <span className="underline">{existingTxDiagnosticResult.gatewayDiagnostic.diagnosticCategory}</span>
+              </span>
+              <span className="text-[10px] text-gray-500 font-mono">{existingTxDiagnosticResult.timestamp}</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Database Lookup Report */}
+              <div className="p-3 bg-white rounded-xl border border-[#E2D8C5] space-y-1 font-mono text-[11px]">
+                <div className="font-semibold text-[#0e3b2f] border-b pb-1 mb-1">Supabase Database Lookup</div>
+                <div><strong>Booking Ref:</strong> {existingTxDiagnosticResult.bookingReference}</div>
+                <div><strong>Row Found:</strong> {existingTxDiagnosticResult.databaseLookup.rowFound ? 'Yes' : 'No'}</div>
+                <div><strong>Exact One Row:</strong> {existingTxDiagnosticResult.databaseLookup.exactOneRow ? 'Yes' : 'No'}</div>
+                <div><strong>Match Count:</strong> {existingTxDiagnosticResult.databaseLookup.matchCount}</div>
+                {existingTxDiagnosticResult.databaseLookup.dbErrorCode && (
+                  <div><strong>DB Error Code:</strong> {existingTxDiagnosticResult.databaseLookup.dbErrorCode}</div>
+                )}
+                {existingTxDiagnosticResult.databaseLookup.transactionRecord && (
+                  <div className="pt-1 text-[10px] text-gray-600">
+                    <div>Status: {existingTxDiagnosticResult.databaseLookup.transactionRecord.status}</div>
+                    <div>Expected: ${existingTxDiagnosticResult.databaseLookup.transactionRecord.expected_amount}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Gateway MerchantTransactions Report */}
+              <div className="p-3 bg-white rounded-xl border border-[#E2D8C5] space-y-1 font-mono text-[11px]">
+                <div className="font-semibold text-[#0e3b2f] border-b pb-1 mb-1">PagueloFacil Sandbox API</div>
+                <div><strong>Target Code:</strong> {existingTxDiagnosticResult.targetOperationCode}</div>
+                <div><strong>HTTP Status:</strong> {existingTxDiagnosticResult.gatewayDiagnostic.httpStatus ?? 'N/A'}</div>
+                <div><strong>Records Found:</strong> {existingTxDiagnosticResult.gatewayDiagnostic.recordsFoundCount}</div>
+                <div><strong>Category:</strong> {existingTxDiagnosticResult.gatewayDiagnostic.diagnosticCategory}</div>
+                {existingTxDiagnosticResult.gatewayDiagnostic.parsedRecord && (
+                  <div className="pt-1 text-[10px] text-gray-600 space-y-0.5">
+                    <div>codOper: {existingTxDiagnosticResult.gatewayDiagnostic.parsedRecord.codOper}</div>
+                    <div>Status: {existingTxDiagnosticResult.gatewayDiagnostic.parsedRecord.status}</div>
+                    <div>Amount: ${existingTxDiagnosticResult.gatewayDiagnostic.parsedRecord.amount}</div>
+                    <div>Currency: {existingTxDiagnosticResult.gatewayDiagnostic.parsedRecord.currency}</div>
+                  </div>
+                )}
+                {existingTxDiagnosticResult.gatewayDiagnostic.error && (
+                  <div className="text-red-600 pt-1 text-[10px]">Error: {existingTxDiagnosticResult.gatewayDiagnostic.error}</div>
+                )}
+              </div>
+            </div>
+
+            <p className="text-[11px] text-[#475569] italic">
+              {existingTxDiagnosticResult.message} Zero database mutations were performed.
+            </p>
           </div>
         )}
       </div>

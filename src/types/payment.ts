@@ -153,10 +153,47 @@ export interface PagueloFacilLinkDaemonResponse {
 }
 
 /**
- * Admin-Only PagueloFacil Sandbox Connectivity Test Types (Part 25H)
+ * Admin-Only PagueloFacil Sandbox Connectivity Test Types (Part 25H & Existing Tx Diagnostic)
  */
 export interface AdminSandboxTestRequest {
   adminNote?: string;
+  action?: 'test_connectivity' | 'diagnose_existing_transaction';
+  bookingReference?: string;
+  operationCode?: string;
+}
+
+export interface ExistingTransactionDiagnosticResult {
+  success: boolean;
+  action: 'diagnose_existing_transaction';
+  bookingReference: string;
+  targetOperationCode: string;
+  databaseLookup: {
+    rowFound: boolean;
+    exactOneRow: boolean;
+    matchCount: number;
+    dbErrorCode?: string | null;
+    dbErrorMessage?: string | null;
+    transactionRecord?: any;
+  };
+  gatewayDiagnostic: {
+    endpoint: string;
+    tokenConfigured: boolean;
+    httpStatus?: number;
+    recordsFoundCount: number;
+    diagnosticCategory: 'approved' | 'declined' | 'absent_records' | 'authentication_failure' | 'mismatched_identifiers' | 'validation_rejection' | 'parsing_problem';
+    parsedRecord?: {
+      codOper?: string;
+      status?: any;
+      txType?: string;
+      amount?: number;
+      currency?: string;
+      idMerchant?: string;
+      bookingReference?: string;
+    };
+    error?: string;
+  };
+  message: string;
+  timestamp: string;
 }
 
 export interface AdminSandboxTestResponse {
@@ -179,6 +216,7 @@ export interface AdminSandboxTestResponse {
     requestedAmount: number;
     requestTimestamp: string;
   };
+  existingTransactionDiagnostic?: ExistingTransactionDiagnosticResult;
 }
 
 
