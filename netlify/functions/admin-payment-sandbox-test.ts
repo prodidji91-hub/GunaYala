@@ -193,22 +193,27 @@ export async function executeExistingTransactionDiagnostic(
         apiErrorMsg = `Gateway returned HTTP ${response.status} ${response.statusText}.`;
       } else {
         const json = await response.json();
-        gatewayRecords = Array.isArray(json?.data) ? json.data : (json?.data ? [json.data] : (Array.isArray(json) ? json : []));
+        const allRecords = Array.isArray(json?.data) ? json.data : (json?.data ? [json.data] : (Array.isArray(json) ? json : []));
+        gatewayRecords = allRecords.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(operationCode).trim());
 
         if (gatewayRecords.length === 0) {
           diagnosticCategory = 'absent_records';
           apiErrorMsg = `No transaction records found for operation code ${operationCode}.`;
+        } else if (gatewayRecords.length > 1) {
+          diagnosticCategory = 'ambiguous_records' as any;
+          apiErrorMsg = `Multiple gateway records found for operation code ${operationCode}.`;
         } else {
           const matched = gatewayRecords[0];
           const rawStatus = matched.status !== undefined ? Number(matched.status) : String(matched.estado || '').trim().toLowerCase();
           const isApproved = rawStatus === 1 || rawStatus === '1' || rawStatus === 'aprobada' || rawStatus === 'approved';
           const isDeclined = rawStatus === 0 || rawStatus === '0' || rawStatus === 'rechazada' || rawStatus === 'declined';
-          const txType = String(matched.txType || matched.type || '').trim().toUpperCase();
+          const txType = String(matched.txType || matched.type || matched.operationType || matched.tipo || '').trim().toUpperCase();
+          const isAuthCapture = txType === 'AUTH_CAPTURE' || txType === 'SALE' || txType === 'CAPTURE';
           const rawAmount = matched.authAmount ?? matched.amount ?? matched.total ?? 0;
           const amt = Number(rawAmount);
-          const rawCurrency = String(matched.authCurrency ?? matched.currency ?? 'USD').trim().toUpperCase();
+          const rawCurrency = String(matched.authCurrency ?? matched.currency ?? matched.moneda ?? 'USD').trim().toUpperCase();
           const merchantId = String(matched.idMerchant ?? matched.id_merchant ?? '').trim();
-          const returnedRef = String(matched.customParm1 ?? matched.parm1 ?? '').trim();
+          const returnedRef = String(matched.customParm1 ?? matched.parm1 ?? matched.bookingReference ?? '').trim();
 
           parsedRecord = {
             codOper: matched.codOper || matched.oper || matched.id,
@@ -222,20 +227,23 @@ export async function executeExistingTransactionDiagnostic(
 
           if (isDeclined) {
             diagnosticCategory = 'declined';
-          } else if (isApproved && (txType === 'AUTH_CAPTURE' || txType === 'SALE' || !txType)) {
-            const amtCents = amt < 1000 ? Math.round(amt * 100) : Math.round(amt);
-            if (amtCents !== 6900) {
+          } else if (!isApproved || !isAuthCapture) {
+            diagnosticCategory = 'validation_rejection';
+            apiErrorMsg = `Transaction status or type not fully captured/approved (status: ${rawStatus}, txType: ${txType}).`;
+          } else {
+            const amtCents = Math.round(amt * 100);
+            const expectedCents = 6900;
+            const isUsd = rawCurrency === 'USD' || rawCurrency === '840' || rawCurrency === 'US_DOLLAR';
+
+            if (!isUsd) {
+              diagnosticCategory = 'validation_rejection';
+              apiErrorMsg = `Invalid or missing currency "${rawCurrency}". USD (840) required.`;
+            } else if (amtCents !== expectedCents) {
               diagnosticCategory = 'validation_rejection';
               apiErrorMsg = `Amount mismatch: expected $69.00 (6900c), received ${amtCents}c.`;
-            } else if (returnedRef && returnedRef !== bookingRef) {
-              diagnosticCategory = 'mismatched_identifiers';
-              apiErrorMsg = `Booking reference conflict: expected ${bookingRef}, received ${returnedRef}.`;
             } else {
               diagnosticCategory = 'approved';
             }
-          } else {
-            diagnosticCategory = 'validation_rejection';
-            apiErrorMsg = `Transaction status or type not fully captured/approved (status: ${rawStatus}, txType: ${txType}).`;
           }
         }
       }
@@ -245,9 +253,35 @@ export async function executeExistingTransactionDiagnostic(
     }
   }
 
+  // Relationship verification result
+  const rawTxRecord = dbLookupResult.transactionRecord;
+  const dbTxRecord = Array.isArray(rawTxRecord) ? rawTxRecord[0] : rawTxRecord;
+  const storedRef = String(dbTxRecord?.booking_reference || bookingRef).trim();
+  const storedLinkCode = String(dbTxRecord?.gateway_link_code || '').trim();
+  const returnedRef = String(parsedRecord?.bookingReference || '').trim();
+  const matchedLinkCode = String(parsedRecord?.linkCode || parsedRecord?.code || '').trim();
+
+  let relationshipVerified = false;
+  let relationshipEvidence: 'customParm1' | 'linkCode' | 'none' = 'none';
+  let relationshipDetails = 'Relationship could not be established.';
+
+  if (returnedRef && storedRef && returnedRef === storedRef) {
+    relationshipVerified = true;
+    relationshipEvidence = 'customParm1';
+    relationshipDetails = `Verified via matching booking reference (customParm1="${returnedRef}").`;
+  } else if (storedLinkCode && matchedLinkCode && storedLinkCode === matchedLinkCode) {
+    relationshipVerified = true;
+    relationshipEvidence = 'linkCode';
+    relationshipDetails = `Verified via matching gateway link code correlation ("${storedLinkCode}").`;
+  } else if (returnedRef && storedRef && returnedRef !== storedRef) {
+    relationshipDetails = `Booking reference conflict: gateway returned "${returnedRef}", expected "${storedRef}".`;
+  }
+
+  const overallSuccess = diagnosticCategory === 'approved' && relationshipVerified;
+
   // ZERO DATABASE MUTATIONS: Read-only diagnostic only
   const diagnosticResult: ExistingTransactionDiagnosticResult = {
-    success: diagnosticCategory === 'approved',
+    success: overallSuccess,
     action: 'diagnose_existing_transaction',
     bookingReference: bookingRef,
     targetOperationCode: operationCode,
@@ -261,7 +295,12 @@ export async function executeExistingTransactionDiagnostic(
       parsedRecord,
       error: apiErrorMsg,
     },
-    message: `Read-only sandbox diagnostic completed. Category: ${diagnosticCategory}. Database rows found: ${matchCount}.`,
+    relationshipVerification: {
+      verified: relationshipVerified,
+      evidence: relationshipEvidence,
+      details: relationshipDetails,
+    },
+    message: `Read-only sandbox diagnostic completed. Gateway Category: ${diagnosticCategory}, Relationship Verified: ${relationshipVerified}. Database rows found: ${matchCount}.`,
     timestamp: new Date().toISOString(),
   };
 

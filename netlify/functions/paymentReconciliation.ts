@@ -13,7 +13,7 @@ export interface ReconciliationParams {
 export interface ReconciliationResult {
   success: boolean;
   duplicate?: boolean;
-  category: 'approved' | 'declined' | 'absent_records' | 'ambiguous_records' | 'authentication_failure' | 'mismatched_identifiers' | 'validation_rejection' | 'parsing_problem';
+  category: 'approved' | 'declined' | 'absent_records' | 'ambiguous_records' | 'authentication_failure' | 'mismatched_identifiers' | 'validation_rejection' | 'parsing_problem' | 'needs_manual_review' | 'partial_synchronization_failure';
   bookingReference?: string;
   operationCode?: string;
   amountPaid?: number;
@@ -49,7 +49,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
 
   // 1. Always load existing payment transaction from Supabase by trustworthy unique keys / fallback
   let existingTx: any = null;
-  let lookupMethod = 'none';
 
   try {
     // 1. Try by bookingReference (PARM_1) with strict single-row check first
@@ -71,7 +70,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
 
       if (attempts && attempts.length === 1) {
         existingTx = attempts[0];
-        lookupMethod = 'booking_reference_strict_unique';
       } else if (attempts && attempts.length > 1) {
         return {
           success: false,
@@ -92,7 +90,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         .maybeSingle();
       if (data) {
         existingTx = data;
-        lookupMethod = 'gateway_operation_id';
       }
     }
 
@@ -105,7 +102,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         .maybeSingle();
       if (data) {
         existingTx = data;
-        lookupMethod = 'gateway_link_code';
       }
     }
 
@@ -118,7 +114,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         .maybeSingle();
       if (data) {
         existingTx = data;
-        lookupMethod = 'idempotency_key';
       }
     }
   } catch (err: any) {
@@ -140,8 +135,20 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     };
   }
 
-  // Sandbox PARM_1 Diagnostic Logging (equality boolean and character length without exposing secrets/PII)
-  const isSandbox = (existingTx.environment || environment) === 'sandbox';
+  // Enforce server-configured environment security and reject cross-environment mismatches
+  const txEnvironment = existingTx.environment || 'sandbox';
+  if (environment && txEnvironment !== environment) {
+    return {
+      success: false,
+      category: 'validation_rejection',
+      bookingReference: existingTx.booking_reference,
+      operationCode: existingTx.gateway_operation_id,
+      message: `Cross-environment mismatch: Transaction environment is "${txEnvironment}" but request environment is "${environment}".`,
+      error: 'Environment mismatch.',
+    };
+  }
+
+  const isSandbox = txEnvironment === 'sandbox';
   if (isSandbox && bookingReference) {
     const parm1EqualsStored = existingTx.booking_reference === bookingReference;
     const incomingLength = (bookingReference || '').length;
@@ -149,18 +156,206 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     console.log(`[PaymentReconciliation] [Sandbox PARM_1 Check] equal=${parm1EqualsStored}, incomingLength=${incomingLength}, storedLength=${storedLength}`);
   }
 
-  // 2. Idempotency Check: if already approved, skip duplicate work safely
+  // Helper to sync/repair booking_requests record atomically/safely with TEST flag
+  async function syncBookingRequest(bookingRef: string): Promise<{ success: boolean; error?: any }> {
+    if (!bookingRef) return { success: true };
+
+    // Check existing special notes to ensure TEST tagging is preserved
+    const { data: currentBooking } = await supabaseClient
+      .from('booking_requests')
+      .select('special_notes')
+      .eq('booking_reference', bookingRef)
+      .maybeSingle();
+
+    const existingNotes = currentBooking?.special_notes || '';
+    const updatedNotes = existingNotes.includes('[TEST') ? existingNotes : `[TEST / RECONCILED] ${existingNotes}`.trim();
+
+    const { data: bookingUpdatedRows, error: bookingUpdateErr } = await supabaseClient
+      .from('booking_requests')
+      .update({
+        status: 'fully_confirmed',
+        special_notes: updatedNotes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('booking_reference', bookingRef)
+      .select('booking_reference');
+
+    if (bookingUpdateErr) {
+      console.error(`[Reconciliation] Failed to update booking_requests for ${bookingRef}:`, bookingUpdateErr);
+      return { success: false, error: bookingUpdateErr };
+    }
+    if (!bookingUpdatedRows || bookingUpdatedRows.length === 0) {
+      console.warn(`[Reconciliation] No booking_requests record found with booking_reference ${bookingRef} to update.`);
+      return { success: false, error: 'Booking record not found.' };
+    }
+    return { success: true };
+  }
+
+  // 2. Idempotency Check & Approved Payment Repair
   if (existingTx.status === 'approved') {
-    return {
-      success: true,
-      duplicate: true,
-      category: 'approved',
-      bookingReference: existingTx.booking_reference,
-      operationCode: existingTx.gateway_operation_id || operationCode,
-      amountPaid: existingTx.amount_paid || existingTx.expected_amount,
-      message: 'Transaction is already recorded and approved. Idempotent check passed.',
-      databaseUpdated: false,
-    };
+    // Check if corresponding booking_request is already fully confirmed
+    let bookingNeedsRepair = false;
+    if (existingTx.booking_reference) {
+      const { data: bookingRec } = await supabaseClient
+        .from('booking_requests')
+        .select('status')
+        .eq('booking_reference', existingTx.booking_reference)
+        .maybeSingle();
+      if (bookingRec && bookingRec.status !== 'fully_confirmed') {
+        bookingNeedsRepair = true;
+      }
+    }
+
+    if (!bookingNeedsRepair) {
+      return {
+        success: true,
+        duplicate: true,
+        category: 'approved',
+        bookingReference: existingTx.booking_reference,
+        operationCode: existingTx.gateway_operation_id || operationCode,
+        amountPaid: existingTx.amount_paid || existingTx.expected_amount,
+        message: 'Transaction is already recorded and approved. Idempotent check passed.',
+        databaseUpdated: false,
+      };
+    }
+
+    // Approved payment but booking is pending.
+    // REQUIREMENT 1: Revalidate transaction against PagueloFacil MerchantTransactions using stored codOper before confirming pending booking.
+    // Stored verified_at and booking_reference alone are insufficient. Require independently verified booking relationship.
+    const opToQuery = existingTx.gateway_operation_id;
+    if (!opToQuery) {
+      return {
+        success: false,
+        category: 'needs_manual_review',
+        bookingReference: existingTx.booking_reference,
+        message: 'Approved payment lacks gateway operation ID to revalidate before repairing booking.',
+        error: 'Missing operation code for revalidation.',
+      };
+    }
+
+    const activeToken = isSandbox
+      ? (env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN || env.PAGUELOFACIL_DEMO_ACCESS_TOKEN || '').trim()
+      : (env.PAGUELOFACIL_ACCESS_TOKEN || '').trim();
+
+    if (!activeToken) {
+      return {
+        success: false,
+        category: 'authentication_failure',
+        bookingReference: existingTx.booking_reference,
+        message: 'Authoritative transaction revalidation requires PagueloFacil access token.',
+        error: 'Missing access token.',
+      };
+    }
+
+    const verifyUrl = isSandbox
+      ? 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions'
+      : 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
+
+    const filterParam = `codOper::${opToQuery}`;
+
+    try {
+      const response = await fetch(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: activeToken,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return {
+          success: false,
+          category: 'parsing_problem',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Revalidation API returned HTTP ${response.status}.`,
+          error: `HTTP ${response.status}`,
+        };
+      }
+
+      const data = await response.json();
+      const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
+      const matchingRecords = records.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(opToQuery).trim());
+
+      if (matchingRecords.length !== 1) {
+        return {
+          success: false,
+          category: matchingRecords.length === 0 ? 'absent_records' : 'ambiguous_records',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Revalidation failed: Expected exactly 1 gateway record for ${opToQuery}, found ${matchingRecords.length}.`,
+          error: 'Gateway record count mismatch.',
+        };
+      }
+
+      const matched = matchingRecords[0];
+      const rawStatus = matched.status !== undefined ? Number(matched.status) : String(matched.estado || '').trim().toLowerCase();
+      const isStatusApproved = rawStatus === 1 || rawStatus === '1' || rawStatus === 'aprobada' || rawStatus === 'approved';
+      const txType = String(matched.txType || matched.type || matched.operationType || matched.tipo || '').trim().toUpperCase();
+      const isAuthCapture = txType === 'AUTH_CAPTURE' || txType === 'SALE' || txType === 'CAPTURE';
+
+      if (!isStatusApproved || !isAuthCapture) {
+        return {
+          success: false,
+          category: 'validation_rejection',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Revalidation failed: Gateway status/type not approved (status=${rawStatus}, txType=${txType}).`,
+          error: 'Invalid status or transaction type.',
+        };
+      }
+
+      // Authoritative relationship check from gateway response
+      const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
+      const storedRef = String(existingTx.booking_reference || '').trim();
+      const hasValidRelationship =
+        (returnedRef && storedRef && returnedRef === storedRef) ||
+        (existingTx.gateway_link_code && (matched.linkCode === existingTx.gateway_link_code || matched.code === existingTx.gateway_link_code));
+
+      if (!hasValidRelationship) {
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: storedRef,
+          operationCode: opToQuery,
+          message: 'Approved payment revalidation failed: Independent booking relationship evidence (matching PARM_1/customParm1 or gateway link code) could not be established.',
+          error: 'Missing relationship evidence.',
+        };
+      }
+
+      const bookingSync = await syncBookingRequest(existingTx.booking_reference);
+      if (!bookingSync.success) {
+        return {
+          success: false,
+          category: 'partial_synchronization_failure',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: 'Payment revalidated successfully but failed to update booking_requests record.',
+          error: String(bookingSync.error),
+        };
+      }
+
+      return {
+        success: true,
+        duplicate: true,
+        category: 'approved',
+        bookingReference: existingTx.booking_reference,
+        operationCode: opToQuery,
+        amountPaid: existingTx.amount_paid || existingTx.expected_amount,
+        message: 'Approved payment revalidated against gateway and successfully repaired booking_requests record.',
+        databaseUpdated: true,
+        audit: existingTx.audit_metadata,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        category: 'parsing_problem',
+        bookingReference: existingTx.booking_reference,
+        operationCode: opToQuery,
+        message: `Revalidation exception: ${err.message}`,
+        error: err.message,
+      };
+    }
   }
 
   // 3. Call PagueloFacil MerchantTransactions API authoritatively
@@ -218,7 +413,9 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     const data = await response.json();
     const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
 
-    if (records.length === 0) {
+    const matchingRecords = records.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(opToQuery).trim());
+
+    if (matchingRecords.length === 0) {
       return {
         success: false,
         category: 'absent_records',
@@ -229,10 +426,20 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       };
     }
 
-    const matched = records.find((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(opToQuery).trim()) || records[0];
+    if (matchingRecords.length > 1) {
+      return {
+        success: false,
+        category: 'ambiguous_records',
+        bookingReference: existingTx.booking_reference,
+        operationCode: opToQuery,
+        message: `Ambiguous gateway response: Multiple records found for operation code ${opToQuery}.`,
+        error: 'Ambiguous gateway records.',
+      };
+    }
+
+    const matched = matchingRecords[0];
 
     // 4. Validate Authoritative Evidence
-    // Status 1 means approved, 0 means declined. Successful captured sale uses txType AUTH_CAPTURE.
     const rawStatus = matched.status !== undefined ? Number(matched.status) : String(matched.estado || '').trim().toLowerCase();
     const isStatusApproved = rawStatus === 1 || rawStatus === '1' || rawStatus === 'aprobada' || rawStatus === 'approved';
     const isStatusDeclined = rawStatus === 0 || rawStatus === '0' || rawStatus === 'rechazada' || rawStatus === 'declined';
@@ -262,6 +469,35 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       };
     }
 
+    // Authoritative relationship validation (must match booking reference or link code correlation)
+    const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
+    const storedRef = String(existingTx.booking_reference || '').trim();
+    const hasValidRelationship =
+      (returnedRef && storedRef && returnedRef === storedRef) ||
+      (existingTx.gateway_link_code && (matched.linkCode === existingTx.gateway_link_code || matched.code === existingTx.gateway_link_code));
+
+    if (!hasValidRelationship) {
+      return {
+        success: false,
+        category: 'needs_manual_review',
+        bookingReference: storedRef,
+        operationCode: opToQuery,
+        message: 'Relationship between gateway transaction and database booking could not be authoritatively established via matching booking reference or link code correlation.',
+        error: 'Missing relationship evidence.',
+      };
+    }
+
+    if (returnedRef && storedRef && returnedRef !== storedRef) {
+      return {
+        success: false,
+        category: 'mismatched_identifiers',
+        bookingReference: storedRef,
+        operationCode: opToQuery,
+        message: `Booking reference conflict: Gateway record reference "${returnedRef}" does not match stored "${storedRef}".`,
+        error: 'Reference conflict.',
+      };
+    }
+
     // Amount validation in integer cents
     const rawAmount = matched.authAmount ?? matched.amount ?? matched.total ?? matched.TotalPagado;
     if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
@@ -276,7 +512,18 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     }
 
     const amountPaid = Number(rawAmount);
-    const amountCents = amountPaid < 1000 ? Math.round(amountPaid * 100) : Math.round(amountPaid);
+    if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+      return {
+        success: false,
+        category: 'validation_rejection',
+        bookingReference: existingTx.booking_reference,
+        operationCode: opToQuery,
+        message: `Invalid amount paid value: ${rawAmount}.`,
+        error: 'Invalid amount.',
+      };
+    }
+
+    const amountCents = Math.round(amountPaid * 100);
     const expectedCents = existingTx.amount_in_cents || Math.round((existingTx.expected_amount || 0) * 100);
 
     if (amountCents !== expectedCents) {
@@ -302,19 +549,6 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         operationCode: opToQuery,
         message: `Invalid or missing currency "${rawCurrency}". USD (840) required.`,
         error: 'Invalid currency.',
-      };
-    }
-
-    // Booking reference conflict check if returned by API
-    const returnedRef = String(matched.customParm1 || matched.parm1 || matched.bookingReference || '').trim();
-    if (bookingReference && returnedRef && returnedRef !== bookingReference) {
-      return {
-        success: false,
-        category: 'mismatched_identifiers',
-        bookingReference,
-        operationCode: opToQuery,
-        message: `Booking reference conflict: Gateway record reference "${returnedRef}" does not match requested "${bookingReference}".`,
-        error: 'Reference conflict.',
       };
     }
 
@@ -362,15 +596,19 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       };
     }
 
-    // Update corresponding booking_requests record if it exists
+    // Update corresponding booking_requests record if it exists to fully_confirmed (Atomic consistency check)
     if (existingTx.booking_reference) {
-      await supabaseClient
-        .from('booking_requests')
-        .update({
-          status: 'confirmed',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('booking_reference', existingTx.booking_reference);
+      const bookingSync = await syncBookingRequest(existingTx.booking_reference);
+      if (!bookingSync.success) {
+        return {
+          success: false,
+          category: 'partial_synchronization_failure',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Payment transaction approved but booking_requests update failed: ${JSON.stringify(bookingSync.error)}.`,
+          error: 'Partial reconciliation failure (booking update failed).',
+        };
+      }
     }
 
     return {
@@ -379,7 +617,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       bookingReference: existingTx.booking_reference,
       operationCode: opToQuery,
       amountPaid,
-      message: `Transaction successfully verified and reconciled. payment_transactions row updated.`,
+      message: `Transaction successfully verified and reconciled. Both payment_transactions and booking_requests records updated.`,
       databaseUpdated: true,
       audit: {
         txId: existingTx.id,

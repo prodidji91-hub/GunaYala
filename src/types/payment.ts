@@ -192,6 +192,11 @@ export interface ExistingTransactionDiagnosticResult {
     };
     error?: string;
   };
+  relationshipVerification: {
+    verified: boolean;
+    evidence: 'customParm1' | 'linkCode' | 'none';
+    details: string;
+  };
   message: string;
   timestamp: string;
 }

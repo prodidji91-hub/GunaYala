@@ -1886,19 +1886,21 @@ async function runPaymentSecurityTests() {
   global.fetch = origFetchForDiag;
 
   assert(
-    'Test 59: Existing transaction read-only sandbox diagnostic correctly verifies Supabase record and PagueloFacil MerchantTransactions API',
+    'Test 59: Existing transaction read-only sandbox diagnostic correctly verifies Supabase record and PagueloFacil MerchantTransactions API with verified relationship',
     diagRes.statusCode === 200 &&
       diagRes.body.success === true &&
       diagRes.body.existingTransactionDiagnostic?.databaseLookup.exactOneRow === true &&
-      diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory === 'approved',
-    'HTTP 200, success=true, exactOneRow=true, diagnosticCategory=approved',
-    `status=${diagRes.statusCode}, success=${diagRes.body.success}, category=${diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory}`
+      diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory === 'approved' &&
+      diagRes.body.existingTransactionDiagnostic?.relationshipVerification.verified === true,
+    'HTTP 200, success=true, exactOneRow=true, diagnosticCategory=approved, relationshipVerified=true',
+    `status=${diagRes.statusCode}, success=${diagRes.body.success}, category=${diagRes.body.existingTransactionDiagnostic?.gatewayDiagnostic.diagnosticCategory}, relationship=${diagRes.body.existingTransactionDiagnostic?.relationshipVerification.verified}`
   );
 
   // -------------------------------------------------------------
   // TEST 60: RECONCILE PAYMENT TRANSACTION HELPER (EXACT ONE-ROW PERSISTENCE & CAPTURE RECONCILIATION)
   // -------------------------------------------------------------
   let updatedRowsCount = 0;
+  let bookingUpdatedStatus = '';
   const mockReconSupabase = {
     from: (table: string) => {
       if (table === 'payment_transactions') {
@@ -1931,8 +1933,18 @@ async function runPaymentSecurityTests() {
       }
       if (table === 'booking_requests') {
         return {
-          update: () => ({
-            eq: () => ({ data: [{ id: 'br-1' }], error: null }),
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({ data: { special_notes: '' }, error: null }),
+            }),
+          }),
+          update: (updateData: any) => ({
+            eq: () => ({
+              select: () => {
+                bookingUpdatedStatus = updateData.status;
+                return { data: [{ booking_reference: 'TEST-DAYTOUR-GNY-643300' }], error: null };
+              },
+            }),
           }),
         };
       }
@@ -1966,10 +1978,405 @@ async function runPaymentSecurityTests() {
   global.fetch = origFetchForRecon;
 
   assert(
-    'Test 60: Reconcile payment transaction helper successfully verifies capture and targets exactly one row for persistence',
-    reconResult.success === true && reconResult.category === 'approved' && updatedRowsCount === 1,
-    'success=true, category=approved, updatedRowsCount=1',
-    `success=${reconResult.success}, category=${reconResult.category}, updatedRows=${updatedRowsCount}`
+    'Test 60: Reconcile payment transaction helper successfully verifies capture and targets exactly one row for persistence, syncing booking_requests to fully_confirmed',
+    reconResult.success === true && reconResult.category === 'approved' && updatedRowsCount === 1 && bookingUpdatedStatus === 'fully_confirmed',
+    'success=true, category=approved, updatedRowsCount=1, bookingStatus=fully_confirmed',
+    `success=${reconResult.success}, category=${reconResult.category}, updatedRows=${updatedRowsCount}, bookingStatus=${bookingUpdatedStatus}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 61: APPROVED PAYMENT REPAIRS PENDING BOOKING
+  // -------------------------------------------------------------
+  let repairedBooking = false;
+  const mockRepairSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              data: [
+                {
+                  id: 'tx-approved-pending-booking',
+                  booking_reference: 'TEST-REPAIR-123',
+                  status: 'approved',
+                  environment: 'sandbox',
+                  expected_amount: 100.00,
+                  amount_in_cents: 10000,
+                  gateway_operation_id: 'OP-REPAIR',
+                  verified_at: new Date().toISOString(),
+                  audit_metadata: { verified: true },
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === 'booking_requests') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({ data: { status: 'pending_payment', special_notes: '' }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: () => ({
+              select: () => {
+                repairedBooking = true;
+                return { data: [{ booking_reference: 'TEST-REPAIR-123' }], error: null };
+              },
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+
+  const origFetchRepair = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-REPAIR',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 100.00,
+        authCurrency: 840,
+        customParm1: 'TEST-REPAIR-123',
+      },
+    }),
+  } as any);
+
+  const repairResult = await reconcilePaymentTransaction({
+    bookingReference: 'TEST-REPAIR-123',
+    operationCode: 'OP-REPAIR',
+    environment: 'sandbox',
+    supabaseClient: mockRepairSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchRepair;
+
+  assert(
+    'Test 61: Approved payment with pending booking successfully repairs and synchronizes booking_requests',
+    Boolean(repairResult.success && (repairResult as any).duplicate && repairedBooking),
+    'success=true, duplicate=true, repairedBooking=true',
+    `success=${repairResult.success}, duplicate=${repairResult.duplicate}, repairedBooking=${repairedBooking}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 62: ZERO GATEWAY API MATCHES REJECTS VERIFICATION
+  // -------------------------------------------------------------
+  const mockZeroMatchSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({
+                data: {
+                  id: 'tx-zero',
+                  booking_reference: 'TEST-ZERO',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 69.00,
+                  amount_in_cents: 6900,
+                  gateway_operation_id: 'OP-ZERO',
+                },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+  const origFetchZero = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: [] }),
+  } as any);
+
+  const zeroResult = await reconcilePaymentTransaction({
+    operationCode: 'OP-ZERO',
+    environment: 'sandbox',
+    supabaseClient: mockZeroMatchSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchZero;
+
+  assert(
+    'Test 62: Zero gateway API matches rejects verification with absent_records',
+    zeroResult.success === false && zeroResult.category === 'absent_records',
+    'success=false, category=absent_records',
+    `success=${zeroResult.success}, category=${zeroResult.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 63: MULTIPLE AMBIGUOUS GATEWAY API MATCHES REJECTS VERIFICATION
+  // -------------------------------------------------------------
+  const mockAmbiguousSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({
+                data: {
+                  id: 'tx-ambig',
+                  booking_reference: 'TEST-AMBIG',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 69.00,
+                  amount_in_cents: 6900,
+                  gateway_operation_id: 'OP-AMBIG',
+                },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        { codOper: 'OP-AMBIG', status: 1, txType: 'AUTH_CAPTURE', authAmount: 69, authCurrency: 840 },
+        { codOper: 'OP-AMBIG', status: 1, txType: 'AUTH_CAPTURE', authAmount: 69, authCurrency: 840 },
+      ],
+    }),
+  } as any);
+
+  const ambigResult = await reconcilePaymentTransaction({
+    operationCode: 'OP-AMBIG',
+    environment: 'sandbox',
+    supabaseClient: mockAmbiguousSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchZero;
+
+  assert(
+    'Test 63: Multiple ambiguous gateway API matches rejects verification with ambiguous_records',
+    ambigResult.success === false && ambigResult.category === 'ambiguous_records',
+    'success=false, category=ambiguous_records',
+    `success=${ambigResult.success}, category=${ambigResult.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 64: FAILED BOOKING UPDATE RETURNS PARTIAL SYNCHRONIZATION FAILURE
+  // -------------------------------------------------------------
+  const mockFailedBookingSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({
+                data: {
+                  id: 'tx-fail-bk',
+                  booking_reference: 'TEST-FAIL-BK',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 69.00,
+                  amount_in_cents: 6900,
+                  gateway_operation_id: 'OP-FAIL-BK',
+                },
+                error: null,
+              }),
+            }),
+          }),
+          update: () => ({
+            eq: () => ({
+              select: () => ({ data: [{ id: 'tx-fail-bk' }], error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'booking_requests') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({ data: { special_notes: '' }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: () => ({
+              select: () => ({ data: [], error: { message: 'Database error updating booking' } }),
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-FAIL-BK',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 69.00,
+        authCurrency: 840,
+        customParm1: 'TEST-FAIL-BK',
+      },
+    }),
+  } as any);
+
+  const failBkResult = await reconcilePaymentTransaction({
+    operationCode: 'OP-FAIL-BK',
+    environment: 'sandbox',
+    supabaseClient: mockFailedBookingSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchZero;
+
+  assert(
+    'Test 64: Failed booking update returns partial_synchronization_failure',
+    failBkResult.success === false && failBkResult.category === 'partial_synchronization_failure',
+    'success=false, category=partial_synchronization_failure',
+    `success=${failBkResult.success}, category=${failBkResult.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 65: MISSING RELATIONSHIP EVIDENCE REJECTS WITH NEEDS MANUAL REVIEW
+  // -------------------------------------------------------------
+  const mockMissingRelSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({
+                data: {
+                  id: 'tx-no-rel',
+                  booking_reference: '',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 69.00,
+                  amount_in_cents: 6900,
+                  gateway_operation_id: 'OP-NO-REL',
+                },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-NO-REL',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 69.00,
+        authCurrency: 840,
+        customParm1: '',
+      },
+    }),
+  } as any);
+
+  const noRelResult = await reconcilePaymentTransaction({
+    operationCode: 'OP-NO-REL',
+    environment: 'sandbox',
+    supabaseClient: mockMissingRelSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchZero;
+
+  assert(
+    'Test 65: Missing relationship evidence rejects verification with needs_manual_review',
+    noRelResult.success === false && noRelResult.category === 'needs_manual_review',
+    'success=false, category=needs_manual_review',
+    `success=${noRelResult.success}, category=${noRelResult.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 66: LARGE AMOUNT >= $1000 CORRECTLY VERIFIES WITHOUT UNDERCOUNTING
+  // -------------------------------------------------------------
+  let persistedAmountPaid = 0;
+  const mockLargeAmountSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({
+                data: {
+                  id: 'tx-large',
+                  booking_reference: 'TEST-LARGE-1250',
+                  status: 'pending',
+                  environment: 'sandbox',
+                  expected_amount: 1250.00,
+                  amount_in_cents: 125000,
+                  gateway_operation_id: 'OP-LARGE',
+                },
+                error: null,
+              }),
+            }),
+          }),
+          update: (updateData: any) => ({
+            eq: () => ({
+              select: () => {
+                persistedAmountPaid = updateData.amount_paid;
+                return { data: [{ id: 'tx-large' }], error: null };
+              },
+            }),
+          }),
+        };
+      }
+      if (table === 'booking_requests') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({ data: { special_notes: '' }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: () => ({
+              select: () => ({ data: [{ booking_reference: 'TEST-LARGE-1250' }], error: null }),
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'OP-LARGE',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 1250.00,
+        authCurrency: 840,
+        customParm1: 'TEST-LARGE-1250',
+      },
+    }),
+  } as any);
+
+  const largeResult = await reconcilePaymentTransaction({
+    operationCode: 'OP-LARGE',
+    environment: 'sandbox',
+    supabaseClient: mockLargeAmountSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchZero;
+
+  assert(
+    'Test 66: Large amount $1250.00 correctly parses to 125000 cents without undercounting',
+    largeResult.success === true && largeResult.category === 'approved' && persistedAmountPaid === 1250.00,
+    'success=true, amountPaid=1250.00',
+    `success=${largeResult.success}, amountPaid=${persistedAmountPaid}`
   );
 
   // -------------------------------------------------------------

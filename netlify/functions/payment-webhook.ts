@@ -87,16 +87,11 @@ export const handler = async (event: NetlifyEvent) => {
   const gateway = new PagueloFacilGatewayAdapter();
   const parsed = gateway.parseWebhook(payload, event.headers);
 
-  const targetBookingRef = 'TEST-DAYTOUR-GNY-643300';
   const parm1Value = parsed.bookingReference || '';
-  const parm1ExactMatch = parm1Value === targetBookingRef;
-  const parm1TrimmedMatch = parm1Value.trim() === targetBookingRef;
 
   logWebhookDiagnostic(3, 'Identifiers Present', {
     hasPARM1: Boolean(parm1Value),
     parm1Length: parm1Value.length,
-    parm1ExactMatch,
-    parm1TrimmedMatch,
     hasPARM2: Boolean(parsed.idempotencyKey),
     hasOper: Boolean(parsed.gatewayOperationId),
     hasLinkCode: Boolean(parsed.gatewayLinkCode),
