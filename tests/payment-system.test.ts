@@ -19,6 +19,7 @@ import {
   executeCreateControlledLiveTest,
   executeCheckControlledLiveTestStatus,
   executeCancelControlledLiveTest,
+  executeReconcileExistingTransaction,
   resetLiveTestMutexForTesting,
   acquireAtomicLiveTestLock,
   releaseAtomicLiveTestLock,
@@ -4544,6 +4545,374 @@ async function runPaymentSecurityTests() {
     'acquired=false, error indicates Supabase RPC client unavailable',
     `acquired=${noRpcLockRes.acquired}, error=${noRpcLockRes.error}`
   );
+  // -------------------------------------------------------------
+  // TEST 110: RECOVER APPROVED PRODUCTION PAYMENT (LIVE-DAYTOUR-GNY-220728, LK-EHA1PJ6R1MAN)
+  // -------------------------------------------------------------
+  const state110 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending_payment',
+        special_notes: '[PROD LIVE TEST]',
+      },
+    ]
+  );
+
+  const fetch110 = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-EHA1PJ6R1MAN',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-220728&linkCode=LK-EITKXJPE4PXWU8AA',
+        },
+      ],
+    }),
+  } as any);
+
+  const res110 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state110 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch110 as any,
+  });
+
+  const body110 = res110.body;
+  const tx110After = state110.getPaymentByRef('LIVE-DAYTOUR-GNY-220728');
+  const booking110After = state110.getBookingByRef('LIVE-DAYTOUR-GNY-220728');
+
+  // Second run for idempotency check
+  const res110Dup = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state110 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch110 as any,
+  });
+
+  assert(
+    'Test 110: Recover Approved Production Payment (LIVE-DAYTOUR-GNY-220728, LK-EHA1PJ6R1MAN) verifies gateway record, confirms booking, and handles duplicate calls idempotently',
+    Boolean(
+      res110.statusCode === 200 &&
+        body110.success === true &&
+        body110.reconciliation?.category === 'approved' &&
+        tx110After?.status === 'approved' &&
+        tx110After?.gateway_operation_id === 'LK-EHA1PJ6R1MAN' &&
+        tx110After?.amount_paid === 69.00 &&
+        booking110After?.status === 'fully_confirmed' &&
+        res110Dup.statusCode === 200 &&
+        res110Dup.body.reconciliation?.duplicate === true
+    ),
+    'HTTP 200, category=approved, tx status=approved, gateway_operation_id=LK-EHA1PJ6R1MAN, booking=fully_confirmed, duplicate=true',
+    `status=${res110.statusCode}, cat=${body110.reconciliation?.category}, txStatus=${tx110After?.status}, oper=${tx110After?.gateway_operation_id}, bookingStatus=${booking110After?.status}, dup=${res110Dup.body.reconciliation?.duplicate}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 111: RECOVERY FAILURE — MISSING OR UNVERIFIABLE BOOKING RELATIONSHIP EVIDENCE
+  // -------------------------------------------------------------
+  const state111 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728-111',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch111NoRel = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-EHA1PJ6R1MAN',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete',
+        },
+      ],
+    }),
+  } as any);
+
+  const res111 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state111 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch111NoRel as any,
+  });
+
+  const tx111After = state111.getPaymentByRef('LIVE-DAYTOUR-GNY-220728');
+
+  assert(
+    'Test 111: Recovery fails safely with needs_manual_review when authoritative booking relationship cannot be established from gateway evidence',
+    Boolean(
+      res111.statusCode === 422 &&
+        res111.body.success === false &&
+        res111.body.reconciliation?.category === 'needs_manual_review' &&
+        tx111After?.status === 'pending'
+    ),
+    'HTTP 422, category=needs_manual_review, payment remains pending',
+    `status=${res111.statusCode}, cat=${res111.body.reconciliation?.category}, txStatus=${tx111After?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 112: RECOVERY FAILURE — MERCHANT IDENTITY MISMATCH
+  // -------------------------------------------------------------
+  const state112 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728-112',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch112WrongMerchant = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-EHA1PJ6R1MAN',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'UNAUTHORIZED_WRONG_CCLW',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-220728',
+        },
+      ],
+    }),
+  } as any);
+
+  const res112 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state112 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch112WrongMerchant as any,
+  });
+
+  assert(
+    'Test 112: Recovery fails safely with needs_manual_review when merchant account identity does not match configured production merchant credentials',
+    Boolean(
+      res112.statusCode === 422 &&
+        res112.body.success === false &&
+        res112.body.reconciliation?.category === 'needs_manual_review' &&
+        res112.body.reconciliation?.error?.includes('Merchant CCLW mismatch')
+    ),
+    'HTTP 422, category=needs_manual_review, Merchant CCLW mismatch',
+    `status=${res112.statusCode}, cat=${res112.body.reconciliation?.category}, error=${res112.body.reconciliation?.error}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 113: RECOVERY FAILURE — AMOUNT MISMATCH (WRONG AMOUNT)
+  // -------------------------------------------------------------
+  const state113 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728-113',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch113WrongAmount = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-EHA1PJ6R1MAN',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 10.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-220728',
+        },
+      ],
+    }),
+  } as any);
+
+  const res113 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state113 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch113WrongAmount as any,
+  });
+
+  assert(
+    'Test 113: Recovery fails with validation_rejection when gateway operation amount does not match stored expected amount ($69.00)',
+    Boolean(
+      res113.statusCode === 422 &&
+        res113.body.success === false &&
+        res113.body.reconciliation?.category === 'validation_rejection' &&
+        res113.body.reconciliation?.error?.includes('Amount mismatch')
+    ),
+    'HTTP 422, category=validation_rejection, Amount mismatch',
+    `status=${res113.statusCode}, cat=${res113.body.reconciliation?.category}, error=${res113.body.reconciliation?.error}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 114: RECOVERY FAILURE — PARTIAL DATABASE SYNC FAILURE
+  // -------------------------------------------------------------
+  const state114 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728-114',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    []
+  );
+
+  const res114 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state114 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch110 as any,
+  });
+
+  assert(
+    'Test 114: Recovery reports partial_synchronization_failure when payment record is updated but booking_requests update fails',
+    Boolean(
+      res114.statusCode === 422 &&
+        res114.body.success === false &&
+        res114.body.reconciliation?.category === 'partial_synchronization_failure'
+    ),
+    'HTTP 422, category=partial_synchronization_failure',
+    `status=${res114.statusCode}, cat=${res114.body.reconciliation?.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 115: ADMIN STATUS CHECKER WITH OPERATION CODE RECOVERY
+  // -------------------------------------------------------------
+  const state115 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728-115',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const statusRes115 = await executeCheckControlledLiveTestStatus('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+    operationCode: 'LK-EHA1PJ6R1MAN',
+  }, {
+    supabaseClient: state115 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch110 as any,
+  });
+
+  assert(
+    'Test 115: executeCheckControlledLiveTestStatus authoritatively recovers live test payment when admin passes operationCode LK-EHA1PJ6R1MAN',
+    Boolean(
+      statusRes115.statusCode === 200 &&
+        statusRes115.body.success === true &&
+        statusRes115.body.controlledLiveTestStatus?.paymentStatus === 'approved' &&
+        statusRes115.body.controlledLiveTestStatus?.bookingStatus === 'fully_confirmed' &&
+        statusRes115.body.controlledLiveTestStatus?.gatewayOperationId === 'LK-EHA1PJ6R1MAN' &&
+        statusRes115.body.controlledLiveTestStatus?.reconciled === true
+    ),
+    'HTTP 200, paymentStatus=approved, bookingStatus=fully_confirmed, gatewayOperationId=LK-EHA1PJ6R1MAN, reconciled=true',
+    `status=${statusRes115.statusCode}, payStatus=${statusRes115.body.controlledLiveTestStatus?.paymentStatus}, oper=${statusRes115.body.controlledLiveTestStatus?.gatewayOperationId}`
+  );
+
   console.log('----------------------------------------------------');
   console.log('         PART 25I PAYMENT SECURITY TEST MATRIX');
   console.log('----------------------------------------------------');

@@ -524,10 +524,27 @@ export async function executeReconcileExistingTransaction(
   const bookingRef = requestBody?.bookingReference || 'TEST-DAYTOUR-GNY-643300';
   const operationCode = requestBody?.operationCode || 'LK-BMMRPXP4MZDB';
 
+  let targetEnv: 'sandbox' | 'production' = requestBody?.environment;
+  if (!targetEnv) {
+    if (bookingRef) {
+      const { data: tx } = await supabase
+        .from('payment_transactions')
+        .select('environment')
+        .eq('booking_reference', bookingRef)
+        .maybeSingle();
+      if (tx?.environment) {
+        targetEnv = tx.environment as 'sandbox' | 'production';
+      }
+    }
+  }
+  if (!targetEnv) {
+    targetEnv = bookingRef.startsWith('LIVE-') ? 'production' : 'sandbox';
+  }
+
   const reconciliation = await reconcilePaymentTransaction({
     bookingReference: bookingRef,
     operationCode: operationCode,
-    environment: 'sandbox',
+    environment: targetEnv,
     supabaseClient: supabase,
     env,
     fetchFn: dependencies.fetchFn,
@@ -1726,7 +1743,7 @@ export async function executeCheckControlledLiveTestStatus(
   // 4. If pending, query PagueloFacil production MerchantTransactions authoritatively to reconcile
   const reconciliation = await reconcilePaymentTransaction({
     bookingReference: targetTx.booking_reference,
-    operationCode: targetTx.gateway_operation_id,
+    operationCode: requestBody?.operationCode || targetTx.gateway_operation_id,
     linkCode: targetTx.gateway_link_code,
     idempotencyKey: targetTx.idempotency_key,
     environment: 'production',
