@@ -24,6 +24,7 @@ import { EXPERIENCES_DATA } from './data/experiences';
 import { supabase } from './lib/supabase';
 import { TermsModal } from './components/TermsModal';
 import { AudioDiagnosticPanel } from './components/AudioDiagnosticPanel';
+import { CheckoutCompletePage } from './components/CheckoutCompletePage';
 
 const isAuthCallbackUrl = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -103,6 +104,11 @@ export default function App() {
     return window.location.pathname.startsWith('/terms-and-conditions');
   });
 
+  const [isCheckoutCompleteRoute, setIsCheckoutCompleteRoute] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname.startsWith('/checkout/complete');
+  });
+
   const [landingRoute, setLandingRoute] = useState<LandingExperienceType | null>(() => {
     if (typeof window === 'undefined') return null;
     return getLandingRouteInfo(window.location.pathname).type;
@@ -177,6 +183,7 @@ export default function App() {
       const atAdmin = window.location.pathname.startsWith('/admin') || isAuthCallbackUrl();
       const atPreview = window.location.pathname.startsWith('/island-design-preview');
       const atTerms = window.location.pathname.startsWith('/terms-and-conditions');
+      const atCheckoutComplete = window.location.pathname.startsWith('/checkout/complete');
       const landingInfo = getLandingRouteInfo(window.location.pathname);
 
       if (atAdmin && !window.location.pathname.startsWith('/admin')) {
@@ -189,6 +196,7 @@ export default function App() {
       setIsAdminRoute(atAdmin);
       setIsPreviewRoute(atPreview);
       setIsTermsRoute(atTerms);
+      setIsCheckoutCompleteRoute(atCheckoutComplete);
       setLandingRoute(landingInfo.type);
 
       // Sync experience parameter on back/forward or initial navigate
@@ -250,6 +258,7 @@ export default function App() {
       setIsAdminRoute(false);
       setIsPreviewRoute(false);
       setIsTermsRoute(false);
+      setIsCheckoutCompleteRoute(false);
       setLandingRoute(null);
       window.scrollTo(0, 0);
     }
@@ -278,6 +287,16 @@ export default function App() {
       handleSetExperienceModal(found);
     }
   };
+
+  // Render Customer Return Checkout Complete Route (/checkout/complete)
+  if (isCheckoutCompleteRoute) {
+    return (
+      <CheckoutCompletePage
+        onBackToHome={handleNavigateToPublic}
+        lang={currentLang}
+      />
+    );
+  }
 
   // Render Island Design Preview Prototype Route
   if (isPreviewRoute) {

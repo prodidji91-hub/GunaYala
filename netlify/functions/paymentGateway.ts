@@ -454,7 +454,10 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       ? PAGUELOFACIL_ENDPOINTS.SANDBOX_LINK_DAEMON
       : PAGUELOFACIL_ENDPOINTS.PRODUCTION_LINK_DAEMON;
 
-    const returnUrl = `${this.config.returnUrlBase}?bookingReference=${encodeURIComponent(params.bookingReference)}&idem=${encodeURIComponent(params.idempotencyKey)}`;
+    const tokenParam = params.verificationToken
+      ? `&pvt=${encodeURIComponent(params.verificationToken)}&idem=${encodeURIComponent(params.idempotencyKey)}`
+      : `&idem=${encodeURIComponent(params.idempotencyKey)}`;
+    const returnUrl = `${this.config.returnUrlBase}?bookingReference=${encodeURIComponent(params.bookingReference)}${tokenParam}`;
 
     // Build official PagueloFacil LinkDeamon request payload
     const requestPayload: PagueloFacilLinkDaemonRequest = {

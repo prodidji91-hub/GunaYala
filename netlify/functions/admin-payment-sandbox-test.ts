@@ -1347,7 +1347,7 @@ export async function executeCreateControlledLiveTest(
 
     // 5. Generate Distinct Production Live Test Booking Reference & Parameters
     const bookingRef = `LIVE-DAYTOUR-GNY-${Math.floor(100000 + Math.random() * 900000)}`;
-    const idempotencyKey = `idem_prod_live_test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const idempotencyKey = `idem_prod_live_${Date.now()}_${crypto.randomUUID()}`;
     const amount = 69.00;
     const amountInCents = 6900;
     const expiresAt = new Date(Date.now() + 7200 * 1000).toISOString();

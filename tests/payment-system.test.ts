@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import {
   PagueloFacilGatewayAdapter,
   calculateAuthoritativeDayTripAmount,
@@ -26,6 +27,15 @@ import {
   releaseAtomicLiveTestLock,
   handler as adminSandboxTestHandler,
 } from '../netlify/functions/admin-payment-sandbox-test.js';
+import {
+  handler as checkPaymentStatusHandler,
+  resetPaymentStatusRateLimitStoreForTesting,
+  config as checkStatusConfig,
+} from '../netlify/functions/check-payment-status.js';
+import {
+  executeScheduledPaymentReconciliation,
+  config as scheduledConfig,
+} from '../netlify/functions/reconcile-payments-scheduled.js';
 import {
   generatePaymentInstructionsEmail,
   generateVerifiedBookingConfirmationEmail,
@@ -2834,6 +2844,27 @@ async function runPaymentSecurityTests() {
             error: null,
           };
         }
+        if (fnName === 'check_and_increment_status_rate_limit') {
+          const { p_booking_reference, p_max_attempts } = args;
+          const tx = payments.find((p) => p.booking_reference === p_booking_reference);
+          if (!tx) {
+            return { data: { allowed: false, reason: 'not_found' }, error: null };
+          }
+          if (tx.status === 'approved') {
+            // Invariant: Never perform write operations or rate increments on already approved payments
+            return { data: { allowed: true, status: 'approved', already_approved: true }, error: null };
+          }
+          const maxAttempts = p_max_attempts || 25;
+          const audit = tx.audit_metadata || {};
+          const currentAttempts = (audit.status_check_attempts || 0) + 1;
+          audit.status_check_attempts = currentAttempts;
+          audit.last_status_check_at = new Date().toISOString();
+          tx.audit_metadata = audit;
+          if (currentAttempts > maxAttempts) {
+            return { data: { allowed: false, reason: 'rate_limited', attempts: currentAttempts }, error: null };
+          }
+          return { data: { allowed: true, attempts: currentAttempts }, error: null };
+        }
         return { data: null, error: { message: `Unknown RPC function: ${fnName}` } };
       },
       from: (table: string) => {
@@ -2917,6 +2948,8 @@ async function runPaymentSecurityTests() {
                 data: items,
                 error: null,
                 eq: (col: string, val: any) => buildResult(items.filter((p) => p[col] === val)),
+                in: (col: string, vals: any[]) => buildResult(items.filter((p) => vals.includes(p[col]))),
+                gte: (col: string, val: any) => buildResult(items.filter((p) => p[col] >= val)),
                 ilike: (col: string, pat: string) => {
                   const prefix = pat.replace(/[%_]/g, '').toLowerCase();
                   return buildResult(items.filter((p) => String(p[col] || '').toLowerCase().startsWith(prefix)));
@@ -5866,6 +5899,886 @@ async function runPaymentSecurityTests() {
     'RPC success=true, already_approved=true, tx status=approved',
     `rpcSuccess=${rpc129Result.data?.success}, alreadyApproved=${rpc129Result.data?.already_approved}, txStatus=${state129.getPaymentByRef('LIVE-DAYTOUR-GNY-129')?.status}`
   );
+
+  // -------------------------------------------------------------
+  // TEST 130: CUSTOMER RETURN STATUS CHECK WITH VALID CAPABILITY VERIFIES APPROVED PAYMENT
+  // -------------------------------------------------------------
+  resetPaymentStatusRateLimitStoreForTesting();
+  const state130 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-130-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-130',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-LINK-130',
+        idempotency_key: 'idem_secret_key_130',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-130',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch130 = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-EHA1PJ6R1MAN-130',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          idMerchant: '174335',
+          customParm1: 'LIVE-DAYTOUR-GNY-130',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-130&idem=idem_secret_key_130',
+        },
+      ],
+    }),
+  });
+
+  const prodEnv130 = {
+    PAGUELOFACIL_ACCESS_TOKEN: 'LIVE_PROD_TOKEN_VALID',
+    PAGUELOFACIL_MERCHANT_ID: '174335',
+  };
+
+  const statusRes130 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-130',
+      verificationKey: 'idem_secret_key_130',
+      operationCode: 'LK-EHA1PJ6R1MAN-130',
+    }),
+  }, {}, {
+    supabaseClient: state130 as any,
+    env: prodEnv130,
+    fetchFn: fetch130 as any,
+  });
+
+  const body130 = JSON.parse(statusRes130.body);
+  assert(
+    'Test 130: check-payment-status independently verifies approved payment with valid capability and confirms booking',
+    Boolean(
+      statusRes130.statusCode === 200 &&
+        body130.success === true &&
+        body130.state === 'confirmed' &&
+        state130.getPaymentByRef('LIVE-DAYTOUR-GNY-130')?.status === 'approved' &&
+        state130.getBookingByRef('LIVE-DAYTOUR-GNY-130')?.status === 'fully_confirmed'
+    ),
+    'statusCode=200, state=confirmed, txStatus=approved, bookingStatus=fully_confirmed',
+    `status=${statusRes130.statusCode}, state=${body130.state}, txStatus=${state130.getPaymentByRef('LIVE-DAYTOUR-GNY-130')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 131: CHECK-PAYMENT-STATUS REJECTS REQUEST MISSING SECURE CAPABILITY (FORBIDDEN/UNAUTHORIZED)
+  // -------------------------------------------------------------
+  const statusRes131 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.5' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-130',
+      // verificationKey omitted
+    }),
+  }, {}, {
+    supabaseClient: state130 as any,
+    env: prodEnv130,
+    fetchFn: fetch130 as any,
+  });
+
+  const body131 = JSON.parse(statusRes131.body);
+  assert(
+    'Test 131: check-payment-status rejects request without verificationKey and refuses to authorize verification',
+    Boolean(
+      statusRes131.statusCode === 401 &&
+        body131.state === 'contact_support'
+    ),
+    'statusCode=401, state=contact_support',
+    `status=${statusRes131.statusCode}, state=${body131.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 132: CHECK-PAYMENT-STATUS REJECTS INVALID / WRONG CAPABILITY TOKEN
+  // -------------------------------------------------------------
+  const statusRes132 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.6' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-130',
+      verificationKey: 'WRONG_UNAUTHORIZED_TOKEN',
+    }),
+  }, {}, {
+    supabaseClient: state130 as any,
+    env: prodEnv130,
+    fetchFn: fetch130 as any,
+  });
+
+  const body132 = JSON.parse(statusRes132.body);
+  assert(
+    'Test 132: check-payment-status returns 403 Forbidden when capability key does not match stored idempotency_key',
+    Boolean(
+      statusRes132.statusCode === 403 &&
+        body132.state === 'contact_support'
+    ),
+    'statusCode=403, state=contact_support',
+    `status=${statusRes132.statusCode}, state=${body132.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 133: CHECK-PAYMENT-STATUS ENFORCES RATE LIMITING ON EXCESSIVE CHECKS
+  // -------------------------------------------------------------
+  resetPaymentStatusRateLimitStoreForTesting();
+  let rateLimitedHit = false;
+  for (let i = 0; i < 16; i++) {
+    const res = await checkPaymentStatusHandler({
+      httpMethod: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '9.9.9.9' },
+      body: JSON.stringify({
+        bookingReference: 'LIVE-DAYTOUR-GNY-130',
+        verificationKey: 'idem_secret_key_130',
+      }),
+    }, {}, {
+      supabaseClient: state130 as any,
+      env: prodEnv130,
+      fetchFn: fetch130 as any,
+    });
+    if (res.statusCode === 429) {
+      rateLimitedHit = true;
+      break;
+    }
+  }
+
+  assert(
+    'Test 133: check-payment-status rate limits client IP on excessive status checks (>15/min)',
+    rateLimitedHit === true,
+    'rateLimitedHit=true (HTTP 429)',
+    `rateLimitedHit=${rateLimitedHit}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 134: CHECK-PAYMENT-STATUS HANDLES UNKNOWN OPERATION OR STILL-PENDING PAYMENT (RETURNS STATE=VERIFYING)
+  // -------------------------------------------------------------
+  const state134 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-134-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-134',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: null,
+        idempotency_key: 'idem_key_134',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-134',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch134Pending = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [], // No matching transaction captured yet
+    }),
+  });
+
+  const statusRes134 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.7' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-134',
+      verificationKey: 'idem_key_134',
+    }),
+  }, {}, {
+    supabaseClient: state134 as any,
+    env: prodEnv130,
+    fetchFn: fetch134Pending as any,
+  });
+
+  const body134 = JSON.parse(statusRes134.body);
+  assert(
+    'Test 134: check-payment-status returns state=verifying when gateway operation is not yet complete',
+    Boolean(
+      statusRes134.statusCode === 200 &&
+        body134.state === 'verifying' &&
+        state134.getPaymentByRef('LIVE-DAYTOUR-GNY-134')?.status === 'pending'
+    ),
+    'statusCode=200, state=verifying, status remains pending',
+    `status=${statusRes134.statusCode}, state=${body134.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 135: SCHEDULED RECONCILER AUTOMATICALLY RECONCILES ABANDONED BROWSER APPROVED TRANSACTION
+  // -------------------------------------------------------------
+  const state135 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-135-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-135',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: 'LK-OPER-135',
+        gateway_link_code: 'LK-LINK-135',
+        idempotency_key: 'idem_key_135',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-135',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch135 = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-OPER-135',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          idMerchant: '174335',
+          customParm1: 'LIVE-DAYTOUR-GNY-135',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-135',
+        },
+      ],
+    }),
+  });
+
+  const prodEnvReconciliationEnabled = {
+    ...prodEnv130,
+    ENABLE_AUTOMATIC_PAYMENT_RECONCILIATION: 'true',
+  };
+
+  const schedRes135 = await executeScheduledPaymentReconciliation({
+    supabaseClient: state135 as any,
+    env: prodEnvReconciliationEnabled,
+    fetchFn: fetch135 as any,
+  });
+
+  assert(
+    'Test 135: Scheduled reconciler automatically confirms pending production transaction when customer abandons browser',
+    Boolean(
+      schedRes135.statusCode === 200 &&
+        schedRes135.payload.reconciledCount === 1 &&
+        state135.getPaymentByRef('LIVE-DAYTOUR-GNY-135')?.status === 'approved' &&
+        state135.getBookingByRef('LIVE-DAYTOUR-GNY-135')?.status === 'fully_confirmed'
+    ),
+    'reconciledCount=1, tx status=approved, booking status=fully_confirmed',
+    `reconciledCount=${schedRes135.payload.reconciledCount}, txStatus=${state135.getPaymentByRef('LIVE-DAYTOUR-GNY-135')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 136: SCHEDULED RECONCILER SKIPS TRANSACTIONS WITH INELIGIBLE BOOKING STATUS
+  // -------------------------------------------------------------
+  const state136 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-136-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-136',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: 'LK-OPER-136',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-136',
+        status: 'cancelled', // Booking was cancelled by admin/system
+      },
+    ]
+  );
+
+  const schedRes136 = await executeScheduledPaymentReconciliation({
+    supabaseClient: state136 as any,
+    env: prodEnvReconciliationEnabled,
+    fetchFn: fetch135 as any,
+  });
+
+  assert(
+    'Test 136: Scheduled reconciler skips transaction when booking_requests status is cancelled or not pending_payment',
+    Boolean(
+      schedRes136.statusCode === 200 &&
+        schedRes136.payload.skippedCount === 1 &&
+        schedRes136.payload.reconciledCount === 0 &&
+        state136.getPaymentByRef('LIVE-DAYTOUR-GNY-136')?.status === 'pending'
+    ),
+    'skippedCount=1, reconciledCount=0, status remains pending',
+    `skippedCount=${schedRes136.payload.skippedCount}, reconciledCount=${schedRes136.payload.reconciledCount}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 137: SCHEDULED RECONCILER STRICTLY IGNORES SANDBOX TRANSACTIONS
+  // -------------------------------------------------------------
+  const state137 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-137-id',
+        booking_reference: 'TEST-DAYTOUR-GNY-137',
+        environment: 'sandbox', // Sandbox environment
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        created_at: new Date().toISOString(),
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-137',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const schedRes137 = await executeScheduledPaymentReconciliation({
+    supabaseClient: state137 as any,
+    env: prodEnvReconciliationEnabled,
+    fetchFn: fetch135 as any,
+  });
+
+  assert(
+    'Test 137: Scheduled reconciler query strictly filters environment=production and ignores sandbox records',
+    Boolean(
+      schedRes137.statusCode === 200 &&
+        schedRes137.payload.checkedCount === 0 &&
+        schedRes137.payload.reconciledCount === 0
+    ),
+    'checkedCount=0, reconciledCount=0',
+    `checkedCount=${schedRes137.payload.checkedCount}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 138: CHECK-PAYMENT-STATUS ACCEPTS SEPARATE SHA-256 TOKEN HASH CAPABILITY
+  // -------------------------------------------------------------
+  const secretVerificationToken = 'sec_token_9999_abcd_efgh_ijkl';
+  const hashedToken = crypto.createHash('sha256').update(secretVerificationToken).digest('hex');
+
+  const state138 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-138-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-138',
+        environment: 'production',
+        status: 'approved',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: 'LK-OPER-138',
+        idempotency_key: 'separate_idempotency_key_138',
+        audit_metadata: {
+          verification_token_hash: hashedToken, // Stored hash only
+        },
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-138',
+        status: 'fully_confirmed',
+      },
+    ]
+  );
+
+  const statusRes138 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.8' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-138',
+      verificationKey: secretVerificationToken,
+    }),
+  }, {}, {
+    supabaseClient: state138 as any,
+    env: prodEnv130,
+  });
+
+  const body138 = JSON.parse(statusRes138.body);
+  assert(
+    'Test 138: check-payment-status validates unguessable capability against stored SHA-256 hash in audit_metadata',
+    Boolean(
+      statusRes138.statusCode === 200 &&
+        body138.success === true &&
+        body138.state === 'confirmed'
+    ),
+    'statusCode=200, state=confirmed',
+    `status=${statusRes138.statusCode}, state=${body138.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 139: CHECK-PAYMENT-STATUS REJECTS BRUTE-FORCE GUESSING ATTACK ON CAPABILITY
+  // -------------------------------------------------------------
+  const statusRes139 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.9' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-138',
+      verificationKey: 'attacker_guessed_token_000',
+    }),
+  }, {}, {
+    supabaseClient: state138 as any,
+    env: prodEnv130,
+  });
+
+  const body139 = JSON.parse(statusRes139.body);
+  assert(
+    'Test 139: check-payment-status timing-safely rejects incorrect token guess without exposing data (403 Forbidden)',
+    Boolean(
+      statusRes139.statusCode === 403 &&
+        body139.state === 'contact_support'
+    ),
+    'statusCode=403, state=contact_support',
+    `status=${statusRes139.statusCode}, state=${body139.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 140: CHECK-PAYMENT-STATUS EXTRACTS CAPABILITY FROM SECURE COOKIE HEADER
+  // -------------------------------------------------------------
+  const statusRes140 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-forwarded-for': '1.2.3.10',
+      'cookie': `other_cookie=xyz; __Host-payment-capability=${encodeURIComponent(secretVerificationToken)}; sess=123`,
+    },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-138',
+      // verificationKey omitted in body, supplied securely via cookie
+    }),
+  }, {}, {
+    supabaseClient: state138 as any,
+    env: prodEnv130,
+  });
+
+  const body140 = JSON.parse(statusRes140.body);
+  assert(
+    'Test 140: check-payment-status securely extracts verification capability from __Host-payment-capability cookie',
+    Boolean(
+      statusRes140.statusCode === 200 &&
+        body140.success === true &&
+        body140.state === 'confirmed'
+    ),
+    'statusCode=200, state=confirmed via cookie capability',
+    `status=${statusRes140.statusCode}, state=${body140.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 141: SCHEDULED WORKER EXITS IMMEDIATELY BEFORE READING OR MODIFYING RECORDS WHEN ENABLE_AUTOMATIC_PAYMENT_RECONCILIATION IS NOT TRUE
+  // -------------------------------------------------------------
+  const state141 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-141-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-141',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: 'LK-OPER-141',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-141',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const schedRes141Default = await executeScheduledPaymentReconciliation({
+    supabaseClient: state141 as any,
+    env: { ...prodEnv130, ENABLE_AUTOMATIC_PAYMENT_RECONCILIATION: undefined },
+    fetchFn: fetch135 as any,
+  });
+
+  const schedRes141False = await executeScheduledPaymentReconciliation({
+    supabaseClient: state141 as any,
+    env: { ...prodEnv130, ENABLE_AUTOMATIC_PAYMENT_RECONCILIATION: 'false' },
+    fetchFn: fetch135 as any,
+  });
+
+  assert(
+    'Test 141: Scheduled worker exits immediately before reading or modifying production payment records when ENABLE_AUTOMATIC_PAYMENT_RECONCILIATION is not true',
+    Boolean(
+      schedRes141Default.statusCode === 200 &&
+        schedRes141Default.payload.disabled === true &&
+        schedRes141Default.payload.checkedCount === 0 &&
+        schedRes141False.statusCode === 200 &&
+        schedRes141False.payload.disabled === true &&
+        schedRes141False.payload.checkedCount === 0 &&
+        state141.getPaymentByRef('LIVE-DAYTOUR-GNY-141')?.status === 'pending'
+    ),
+    'disabled=true, checkedCount=0, status remains pending',
+    `defaultDisabled=${schedRes141Default.payload.disabled}, falseDisabled=${schedRes141False.payload.disabled}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 142: CHECK-PAYMENT-STATUS STRICTLY REJECTS CLIENT-SELECTED IDEMPOTENCY KEY WHEN SEPARATE VERIFICATION_TOKEN_HASH EXISTS
+  // -------------------------------------------------------------
+  const state142 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-142-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-142',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        idempotency_key: 'client_selected_idempotency_key_142',
+        audit_metadata: {
+          verification_token_hash: crypto.createHash('sha256').update('server_generated_secret_token_142').digest('hex'),
+        },
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-142',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const statusRes142 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.11' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-142',
+      verificationKey: 'client_selected_idempotency_key_142',
+    }),
+  }, {}, {
+    supabaseClient: state142 as any,
+    env: prodEnv130,
+  });
+
+  const body142 = JSON.parse(statusRes142.body);
+  assert(
+    'Test 142: check-payment-status strictly rejects client-selected idempotency key when separate verification_token_hash is configured in audit_metadata',
+    Boolean(
+      statusRes142.statusCode === 403 &&
+        body142.success === false &&
+        body142.state === 'contact_support'
+    ),
+    'statusCode=403, state=contact_support',
+    `status=${statusRes142.statusCode}, state=${body142.state}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 143: CHECK-PAYMENT-STATUS REJECTS EXPIRED VERIFICATION CAPABILITY
+  // -------------------------------------------------------------
+  const expiredSecretToken = 'expired_token_143';
+  const state143 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-143-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-143',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        audit_metadata: {
+          verification_token_hash: crypto.createHash('sha256').update(expiredSecretToken).digest('hex'),
+          verification_token_expires_at: new Date(Date.now() - 3600 * 1000).toISOString(),
+        },
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-143',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const statusRes143 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.12' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-143',
+      verificationKey: expiredSecretToken,
+    }),
+  }, {}, {
+    supabaseClient: state143 as any,
+    env: prodEnv130,
+  });
+
+  const body143 = JSON.parse(statusRes143.body);
+  assert(
+    'Test 143: check-payment-status rejects expired verification capability (403 Forbidden)',
+    Boolean(
+      statusRes143.statusCode === 403 &&
+        body143.message?.toLowerCase().includes('expired')
+    ),
+    'statusCode=403, message includes expired',
+    `status=${statusRes143.statusCode}, msg=${body143.message}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 144: CHECK-PAYMENT-STATUS ENFORCES PERSISTENT RATE LIMIT ACROSS INSTANCES IN SUPABASE
+  // -------------------------------------------------------------
+  const persistentToken = 'persistent_token_144';
+  const state144 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-144-id',
+        booking_reference: 'LIVE-DAYTOUR-GNY-144',
+        environment: 'production',
+        status: 'pending',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        audit_metadata: {
+          verification_token_hash: crypto.createHash('sha256').update(persistentToken).digest('hex'),
+          status_check_attempts: 26,
+          last_status_check_at: new Date().toISOString(),
+        },
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-144',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const statusRes144 = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': 'different-ip-instance' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-144',
+      verificationKey: persistentToken,
+    }),
+  }, {}, {
+    supabaseClient: state144 as any,
+    env: prodEnv130,
+  });
+
+  assert(
+    'Test 144: check-payment-status enforces persistent per-booking rate limit in Supabase across different client instances (HTTP 429)',
+    Boolean(statusRes144.statusCode === 429),
+    'statusCode=429',
+    `status=${statusRes144.statusCode}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 145: VERIFY NETLIFY PLATFORM-LEVEL RATE LIMIT EXPORT AND SCHEDULE FUNCTION EXPORT
+  // -------------------------------------------------------------
+  assert(
+    'Test 145: Netlify platform rate limit export is configured on check-payment-status and schedule is configured on reconcile-payments-scheduled',
+    Boolean(
+      checkStatusConfig?.rateLimit?.windowLimit === 15 &&
+        checkStatusConfig?.rateLimit?.windowSize === 60 &&
+        Array.isArray(checkStatusConfig?.rateLimit?.aggregateBy) &&
+        checkStatusConfig?.rateLimit?.aggregateBy.includes('ip') &&
+        scheduledConfig?.schedule === '*/10 * * * *'
+    ),
+    'checkStatusConfig.rateLimit defined with windowLimit=15, aggregateBy=[ip]; scheduledConfig.schedule=*/10 * * * *',
+    `rateLimit=${JSON.stringify(checkStatusConfig?.rateLimit)}, schedule=${scheduledConfig?.schedule}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 146: SERVER-SIDE DAY-TOUR CHECKOUT CREATION GENERATES SEPARATE CRYPTO-SECURE VERIFICATION TOKEN
+  // -------------------------------------------------------------
+  let capturedLinkDaemonCall: any = null;
+  const mockLinkDaemonFetch146 = async (url: any, opts: any) => {
+    if (String(url).includes('LinkDeamon')) {
+      capturedLinkDaemonCall = { url, body: opts?.body };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          headerStatus: { code: 200, status: 'SUCCESS' },
+          data: {
+            url: 'https://secure.paguelofacil.com/checkout?code=LK-NEW-146',
+            code: 'LK-NEW-146',
+          },
+        }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+      text: async () => '',
+    };
+  };
+
+  const origFetch146 = global.fetch;
+  global.fetch = mockLinkDaemonFetch146 as any;
+
+  const checkoutEnv = {
+    PAGUELOFACIL_CCLW: 'PROD_CCLW_146',
+    PAGUELOFACIL_ACCESS_TOKEN: 'PROD_TOKEN_146',
+    ENABLE_LIVE_PAYMENTS: 'true',
+    PAGUELOFACIL_ENV: 'production',
+  };
+
+  const oldEnv = { ...process.env };
+  Object.assign(process.env, checkoutEnv);
+
+  const checkoutRes146 = await checkoutHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bookingType: 'day-trip',
+      dayTourPackageId: 'day-tour-port',
+      customerName: 'Test Customer',
+      customerEmail: 'customer@example.com',
+      adults: 1,
+      idempotencyKey: 'client_idempotency_146',
+    }),
+  });
+
+  global.fetch = origFetch146;
+  process.env = oldEnv;
+
+  const checkoutBody146 = JSON.parse(checkoutRes146.body);
+  const cookieHeader146 = (checkoutRes146.headers as any)?.['Set-Cookie'] || '';
+  const returnUrl146 = new URLSearchParams(capturedLinkDaemonCall?.body || '').get('RETURN_URL') || '';
+
+  assert(
+    'Test 146: Day-tour checkout creation generates separate server-side verification token, embeds it in RETURN_URL, and sets protected capability cookie',
+    Boolean(
+      checkoutRes146.statusCode === 200 &&
+        checkoutBody146.success === true &&
+        returnUrl146.includes('&pvt=pvt_') &&
+        returnUrl146.includes('&idem=client_idempotency_146') &&
+        cookieHeader146.includes('__Host-payment-capability=pvt_')
+    ),
+    'checkout succeeds, returnUrl contains &pvt=pvt_..., cookie contains __Host-payment-capability=pvt_...',
+    `status=${checkoutRes146.statusCode}, returnUrl=${returnUrl146}, cookie=${cookieHeader146}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 147: LEGACY APPROVED TRANSACTION AUTHORIZATION & ZERO WRITES ON RATE LIMITING
+  // -------------------------------------------------------------
+  const state147 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-147-legacy-approved',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        environment: 'production',
+        status: 'approved',
+        expected_amount: 69.00,
+        amount_paid: 69.00,
+        amount_in_cents: 6900,
+        gateway_operation_id: 'LK-EHA1PJ6R1MAN',
+        idempotency_key: 'legacy_secret_idem_220728',
+        audit_metadata: {
+          environment: 'production',
+          amount_in_cents: 6900,
+          customer_sensitive_email: 'secret_customer@example.com',
+        },
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'fully_confirmed',
+        customer_email: 'secret_customer@example.com',
+      },
+    ]
+  );
+
+  // 147a: Missing authorization -> 401
+  const unauthLegacyRes = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '5.5.5.1' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+      // verificationKey omitted
+    }),
+  }, {}, {
+    supabaseClient: state147 as any,
+    env: prodEnv130,
+  });
+
+  // 147b: Wrong capability key -> 403 (no data leakage)
+  const wrongKeyLegacyRes = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '5.5.5.2' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+      verificationKey: 'attacker_wrong_guess',
+    }),
+  }, {}, {
+    supabaseClient: state147 as any,
+    env: prodEnv130,
+  });
+
+  const wrongBody = JSON.parse(wrongKeyLegacyRes.body);
+
+  // 147c: Valid legacy capability key -> 200 (minimal public response, zero writes)
+  const updatesBefore = (state147 as any).getPaymentUpdates().length;
+  const validLegacyRes = await checkPaymentStatusHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '5.5.5.3' },
+    body: JSON.stringify({
+      bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+      verificationKey: 'legacy_secret_idem_220728',
+    }),
+  }, {}, {
+    supabaseClient: state147 as any,
+    env: prodEnv130,
+  });
+
+  const validBody = JSON.parse(validLegacyRes.body);
+  const updatesAfter = (state147 as any).getPaymentUpdates().length;
+
+  assert(
+    'Test 147: Legacy approved transactions strictly require authorization (401/403 on wrong key), never expose customer information, and perform zero rate-limit writes',
+    Boolean(
+      unauthLegacyRes.statusCode === 401 &&
+        wrongKeyLegacyRes.statusCode === 403 &&
+        !JSON.stringify(wrongBody).includes('secret_customer') &&
+        validLegacyRes.statusCode === 200 &&
+        validBody.state === 'confirmed' &&
+        !JSON.stringify(validBody).includes('secret_customer') &&
+        updatesAfter === updatesBefore // Invariant: Zero database writes on approved payment check
+    ),
+    'unauth=401, wrong=403 without data leak, valid=200, writes=0',
+    `unauth=${unauthLegacyRes.statusCode}, wrong=${wrongKeyLegacyRes.statusCode}, valid=${validLegacyRes.statusCode}, writesDiff=${updatesAfter - updatesBefore}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 148: REFERRER-POLICY AND SECURITY HEADERS COMPLIANCE
+  // -------------------------------------------------------------
+  const netlifyTomlContent = fs.readFileSync(path.resolve(process.cwd(), 'netlify.toml'), 'utf8');
+  const indexHtmlContent = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
+
+  assert(
+    'Test 148: netlify.toml and index.html enforce strict Referrer-Policy (no-referrer on checkout and strict-origin-when-cross-origin globally)',
+    Boolean(
+      netlifyTomlContent.includes('for = "/checkout/*"') &&
+        netlifyTomlContent.includes('Referrer-Policy = "no-referrer"') &&
+        netlifyTomlContent.includes('Referrer-Policy = "strict-origin-when-cross-origin"') &&
+        indexHtmlContent.includes('<meta name="referrer" content="strict-origin-when-cross-origin"')
+    ),
+    'netlify.toml has /checkout/* no-referrer and /* strict-origin-when-cross-origin, index.html has referrer meta',
+    'Referrer-Policy headers verified in netlify.toml and index.html'
+  );
+
+
+
 
   console.log('----------------------------------------------------');
   console.log('         PART 25I PAYMENT SECURITY TEST MATRIX');

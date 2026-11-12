@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   calculateAuthoritativeDayTripAmount,
@@ -223,7 +224,12 @@ export const handler = async (event: NetlifyEvent) => {
     };
   }
 
-  // 4. Create Gateway Payment Session via server-configured adapter
+  // 4. Generate cryptographically secure payment-verification token on the server
+  const verificationToken = `pvt_${crypto.randomBytes(24).toString('hex')}`;
+  const verificationTokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
+  const verificationTokenExpiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(); // 4-hour validity
+
+  // Create Gateway Payment Session via server-configured adapter
   const sessionResult = await gateway.createPaymentSession({
     bookingReference: finalBookingReference,
     bookingType,
@@ -237,6 +243,7 @@ export const handler = async (event: NetlifyEvent) => {
     description: `Guna Yala Panama Travel - ${bookingType.toUpperCase()} ${finalBookingReference}`,
     expiresInSeconds: 7200, // 2 hours
     idempotencyKey,
+    verificationToken,
   });
 
   // 5. Persist trusted server-selected payment transaction record & pending booking
@@ -282,7 +289,7 @@ export const handler = async (event: NetlifyEvent) => {
             );
         }
 
-        // 5b. Record payment transaction in payment_transactions with integer cents
+        // 5b. Record payment transaction in payment_transactions with integer cents and SHA-256 token hash
         const activeEnvironment: 'sandbox' | 'production' =
           gatewayConfig.environment === 'production' ? 'production' : 'sandbox';
 
@@ -312,6 +319,9 @@ export const handler = async (event: NetlifyEvent) => {
                 package_id: body.dayTourPackageId || null,
                 created_via: 'payment-checkout',
                 created_at: new Date().toISOString(),
+                verification_token_hash: verificationTokenHash,
+                verification_token_created_at: new Date().toISOString(),
+                verification_token_expires_at: verificationTokenExpiresAt,
               },
             },
             { onConflict: 'idempotency_key' }
@@ -322,9 +332,21 @@ export const handler = async (event: NetlifyEvent) => {
     }
   }
 
+  const responseHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  const cookieHeader = `__Host-payment-capability=${verificationToken}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=14400`;
+
+  // Set secure cookie capability when checkout is initiated
+  if (sessionResult.success) {
+    responseHeaders['Set-Cookie'] = cookieHeader;
+  }
+
   return {
     statusCode: sessionResult.success ? 200 : 500,
-    headers: { 'Content-Type': 'application/json' },
+    headers: responseHeaders,
+    multiValueHeaders: sessionResult.success ? { 'Set-Cookie': [cookieHeader] } : undefined,
     body: JSON.stringify({
       ...sessionResult,
       bookingReference: finalBookingReference,

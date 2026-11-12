@@ -72,6 +72,7 @@ export interface CreatePaymentSessionParams {
   description: string;
   expiresInSeconds?: number;
   idempotencyKey: string;
+  verificationToken?: string;
 }
 
 export interface PaymentSessionResult {
