@@ -1,5 +1,21 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { validatePagueloFacilCheckoutUrl } from './paymentGateway.js';
+import { validatePagueloFacilCheckoutUrl, maskCredential } from './paymentGateway.js';
+
+export interface MerchantIdentityDiagnostic {
+  operationFound: boolean;
+  operationCode: string;
+  idMerchantExists: boolean;
+  idMerchantDataType?: string;
+  maskedIdMerchant?: string;
+  cclwExistsInRecord: boolean;
+  paguelofacilMerchantIdConfigured: boolean;
+  maskedConfiguredMerchantId?: string;
+  paguelofacilCclwConfigured: boolean;
+  merchantVerified: boolean;
+  failingValidationRule: string;
+  verificationDetails: string;
+  actionableGuidance: string;
+}
 
 export interface ReconciliationParams {
   bookingReference?: string;
@@ -23,6 +39,7 @@ export interface ReconciliationResult {
   databaseUpdated?: boolean;
   error?: string;
   audit?: any;
+  merchantIdentityDiagnostic?: MerchantIdentityDiagnostic;
 }
 
 export interface RelationshipValidationResult {
@@ -204,208 +221,414 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
     };
   }
 
-  // 1. Check direct structured gateway parameters (customParm1, parm1, PARM_1, bookingReference)
+  let hasConflict = false;
+  let conflictDetails = '';
+  let conflictField = '';
+
+  const matchedDirectValues: Record<string, { value: string; matches: boolean }> = {};
+  const matchedLinkValues: Record<string, { value: string; matches: boolean }> = {};
+
+  // 1. Inspect ALL direct structured gateway parameters (customParm1, parm1, PARM_1, bookingReference)
   const directFields = ['customParm1', 'parm1', 'PARM_1', 'bookingReference'];
   for (const field of directFields) {
     const actualKey = field in matched ? field : Object.keys(matched).find(k => k.toLowerCase() === field.toLowerCase());
     if (actualKey && matched[actualKey] !== undefined && matched[actualKey] !== null) {
       const val = String(matched[actualKey]).trim();
-      if (storedRef && val === storedRef) {
-        return {
-          verified: true,
-          evidence: field as any,
-          provingField: actualKey,
-          details: `Verified via trusted gateway parameter "${actualKey}" matching stored booking reference.`,
-          diagnosticDetails: {
-            urlFormatValid: false,
-            recognizedQueryParameters: [],
-            matchingParameterNames: [actualKey],
-            hasConflicts: false,
-            rejectionReason: 'none',
-          },
-        };
-      }
-      if (storedRef && val && val !== storedRef) {
-        return {
-          verified: false,
-          evidence: field as any,
-          provingField: actualKey,
-          details: `Booking reference conflict: gateway field "${actualKey}" contains mismatching identifier.`,
-          diagnosticDetails: {
-            urlFormatValid: false,
-            recognizedQueryParameters: [],
-            matchingParameterNames: [],
-            hasConflicts: true,
-            rejectionReason: 'parameter_conflict',
-          },
-        };
+      if (val !== '') {
+        const isMatch = Boolean(storedRef && val === storedRef);
+        matchedDirectValues[actualKey] = { value: val, matches: isMatch };
+        if (storedRef && val !== storedRef) {
+          hasConflict = true;
+          conflictField = actualKey;
+          conflictDetails = `Direct parameter conflict: field "${actualKey}" contains mismatching booking reference.`;
+        }
       }
     }
   }
 
-  // 2. Check gateway link code correlation (linkCode, code, gatewayLinkCode)
+  // 2. Inspect ALL gateway link code fields (linkCode, code, gatewayLinkCode)
   const linkFields = ['linkCode', 'code', 'gatewayLinkCode'];
   for (const field of linkFields) {
     const actualKey = field in matched ? field : Object.keys(matched).find(k => k.toLowerCase() === field.toLowerCase());
     if (actualKey && matched[actualKey] !== undefined && matched[actualKey] !== null) {
       const val = String(matched[actualKey]).trim();
-      if (storedLinkCode && val === storedLinkCode) {
-        return {
-          verified: true,
-          evidence: field as any,
-          provingField: actualKey,
-          details: `Verified via trusted gateway link code correlation in field "${actualKey}".`,
-          diagnosticDetails: {
-            urlFormatValid: false,
-            recognizedQueryParameters: [],
-            matchingParameterNames: [actualKey],
-            hasConflicts: false,
-            rejectionReason: 'none',
-          },
-        };
+      if (val !== '') {
+        const isMatch = Boolean(storedLinkCode && val === storedLinkCode);
+        matchedLinkValues[actualKey] = { value: val, matches: isMatch };
+        if (storedLinkCode && val !== storedLinkCode) {
+          hasConflict = true;
+          if (!conflictField) conflictField = actualKey;
+          if (!conflictDetails) conflictDetails = `Link code conflict: field "${actualKey}" contains mismatching link code.`;
+        }
       }
     }
   }
 
-  // 3. Check urlString trusted URL parameters safely (Merchant Return URL vs PagueloFacil Checkout URL)
+  // 3. Inspect urlString trusted URL parameters safely
+  let urlMatchFound = false;
+  let urlProvingParam = '';
+  let urlFormatValid = false;
+  let urlRecognizedParams: string[] = [];
+  let urlMatchingParams: string[] = [];
+  let urlRejectionReason: string | undefined;
+
   const urlStringVal = matched.urlString || matched.url || matched.returnUrl || matched.callbackUrl;
   if (urlStringVal && typeof urlStringVal === 'string' && urlStringVal.trim() !== '') {
     const isPagueloFacilHost = urlStringVal.includes('paguelofacil.com');
     if (isPagueloFacilHost) {
       const urlCheck = validatePagueloFacilCheckoutUrl(urlStringVal, env);
       if (!urlCheck.valid) {
-        return {
-          verified: false,
-          evidence: 'none',
-          details: `URL validation failed for gateway checkout URL: ${urlCheck.error}`,
-          diagnosticDetails: {
-            urlFormatValid: false,
-            recognizedQueryParameters: [],
-            matchingParameterNames: [],
-            hasConflicts: false,
-            rejectionReason: 'untrusted_origin_or_malformed_url',
-          },
-        };
-      }
-      try {
-        const parsedUrl = new URL(urlStringVal);
-        const searchParams = parsedUrl.searchParams;
-        const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference', 'linkCode', 'code'];
-        const recognizedQueryParameters: string[] = [];
-        const matchingParameterNames: string[] = [];
-        let hasConflicts = false;
+        hasConflict = true;
+        if (!conflictField) conflictField = 'urlString';
+        if (!conflictDetails) conflictDetails = `URL format/origin validation failed for gateway checkout URL: ${urlCheck.error}`;
+        if (!urlRejectionReason) urlRejectionReason = 'untrusted_origin_or_malformed_url';
+      } else {
+        urlFormatValid = true;
+        try {
+          const parsedUrl = new URL(urlStringVal);
+          const searchParams = parsedUrl.searchParams;
+          const trustedParams = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference', 'linkCode', 'code'];
 
-        for (const param of trustedParams) {
-          if (searchParams.has(param)) {
-            recognizedQueryParameters.push(param);
-            const paramVal = searchParams.get(param);
-            if (paramVal !== null && paramVal !== undefined) {
-              const trimmedVal = paramVal.trim();
-              const isBookingRefParam = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'].includes(param);
-              const isLinkCodeParam = ['linkCode', 'code'].includes(param);
+          for (const param of trustedParams) {
+            if (searchParams.has(param)) {
+              urlRecognizedParams.push(param);
+              const paramVal = searchParams.get(param);
+              if (paramVal !== null && paramVal !== undefined) {
+                const trimmedVal = paramVal.trim();
+                const isBookingRefParam = ['bookingReference', 'PARM_1', 'parm1', 'customParm1', 'ref', 'booking_reference'].includes(param);
+                const isLinkCodeParam = ['linkCode', 'code'].includes(param);
 
-              if (isBookingRefParam) {
-                if (storedRef && trimmedVal === storedRef) {
-                  matchingParameterNames.push(param);
-                } else if (storedRef && trimmedVal !== '' && trimmedVal !== storedRef) {
-                  hasConflicts = true;
-                }
-              } else if (isLinkCodeParam) {
-                if (storedLinkCode && trimmedVal === storedLinkCode) {
-                  matchingParameterNames.push(param);
-                } else if (storedLinkCode && trimmedVal !== '' && trimmedVal !== storedLinkCode) {
-                  hasConflicts = true;
+                if (isBookingRefParam) {
+                  if (storedRef && trimmedVal === storedRef) {
+                    urlMatchingParams.push(param);
+                    urlMatchFound = true;
+                    if (!urlProvingParam) urlProvingParam = param;
+                  } else if (storedRef && trimmedVal !== '' && trimmedVal !== storedRef) {
+                    hasConflict = true;
+                    if (!conflictField) conflictField = `urlString?${param}`;
+                    if (!conflictDetails) conflictDetails = `URL query parameter conflict: "${param}" in urlString does not match stored booking reference.`;
+                    if (!urlRejectionReason) urlRejectionReason = 'parameter_conflict';
+                  }
+                } else if (isLinkCodeParam) {
+                  if (storedLinkCode && trimmedVal === storedLinkCode) {
+                    urlMatchingParams.push(param);
+                    urlMatchFound = true;
+                    if (!urlProvingParam) urlProvingParam = param;
+                  } else if (storedLinkCode && trimmedVal !== '' && trimmedVal !== storedLinkCode) {
+                    hasConflict = true;
+                    if (!conflictField) conflictField = `urlString?${param}`;
+                    if (!conflictDetails) conflictDetails = `URL query parameter conflict: "${param}" in urlString does not match stored link code.`;
+                    if (!urlRejectionReason) urlRejectionReason = 'parameter_conflict';
+                  }
                 }
               }
             }
           }
+        } catch {
+          hasConflict = true;
+          if (!conflictField) conflictField = 'urlString';
+          if (!conflictDetails) conflictDetails = 'Malformed urlString in gateway record.';
+          if (!urlRejectionReason) urlRejectionReason = 'malformed_url';
         }
-
-        if (hasConflicts) {
-          return {
-            verified: false,
-            evidence: 'urlString_parameter',
-            details: 'URL parameter conflict detected in gateway checkout urlString.',
-            diagnosticDetails: {
-              urlFormatValid: true,
-              recognizedQueryParameters,
-              matchingParameterNames,
-              hasConflicts: true,
-              rejectionReason: 'parameter_conflict',
-            },
-          };
-        }
-
-        if (matchingParameterNames.length > 0) {
-          const proving = matchingParameterNames[0];
-          return {
-            verified: true,
-            evidence: 'urlString_parameter',
-            provingField: `urlString?${proving}`,
-            details: `Verified via trusted URL parameter "${proving}" in gateway checkout urlString matching stored booking reference.`,
-            diagnosticDetails: {
-              urlFormatValid: true,
-              recognizedQueryParameters,
-              matchingParameterNames,
-              hasConflicts: false,
-              rejectionReason: 'none',
-            },
-          };
-        }
-      } catch {
-        // fallback
       }
     } else {
       const storedIdem = existingTx.idempotency_key || existingTx.idempotencyKey;
       const configuredReturnUrl = process.env.PAGUELOFACIL_RETURN_URL;
       const returnUrlVal = validateMerchantReturnUrl(urlStringVal, storedRef, storedIdem, configuredReturnUrl, env);
 
-      if (!returnUrlVal.valid) {
-        return {
-          verified: false,
-          evidence: 'none',
-          details: `Merchant return URL validation failed in urlString: reason=${returnUrlVal.rejectionReason}`,
-          diagnosticDetails: {
-            urlFormatValid: false,
-            recognizedQueryParameters: returnUrlVal.recognizedParams,
-            matchingParameterNames: returnUrlVal.matchingParams,
-            hasConflicts: returnUrlVal.hasConflicts,
-            rejectionReason: returnUrlVal.rejectionReason || 'merchant_return_url_invalid',
-          },
-        };
-      }
+      urlFormatValid = returnUrlVal.valid;
+      urlRecognizedParams = returnUrlVal.recognizedParams;
+      urlMatchingParams = returnUrlVal.matchingParams;
 
-      if (returnUrlVal.matchingParams.length > 0) {
-        const proving = returnUrlVal.matchingParams[0];
-        return {
-          verified: true,
-          evidence: 'urlString_parameter',
-          provingField: `urlString?${proving}`,
-          details: `Verified via trusted merchant return URL parameter "${proving}" matching stored booking reference.`,
-          diagnosticDetails: {
-            urlFormatValid: true,
-            recognizedQueryParameters: returnUrlVal.recognizedParams,
-            matchingParameterNames: returnUrlVal.matchingParams,
-            hasConflicts: false,
-            rejectionReason: 'none',
-          },
-        };
+      if (!returnUrlVal.valid) {
+        hasConflict = true;
+        if (!conflictField) conflictField = 'urlString';
+        if (!conflictDetails) conflictDetails = `Merchant return URL validation failed: reason=${returnUrlVal.rejectionReason}`;
+        if (!urlRejectionReason) urlRejectionReason = returnUrlVal.rejectionReason;
+      } else if (returnUrlVal.hasConflicts) {
+        hasConflict = true;
+        if (!conflictField) conflictField = 'urlString';
+        if (!conflictDetails) conflictDetails = 'Merchant return URL query parameter conflict detected.';
+        if (!urlRejectionReason) urlRejectionReason = returnUrlVal.rejectionReason || 'parameter_conflict';
+      } else if (returnUrlVal.matchingParams.length > 0) {
+        urlMatchFound = true;
+        urlProvingParam = returnUrlVal.matchingParams[0];
       }
     }
+  }
+
+  // REJECT IMMEDIATELY IF ANY CONFLICT WAS DETECTED ANYWHERE
+  if (hasConflict) {
+    return {
+      verified: false,
+      evidence: conflictField as any,
+      provingField: conflictField,
+      details: conflictDetails || 'Relationship validation rejected: conflicting evidence detected in gateway record.',
+      diagnosticDetails: {
+        urlFormatValid,
+        recognizedQueryParameters: urlRecognizedParams,
+        matchingParameterNames: urlMatchingParams,
+        hasConflicts: true,
+        rejectionReason: urlRejectionReason || 'parameter_conflict',
+      },
+    };
+  }
+
+  // IF NO CONFLICTS EXIST, CHECK FOR AT LEAST ONE MATCHING FIELD
+  const matchingDirectKey = Object.keys(matchedDirectValues).find(k => matchedDirectValues[k].matches);
+  if (matchingDirectKey) {
+    return {
+      verified: true,
+      evidence: matchingDirectKey as any,
+      provingField: matchingDirectKey,
+      details: `Verified via trusted gateway parameter "${matchingDirectKey}" matching stored booking reference.`,
+      diagnosticDetails: {
+        urlFormatValid,
+        recognizedQueryParameters: urlRecognizedParams,
+        matchingParameterNames: [matchingDirectKey],
+        hasConflicts: false,
+        rejectionReason: 'none',
+      },
+    };
+  }
+
+  const matchingLinkKey = Object.keys(matchedLinkValues).find(k => matchedLinkValues[k].matches);
+  if (matchingLinkKey) {
+    return {
+      verified: true,
+      evidence: matchingLinkKey as any,
+      provingField: matchingLinkKey,
+      details: `Verified via trusted gateway link code field "${matchingLinkKey}".`,
+      diagnosticDetails: {
+        urlFormatValid,
+        recognizedQueryParameters: urlRecognizedParams,
+        matchingParameterNames: [matchingLinkKey],
+        hasConflicts: false,
+        rejectionReason: 'none',
+      },
+    };
+  }
+
+  if (urlMatchFound && urlProvingParam) {
+    return {
+      verified: true,
+      evidence: 'urlString_parameter',
+      provingField: `urlString?${urlProvingParam}`,
+      details: `Verified via trusted URL parameter "${urlProvingParam}" in gateway urlString matching stored booking reference.`,
+      diagnosticDetails: {
+        urlFormatValid,
+        recognizedQueryParameters: urlRecognizedParams,
+        matchingParameterNames: urlMatchingParams,
+        hasConflicts: false,
+        rejectionReason: 'none',
+      },
+    };
   }
 
   return {
     verified: false,
     evidence: 'none',
-    details: 'Relationship evidence unavailable.',
+    details: 'Relationship evidence unavailable: gateway record contains no parameter matching stored booking reference or link code.',
     diagnosticDetails: {
-      urlFormatValid: false,
-      recognizedQueryParameters: [],
+      urlFormatValid,
+      recognizedQueryParameters: urlRecognizedParams,
       matchingParameterNames: [],
       hasConflicts: false,
       rejectionReason: 'relationship_evidence_unavailable',
     },
   };
+}
+
+/**
+ * Protected Read-Only Merchant Identity Diagnostic
+ * Queries authenticated PagueloFacil MerchantTransactions endpoint by exact codOper and evaluates
+ * merchant identity verification rules without updating transaction status or approving payments.
+ * Sanitizes all output to ensure zero raw credential / token exposure.
+ */
+export async function diagnoseMerchantIdentity(
+  operationCode: string,
+  environment: 'sandbox' | 'production' = 'production',
+  env: Record<string, string | undefined> = process.env,
+  fetchFn: typeof fetch = global.fetch
+): Promise<MerchantIdentityDiagnostic> {
+  const isSandbox = environment === 'sandbox';
+  const activeToken = isSandbox
+    ? (env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN || env.PAGUELOFACIL_DEMO_ACCESS_TOKEN || '').trim()
+    : (env.PAGUELOFACIL_ACCESS_TOKEN || '').trim();
+
+  const expectedCclw = isSandbox
+    ? (env.PAGUELOFACIL_SANDBOX_CCLW || env.PAGUELOFACIL_DEMO_CCLW || '').trim()
+    : (env.PAGUELOFACIL_CCLW || '').trim();
+
+  const configuredMerchantId = (
+    isSandbox
+      ? (env.PAGUELOFACIL_SANDBOX_MERCHANT_ID || env.PAGUELOFACIL_MERCHANT_ID)
+      : env.PAGUELOFACIL_MERCHANT_ID
+  ) || '';
+
+  const paguelofacilMerchantIdConfigured = Boolean(configuredMerchantId.trim());
+  const paguelofacilCclwConfigured = Boolean(expectedCclw.trim());
+
+  if (!activeToken) {
+    return {
+      operationFound: false,
+      operationCode,
+      idMerchantExists: false,
+      cclwExistsInRecord: false,
+      paguelofacilMerchantIdConfigured,
+      maskedConfiguredMerchantId: paguelofacilMerchantIdConfigured ? maskCredential(configuredMerchantId) : '[UNCONFIGURED]',
+      paguelofacilCclwConfigured,
+      merchantVerified: false,
+      failingValidationRule: 'missing_access_token',
+      verificationDetails: 'Server environment variable for PagueloFacil access token is not configured.',
+      actionableGuidance: 'Configure PAGUELOFACIL_ACCESS_TOKEN in server environment variables.',
+    };
+  }
+
+  const verifyUrl = isSandbox
+    ? 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions'
+    : 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
+
+  try {
+    const filterParam = `codOper::${operationCode.trim()}`;
+    const response = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+      method: 'GET',
+      headers: {
+        Authorization: activeToken,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        operationFound: false,
+        operationCode,
+        idMerchantExists: false,
+        cclwExistsInRecord: false,
+        paguelofacilMerchantIdConfigured,
+        maskedConfiguredMerchantId: paguelofacilMerchantIdConfigured ? maskCredential(configuredMerchantId) : '[UNCONFIGURED]',
+        paguelofacilCclwConfigured,
+        merchantVerified: false,
+        failingValidationRule: 'http_gateway_error',
+        verificationDetails: `MerchantTransactions API returned HTTP ${response.status}.`,
+        actionableGuidance: 'Verify production access token and gateway API availability.',
+      };
+    }
+
+    const data = await response.json();
+    const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
+    const matchingRecords = records.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(operationCode).trim());
+
+    if (matchingRecords.length !== 1) {
+      return {
+        operationFound: false,
+        operationCode,
+        idMerchantExists: false,
+        cclwExistsInRecord: false,
+        paguelofacilMerchantIdConfigured,
+        maskedConfiguredMerchantId: paguelofacilMerchantIdConfigured ? maskCredential(configuredMerchantId) : '[UNCONFIGURED]',
+        paguelofacilCclwConfigured,
+        merchantVerified: false,
+        failingValidationRule: matchingRecords.length === 0 ? 'record_not_found' : 'ambiguous_records_found',
+        verificationDetails: `Expected exactly 1 record for operation ${operationCode}, found ${matchingRecords.length}.`,
+        actionableGuidance: 'Verify operation code exists in PagueloFacil production portal.',
+      };
+    }
+
+    const matched = matchingRecords[0];
+    const gwCclw = String(matched.cclw || matched.CCLW || '').trim();
+    const rawIdMerchant = matched.idMerchant ?? matched.id_merchant ?? matched.merchant;
+    const gwMerchantId = String(rawIdMerchant ?? '').trim();
+
+    const idMerchantExists = Boolean(gwMerchantId);
+    const idMerchantDataType = rawIdMerchant !== undefined && rawIdMerchant !== null ? typeof rawIdMerchant : undefined;
+    const maskedIdMerchant = idMerchantExists ? maskCredential(gwMerchantId) : '[ABSENT]';
+
+    const cclwExistsInRecord = Boolean(gwCclw);
+
+    let merchantVerified = false;
+    let failingRule = '';
+    let details = '';
+    let guidance = '';
+
+    // Rule 1: Record CCLW matches configured CCLW
+    if (cclwExistsInRecord && paguelofacilCclwConfigured) {
+      if (gwCclw === expectedCclw.trim()) {
+        merchantVerified = true;
+        details = 'Merchant identity verified via exact CCLW key match in gateway record.';
+      } else {
+        failingRule = 'cclw_mismatch';
+        details = 'Gateway record CCLW key does not match configured server CCLW.';
+        guidance = 'Verify configured PAGUELOFACIL_CCLW in server environment variables.';
+      }
+    }
+
+    // Rule 2: Record idMerchant matches configured PAGUELOFACIL_MERCHANT_ID
+    if (!merchantVerified && idMerchantExists && paguelofacilMerchantIdConfigured) {
+      if (gwMerchantId === configuredMerchantId.trim()) {
+        merchantVerified = true;
+        details = `Merchant identity verified via exact merchant ID match (${maskedIdMerchant}).`;
+      } else {
+        failingRule = 'merchant_id_mismatch';
+        details = `Gateway record idMerchant (${maskedIdMerchant}) does not match configured server PAGUELOFACIL_MERCHANT_ID (${maskCredential(configuredMerchantId)}).`;
+        guidance = 'Update PAGUELOFACIL_MERCHANT_ID in server environment variables to match production merchant ID.';
+      }
+    }
+
+    // Rule 3: Cross-field match fallback
+    if (!merchantVerified && idMerchantExists && paguelofacilCclwConfigured) {
+      if (gwMerchantId === expectedCclw.trim()) {
+        merchantVerified = true;
+        details = 'Merchant identity verified via cross-field ID match.';
+      }
+    }
+
+    if (!merchantVerified && !failingRule) {
+      if (!paguelofacilMerchantIdConfigured && !cclwExistsInRecord) {
+        failingRule = 'missing_configured_merchant_id_and_record_lacks_cclw';
+        details = `Gateway record provides idMerchant (${maskedIdMerchant}, data type: ${idMerchantDataType}), but PAGUELOFACIL_MERCHANT_ID is not configured in server environment variables, and gateway REST API response omits CCLW key.`;
+        guidance = `Configure PAGUELOFACIL_MERCHANT_ID in server environment variables with the production merchant account ID matching ${maskedIdMerchant} after independent portal confirmation.`;
+      } else if (!paguelofacilCclwConfigured && !paguelofacilMerchantIdConfigured) {
+        failingRule = 'no_server_merchant_credentials_configured';
+        details = 'Neither PAGUELOFACIL_CCLW nor PAGUELOFACIL_MERCHANT_ID is configured in server environment variables.';
+        guidance = 'Configure PAGUELOFACIL_CCLW or PAGUELOFACIL_MERCHANT_ID in server environment variables.';
+      } else {
+        failingRule = 'unverified_merchant_identity';
+        details = 'Gateway record does not contain trustworthy evidence matching configured server merchant credentials.';
+        guidance = 'Verify merchant portal credentials and configure PAGUELOFACIL_MERCHANT_ID.';
+      }
+    }
+
+    return {
+      operationFound: true,
+      operationCode,
+      idMerchantExists,
+      idMerchantDataType,
+      maskedIdMerchant,
+      cclwExistsInRecord,
+      paguelofacilMerchantIdConfigured,
+      maskedConfiguredMerchantId: paguelofacilMerchantIdConfigured ? maskCredential(configuredMerchantId) : '[UNCONFIGURED]',
+      paguelofacilCclwConfigured,
+      merchantVerified,
+      failingValidationRule: failingRule || 'none',
+      verificationDetails: details,
+      actionableGuidance: guidance,
+    };
+  } catch (err: any) {
+    return {
+      operationFound: false,
+      operationCode,
+      idMerchantExists: false,
+      cclwExistsInRecord: false,
+      paguelofacilMerchantIdConfigured,
+      maskedConfiguredMerchantId: paguelofacilMerchantIdConfigured ? maskCredential(configuredMerchantId) : '[UNCONFIGURED]',
+      paguelofacilCclwConfigured,
+      merchantVerified: false,
+      failingValidationRule: 'network_or_parsing_exception',
+      verificationDetails: `Network or parsing exception querying MerchantTransactions API: ${err.message}`,
+      actionableGuidance: 'Check server connectivity to PagueloFacil REST services.',
+    };
+  }
 }
 
 /**
@@ -841,15 +1064,111 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         };
       }
 
-      const bookingSync = await syncBookingRequest(existingTx.booking_reference);
-      if (!bookingSync.success) {
+      // Merchant account identity revalidation in approved-payment repair path
+      const expectedCclwApproved = isSandbox
+        ? (env.PAGUELOFACIL_SANDBOX_CCLW || env.PAGUELOFACIL_DEMO_CCLW || '').trim()
+        : (env.PAGUELOFACIL_CCLW || '').trim();
+      const gwCclwApproved = String(matched.cclw || matched.CCLW || '').trim();
+      const gwMerchantIdApproved = String(matched.idMerchant ?? matched.id_merchant ?? matched.merchant ?? '').trim();
+      const configuredMerchantIdApproved = String(
+        (isSandbox ? (env.PAGUELOFACIL_SANDBOX_MERCHANT_ID || env.PAGUELOFACIL_MERCHANT_ID) : env.PAGUELOFACIL_MERCHANT_ID) || ''
+      ).trim();
+
+      let merchantVerifiedApproved = false;
+      if (gwCclwApproved && expectedCclwApproved) {
+        if (gwCclwApproved === expectedCclwApproved) {
+          merchantVerifiedApproved = true;
+        } else {
+          return {
+            success: false,
+            category: 'needs_manual_review',
+            bookingReference: existingTx.booking_reference,
+            operationCode: opToQuery,
+            message: 'Merchant account identity mismatch during approved payment revalidation.',
+            error: 'Merchant CCLW mismatch.',
+          };
+        }
+      }
+
+      if (!merchantVerifiedApproved && gwMerchantIdApproved && configuredMerchantIdApproved) {
+        if (gwMerchantIdApproved === configuredMerchantIdApproved) {
+          merchantVerifiedApproved = true;
+        } else {
+          return {
+            success: false,
+            category: 'needs_manual_review',
+            bookingReference: existingTx.booking_reference,
+            operationCode: opToQuery,
+            message: 'Merchant account identity mismatch during approved payment revalidation.',
+            error: 'Merchant ID mismatch.',
+          };
+        }
+      }
+
+      if (!merchantVerifiedApproved && gwMerchantIdApproved && expectedCclwApproved && gwMerchantIdApproved === expectedCclwApproved) {
+        merchantVerifiedApproved = true;
+      }
+
+      if (!merchantVerifiedApproved) {
+        if (isSandbox && !expectedCclwApproved && !configuredMerchantIdApproved && !gwCclwApproved) {
+          merchantVerifiedApproved = true;
+        } else {
+          const merchantDiagApproved = await diagnoseMerchantIdentity(opToQuery, txEnvironment as any, env, fetchFn);
+          return {
+            success: false,
+            category: 'needs_manual_review',
+            bookingReference: existingTx.booking_reference,
+            operationCode: opToQuery,
+            message: 'Could not establish verified merchant account identity from gateway record during approved payment revalidation.',
+            error: `Merchant identity unverified. Rule: ${merchantDiagApproved.failingValidationRule}. ${merchantDiagApproved.verificationDetails}`,
+            merchantIdentityDiagnostic: merchantDiagApproved,
+          };
+        }
+      }
+
+      let atomicSuccess = false;
+      let rpcErrorMsg = '';
+
+      if (typeof (supabaseClient as any)?.rpc === 'function') {
+        try {
+          const { data: rpcRes, error: rpcErr } = await (supabaseClient as any).rpc('reconcile_payment_and_booking_atomic', {
+            p_transaction_id: existingTx.id,
+            p_booking_reference: existingTx.booking_reference,
+            p_gateway_operation_id: opToQuery,
+            p_amount_paid: amountPaid,
+            p_verified_at: new Date().toISOString(),
+            p_audit_metadata: {
+              ...(existingTx.audit_metadata || {}),
+              verified: true,
+              verified_via: 'reconciliation_helper_atomic_rpc_repair',
+              rereconciled_at: new Date().toISOString(),
+              gateway_operation_id: opToQuery,
+              auth_code: matched.authCode || matched.authStatus,
+              card_type: matched.cardType || matched.Tipo,
+              relationship_evidence: relCheck.evidence,
+            },
+          });
+
+          if (!rpcErr && rpcRes && rpcRes.success) {
+            atomicSuccess = true;
+          } else {
+            rpcErrorMsg = rpcErr?.message || rpcRes?.error || 'RPC returned unsuccessful result';
+          }
+        } catch (rpcEx: any) {
+          rpcErrorMsg = rpcEx.message;
+        }
+      } else {
+        rpcErrorMsg = 'Supabase client RPC method unavailable';
+      }
+
+      if (!atomicSuccess) {
         return {
           success: false,
           category: 'partial_synchronization_failure',
           bookingReference: existingTx.booking_reference,
           operationCode: opToQuery,
-          message: 'Payment revalidated successfully but failed to update booking_requests record.',
-          error: String(bookingSync.error),
+          message: `Approved payment revalidated but atomic RPC database update failed (${rpcErrorMsg}). No database records modified.`,
+          error: `Atomic RPC failure: ${rpcErrorMsg}`,
         };
       }
 
@@ -860,7 +1179,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         bookingReference: existingTx.booking_reference,
         operationCode: opToQuery,
         amountPaid: existingTx.amount_paid || existingTx.expected_amount,
-        message: 'Approved payment revalidated against gateway and successfully repaired booking_requests record.',
+        message: 'Approved payment revalidated against gateway and booking_requests record atomically synchronized.',
         databaseUpdated: true,
         audit: existingTx.audit_metadata,
       };
@@ -1196,78 +1515,71 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       merchantVerified = true;
     }
 
-    if (!merchantVerified && (expectedCclw || configuredMerchantId)) {
-      return {
-        success: false,
-        category: 'needs_manual_review',
-        bookingReference: existingTx.booking_reference,
-        operationCode: opToQuery,
-        message: 'Could not establish verified merchant account identity from gateway record.',
-        error: 'Merchant identity unverified.',
-      };
+    if (!merchantVerified) {
+      if (isSandbox && !expectedCclw && !configuredMerchantId && !gwCclw) {
+        merchantVerified = true;
+      } else {
+        const merchantDiag = await diagnoseMerchantIdentity(opToQuery, txEnvironment as any, env, fetchFn);
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: 'Could not establish verified merchant account identity from gateway record.',
+          error: `Merchant identity unverified. Rule: ${merchantDiag.failingValidationRule}. ${merchantDiag.verificationDetails}`,
+          merchantIdentityDiagnostic: merchantDiag,
+        };
+      }
     }
 
     const isLateReconciliation = ['cancelled', 'expired', 'cancelled_pending_expiry', 'needs_manual_review'].includes(existingTx.status);
 
-    // 5. Persist updates consistently to payment_transactions and booking_requests
-    const { data: updatedRows, error: updateErr } = await supabaseClient
-      .from('payment_transactions')
-      .update({
-        status: 'approved',
-        gateway_operation_id: opToQuery,
-        amount_paid: amountPaid,
-        verified_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        audit_metadata: {
-          ...(existingTx.audit_metadata || {}),
-          verified: true,
-          verified_via: 'reconciliation_helper',
-          verified_at: new Date().toISOString(),
-          gateway_operation_id: opToQuery,
-          auth_code: matched.authCode || matched.authStatus,
-          card_type: matched.cardType || matched.Tipo,
-          relationship_evidence: relCheck.evidence,
-          ...(isLateReconciliation ? { late_payment_reconciled: true, previous_status: existingTx.status } : {}),
-        },
-      })
-      .eq('id', existingTx.id)
-      .select('id');
+    // 5. Persist updates consistently to payment_transactions and booking_requests using Atomic RPC
+    let atomicSuccess = false;
+    let rpcErrorMsg = '';
 
-    if (updateErr) {
-      return {
-        success: false,
-        category: 'parsing_problem',
-        bookingReference: existingTx.booking_reference,
-        operationCode: opToQuery,
-        message: `Database update error: ${updateErr.message}`,
-        error: updateErr.code,
-      };
-    }
+    if (typeof (supabaseClient as any)?.rpc === 'function') {
+      try {
+        const { data: rpcRes, error: rpcErr } = await (supabaseClient as any).rpc('reconcile_payment_and_booking_atomic', {
+          p_transaction_id: existingTx.id,
+          p_booking_reference: existingTx.booking_reference,
+          p_gateway_operation_id: opToQuery,
+          p_amount_paid: amountPaid,
+          p_verified_at: new Date().toISOString(),
+          p_audit_metadata: {
+            ...(existingTx.audit_metadata || {}),
+            verified: true,
+            verified_via: 'reconciliation_helper_atomic_rpc',
+            verified_at: new Date().toISOString(),
+            gateway_operation_id: opToQuery,
+            auth_code: matched.authCode || matched.authStatus,
+            card_type: matched.cardType || matched.Tipo,
+            relationship_evidence: relCheck.evidence,
+            ...(isLateReconciliation ? { late_payment_reconciled: true, previous_status: existingTx.status } : {}),
+          },
+        });
 
-    if (!updatedRows || updatedRows.length !== 1) {
-      return {
-        success: false,
-        category: 'parsing_problem',
-        bookingReference: existingTx.booking_reference,
-        operationCode: opToQuery,
-        message: `Database update failed to target exactly one row (updated: ${updatedRows?.length ?? 0}).`,
-        error: 'Row count violation.',
-      };
-    }
-
-    // Update corresponding booking_requests record if it exists to fully_confirmed (Atomic consistency check)
-    if (existingTx.booking_reference) {
-      const bookingSync = await syncBookingRequest(existingTx.booking_reference);
-      if (!bookingSync.success) {
-        return {
-          success: false,
-          category: 'partial_synchronization_failure',
-          bookingReference: existingTx.booking_reference,
-          operationCode: opToQuery,
-          message: `Payment transaction approved but booking_requests update failed: ${JSON.stringify(bookingSync.error)}.`,
-          error: 'Partial reconciliation failure (booking update failed).',
-        };
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          atomicSuccess = true;
+        } else {
+          rpcErrorMsg = rpcErr?.message || rpcRes?.error || 'RPC returned unsuccessful result';
+        }
+      } catch (rpcEx: any) {
+        rpcErrorMsg = rpcEx.message;
       }
+    } else {
+      rpcErrorMsg = 'Supabase client RPC method unavailable';
+    }
+
+    if (!atomicSuccess) {
+      return {
+        success: false,
+        category: 'partial_synchronization_failure',
+        bookingReference: existingTx.booking_reference,
+        operationCode: opToQuery,
+        message: `Transaction verified but atomic RPC database update failed (${rpcErrorMsg}). No database records were modified.`,
+        error: `Atomic RPC failure: ${rpcErrorMsg}`,
+      };
     }
 
     return {

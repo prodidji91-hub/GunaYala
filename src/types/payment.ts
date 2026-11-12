@@ -267,6 +267,22 @@ export interface ControlledLiveTestBookingResponse {
   activeExpiresAt?: string;
 }
 
+export interface MerchantIdentityDiagnostic {
+  operationFound: boolean;
+  operationCode: string;
+  idMerchantExists: boolean;
+  idMerchantDataType?: string;
+  maskedIdMerchant?: string;
+  cclwExistsInRecord: boolean;
+  paguelofacilMerchantIdConfigured: boolean;
+  maskedConfiguredMerchantId?: string;
+  paguelofacilCclwConfigured: boolean;
+  merchantVerified: boolean;
+  failingValidationRule: string;
+  verificationDetails: string;
+  actionableGuidance: string;
+}
+
 export interface ControlledLiveTestStatusResponse {
   success: boolean;
   bookingReference: string;
@@ -282,6 +298,7 @@ export interface ControlledLiveTestStatusResponse {
   error?: string;
   category?: string;
   reconciled?: boolean;
+  merchantIdentityDiagnostic?: MerchantIdentityDiagnostic;
 }
 
 export interface LiveApiConnectionTestResult {

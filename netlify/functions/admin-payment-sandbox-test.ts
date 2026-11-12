@@ -13,7 +13,7 @@ import {
   ControlledLiveTestBookingResponse,
   ControlledLiveTestStatusResponse,
 } from '../../src/types/payment.js';
-import { reconcilePaymentTransaction, validatePaymentRelationship } from './paymentReconciliation.js';
+import { reconcilePaymentTransaction, validatePaymentRelationship, diagnoseMerchantIdentity } from './paymentReconciliation.js';
 
 // In-memory rate limiting and cooldown state
 interface RateLimitRecord {
@@ -1793,6 +1793,8 @@ export async function executeCheckControlledLiveTestStatus(
           reconciled: false,
           category: 'needs_manual_review',
           message: reconciliation.message || 'Multiple or ambiguous PagueloFacil transactions detected. Manual review required.',
+          error: reconciliation.error,
+          merchantIdentityDiagnostic: reconciliation.merchantIdentityDiagnostic,
         },
       },
     };
@@ -1976,6 +1978,70 @@ export async function executeCancelControlledLiveTest(
 }
 
 /**
+ * Admin-Only Action: Protected Read-Only Merchant Identity Diagnostic
+ * Queries production MerchantTransactions endpoint by exact codOper and evaluates merchant identity verification rules.
+ * Sanitizes all output to ensure zero credential or token exposure.
+ */
+export async function executeDiagnoseMerchantIdentity(
+  authToken: string | null,
+  requestBody: any = {},
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: { success: false, error: 'Unauthorized: Administrator Bearer token is required.' },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: { success: false, error: 'Unauthorized: Invalid or expired administrator credentials.' },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: { success: false, error: 'Forbidden: Access restricted to authorized quotation administrators.' },
+    };
+  }
+
+  const operationCode = requestBody?.operationCode || 'LK-EHA1PJ6R1MAN';
+  const environment = requestBody?.environment || 'production';
+  const fetchFn = dependencies.fetchFn || global.fetch;
+
+  const diagnostic = await diagnoseMerchantIdentity(operationCode, environment, env, fetchFn);
+
+  return {
+    statusCode: 200,
+    body: {
+      success: true,
+      action: 'diagnose_merchant_identity',
+      operationCode,
+      environment,
+      merchantIdentityDiagnostic: diagnostic,
+    },
+  };
+}
+
+/**
  * Core test execution logic, separated for isolated unit testing with mocks.
  */
 export async function executeAdminSandboxTest(
@@ -1988,6 +2054,9 @@ export async function executeAdminSandboxTest(
   }
   if (requestBody?.action === 'reconcile_existing_transaction') {
     return await executeReconcileExistingTransaction(authToken, requestBody, dependencies);
+  }
+  if (requestBody?.action === 'diagnose_merchant_identity') {
+    return await executeDiagnoseMerchantIdentity(authToken, requestBody, dependencies);
   }
   if (requestBody?.action === 'test_live_api_connection') {
     return await executeTestLiveApiConnection(authToken, dependencies);

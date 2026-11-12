@@ -1454,6 +1454,29 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             {liveTestStatusResult.error && (
               <div className="text-[11px] text-red-700 font-semibold"><strong>Error Detail:</strong> {liveTestStatusResult.error}</div>
             )}
+            {liveTestStatusResult.merchantIdentityDiagnostic && (
+              <div className="mt-3 p-3 bg-white/80 rounded-lg border border-amber-300 text-[11px] space-y-1.5 font-mono">
+                <div className="font-bold text-amber-950 flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Sanitized Merchant Identity Diagnostic:</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-slate-800">
+                  <div><strong>Exact Operation Found:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.operationFound ? 'Yes' : 'No'}</div>
+                  <div><strong>Gateway idMerchant:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.idMerchantExists ? `${liveTestStatusResult.merchantIdentityDiagnostic.maskedIdMerchant} (${liveTestStatusResult.merchantIdentityDiagnostic.idMerchantDataType})` : 'Absent'}</div>
+                  <div><strong>Gateway CCLW in Record:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.cclwExistsInRecord ? 'Present' : 'Absent (Standard REST behavior)'}</div>
+                  <div><strong>Server MERCHANT_ID Configured:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.paguelofacilMerchantIdConfigured ? liveTestStatusResult.merchantIdentityDiagnostic.maskedConfiguredMerchantId : 'Unconfigured'}</div>
+                  <div><strong>Server CCLW Configured:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.paguelofacilCclwConfigured ? 'Configured' : 'Unconfigured'}</div>
+                  <div><strong>Verified Result:</strong> <span className={liveTestStatusResult.merchantIdentityDiagnostic.merchantVerified ? 'text-emerald-700 font-bold' : 'text-amber-800 font-bold'}>{liveTestStatusResult.merchantIdentityDiagnostic.merchantVerified ? 'VERIFIED' : 'UNVERIFIED'}</span></div>
+                </div>
+                <div><strong>Failing Validation Rule:</strong> <code className="bg-amber-100 px-1 py-0.5 rounded font-bold text-amber-900">{liveTestStatusResult.merchantIdentityDiagnostic.failingValidationRule}</code></div>
+                <div><strong>Verification Details:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.verificationDetails}</div>
+                {liveTestStatusResult.merchantIdentityDiagnostic.actionableGuidance && (
+                  <div className="text-amber-900 font-semibold bg-amber-100/70 p-1.5 rounded border border-amber-200 mt-1">
+                    <strong>Action Required:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.actionableGuidance}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

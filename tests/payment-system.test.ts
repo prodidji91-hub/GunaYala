@@ -8,7 +8,7 @@ import {
   validatePagueloFacilCheckoutUrl,
   TRUSTED_CHECKOUT_HOSTNAMES,
 } from '../netlify/functions/paymentGateway.js';
-import { reconcilePaymentTransaction, validatePaymentRelationship, validateMerchantReturnUrl } from '../netlify/functions/paymentReconciliation.js';
+import { reconcilePaymentTransaction, validatePaymentRelationship, validateMerchantReturnUrl, diagnoseMerchantIdentity } from '../netlify/functions/paymentReconciliation.js';
 import { handler as checkoutHandler } from '../netlify/functions/payment-checkout.js';
 import { handler as webhookHandler, extractVerifiedBookingReferenceFromUrl } from '../netlify/functions/payment-webhook.js';
 import {
@@ -20,6 +20,7 @@ import {
   executeCheckControlledLiveTestStatus,
   executeCancelControlledLiveTest,
   executeReconcileExistingTransaction,
+  executeDiagnoseMerchantIdentity,
   resetLiveTestMutexForTesting,
   acquireAtomicLiveTestLock,
   releaseAtomicLiveTestLock,
@@ -1911,6 +1912,14 @@ async function runPaymentSecurityTests() {
   let updatedRowsCount = 0;
   let bookingUpdatedStatus = '';
   const mockReconSupabase = {
+    rpc: async (fnName: string, _args: any) => {
+      if (fnName === 'reconcile_payment_and_booking_atomic') {
+        updatedRowsCount++;
+        bookingUpdatedStatus = 'fully_confirmed';
+        return { data: { success: true }, error: null };
+      }
+      return { data: null, error: { message: 'Unknown RPC' } };
+    },
     from: (table: string) => {
       if (table === 'payment_transactions') {
         return {
@@ -1998,6 +2007,13 @@ async function runPaymentSecurityTests() {
   // -------------------------------------------------------------
   let repairedBooking = false;
   const mockRepairSupabase = {
+    rpc: async (fnName: string, _args: any) => {
+      if (fnName === 'reconcile_payment_and_booking_atomic') {
+        repairedBooking = true;
+        return { data: { success: true }, error: null };
+      }
+      return { data: null, error: { message: 'Unknown RPC' } };
+    },
     from: (table: string) => {
       if (table === 'payment_transactions') {
         return {
@@ -2313,6 +2329,13 @@ async function runPaymentSecurityTests() {
   // -------------------------------------------------------------
   let persistedAmountPaid = 0;
   const mockLargeAmountSupabase = {
+    rpc: async (fnName: string, args: any) => {
+      if (fnName === 'reconcile_payment_and_booking_atomic') {
+        persistedAmountPaid = args.p_amount_paid;
+        return { data: { success: true }, error: null };
+      }
+      return { data: null, error: { message: 'Unknown RPC' } };
+    },
     from: (table: string) => {
       if (table === 'payment_transactions') {
         return {
@@ -2526,6 +2549,14 @@ async function runPaymentSecurityTests() {
   let autoReconBookingStatus = 'pending_payment';
   let autoReconUpdatedRows = 0;
   const mockAutoReconSupabase = {
+    rpc: async (fnName: string, _args: any) => {
+      if (fnName === 'reconcile_payment_and_booking_atomic') {
+        autoReconUpdatedRows++;
+        autoReconBookingStatus = 'fully_confirmed';
+        return { data: { success: true }, error: null };
+      }
+      return { data: null, error: { message: 'Unknown RPC' } };
+    },
     from: (table: string) => {
       if (table === 'payment_transactions') {
         return {
@@ -2681,6 +2712,127 @@ async function runPaymentSecurityTests() {
             return { data: { released: true }, error: null };
           }
           return { data: { released: false, reason: 'owner_mismatch_or_not_found' }, error: null };
+        }
+        if (fnName === 'reconcile_payment_and_booking_atomic') {
+          const {
+            p_transaction_id,
+            p_booking_reference,
+            p_gateway_operation_id,
+            p_amount_paid,
+            p_verified_at,
+            p_audit_metadata,
+            p_special_notes,
+          } = args;
+
+          if (!p_booking_reference || !p_booking_reference.trim()) {
+            return { data: null, error: { message: 'Atomic reconciliation failed: Booking reference parameter is required and cannot be null or empty.' } };
+          }
+          if (!p_gateway_operation_id || !p_gateway_operation_id.trim()) {
+            return { data: null, error: { message: 'Atomic reconciliation failed: Gateway operation ID parameter is required and cannot be null or empty.' } };
+          }
+          if (p_amount_paid === undefined || p_amount_paid === null || Number(p_amount_paid) <= 0) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Amount paid must be a positive number (${p_amount_paid} provided).` } };
+          }
+
+          const paidCents = Math.round(Number(p_amount_paid) * 100);
+          if (Math.abs(Number(p_amount_paid) * 100 - paidCents) > 0.00001) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Amount paid (${p_amount_paid}) must represent exact whole cents.` } };
+          }
+
+          const tx = payments.find((p) => p.id === p_transaction_id);
+          if (!tx) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Target payment_transactions row ${p_transaction_id} not found.` } };
+          }
+
+          if (!tx.booking_reference || !tx.booking_reference.trim()) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Target payment_transactions row ${p_transaction_id} has missing stored booking_reference.` } };
+          }
+
+          if (tx.booking_reference.trim() !== p_booking_reference.trim()) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Stored transaction booking_reference (${tx.booking_reference}) does not match requested booking_reference (${p_booking_reference}).` } };
+          }
+
+          const bookingRef = p_booking_reference.trim();
+          const booking = bookings.find((b) => b.booking_reference === bookingRef);
+          if (!booking) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Required booking_requests row (${bookingRef}) not found. Payment-only confirmation rejected.` } };
+          }
+
+          if (['cancelled', 'unavailable'].includes(booking.status)) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Associated booking_requests row ${bookingRef} is in status ${booking.status}, which cannot be automatically reactivated.` } };
+          }
+
+          const expectedCents = tx.amount_in_cents !== undefined && tx.amount_in_cents !== null && tx.amount_in_cents > 0
+            ? Number(tx.amount_in_cents)
+            : (tx.expected_amount ? Math.round(Number(tx.expected_amount) * 100) : 0);
+
+          if (!expectedCents || expectedCents <= 0) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Target payment_transactions row ${p_transaction_id} has absent or invalid expected amount.` } };
+          }
+
+          if (paidCents !== expectedCents) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Paid amount (${paidCents} cents) does not match stored expected amount (${expectedCents} cents).` } };
+          }
+
+          const duplicateTx = payments.find(
+            (p) => p.gateway_operation_id && p.gateway_operation_id.trim() === p_gateway_operation_id.trim() && p.id !== p_transaction_id
+          );
+          if (duplicateTx) {
+            return { data: null, error: { message: `Atomic reconciliation failed: Gateway operation ID ${p_gateway_operation_id.trim()} is already assigned to another transaction (${duplicateTx.id}).` } };
+          }
+
+          let alreadyApproved = false;
+          if (['pending', 'processing'].includes(tx.status)) {
+            alreadyApproved = false;
+            if (!booking.status || booking.status !== 'pending_payment') {
+              return { data: null, error: { message: `Atomic reconciliation failed: Associated booking_requests row ${bookingRef} has status ${booking.status || 'NULL'}, but automatic reconciliation requires status pending_payment.` } };
+            }
+          } else if (tx.status === 'approved') {
+            alreadyApproved = true;
+            if (!booking.status || !['pending_payment', 'fully_confirmed'].includes(booking.status)) {
+              return { data: null, error: { message: `Atomic reconciliation failed: Associated booking_requests row ${bookingRef} has status ${booking.status || 'NULL'}, which is incompatible with approved transaction reconciliation.` } };
+            }
+            if (!tx.gateway_operation_id || tx.gateway_operation_id.trim() !== p_gateway_operation_id.trim()) {
+              return { data: null, error: { message: `Atomic reconciliation failed: Transaction ${p_transaction_id} is already approved under operation ID ${tx.gateway_operation_id}, cannot overwrite with ${p_gateway_operation_id.trim()}.` } };
+            }
+            if (tx.amount_paid !== null && tx.amount_paid !== undefined && Math.round(Number(tx.amount_paid) * 100) !== paidCents) {
+              return { data: null, error: { message: `Atomic reconciliation failed: Transaction ${p_transaction_id} is already approved with amount ${tx.amount_paid}, cannot update with ${p_amount_paid}.` } };
+            }
+          } else {
+            return { data: null, error: { message: `Atomic reconciliation failed: Transaction ${p_transaction_id} has status ${tx.status}, which is incompatible with standard automatic reconciliation.` } };
+          }
+
+          let newNotes = p_special_notes;
+          if (!newNotes || !newNotes.trim()) {
+            const currentNotes = booking.special_notes || '';
+            const prefix = tx.environment === 'sandbox' ? '[TEST / RECONCILED]' : '[RECONCILED]';
+            newNotes = currentNotes.includes(prefix) ? currentNotes : `${prefix} ${currentNotes}`.trim();
+          }
+          booking.status = 'fully_confirmed';
+          booking.special_notes = newNotes;
+          booking.updated_at = new Date().toISOString();
+          bookingUpdates.push({ ...booking });
+
+          tx.status = 'approved';
+          tx.gateway_operation_id = p_gateway_operation_id.trim();
+          tx.amount_paid = Number(p_amount_paid);
+          tx.verified_at = p_verified_at || new Date().toISOString();
+          tx.updated_at = new Date().toISOString();
+          if (p_audit_metadata) tx.audit_metadata = p_audit_metadata;
+          paymentUpdates.push({ ...tx });
+
+          return {
+            data: {
+              success: true,
+              already_approved: alreadyApproved,
+              payment_updated: 1,
+              booking_updated: 1,
+              transaction_id: p_transaction_id,
+              booking_reference: bookingRef,
+              reconciled_at: new Date().toISOString(),
+            },
+            error: null,
+          };
         }
         return { data: null, error: { message: `Unknown RPC function: ${fnName}` } };
       },
@@ -4986,6 +5138,732 @@ async function runPaymentSecurityTests() {
     ),
     'HTTP 200, operationCode passed to gateway query, paymentStatus=approved',
     `status=${handlerRes116.statusCode}, oper=${handlerBody116.controlledLiveTestStatus?.gatewayOperationId}, query=${queriedFilter116}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 117: PROTECTED READ-ONLY MERCHANT IDENTITY DIAGNOSTIC
+  // -------------------------------------------------------------
+  const state117 = createMockSupabaseState([], []);
+  const fetch117 = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-EHA1PJ6R1MAN',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          idMerchant: 14233372, // Numeric merchant ID in REST response, no CCLW
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-220728',
+        },
+      ],
+    }),
+  } as any);
+
+  const diagRes117 = await executeDiagnoseMerchantIdentity('Bearer admin_token', {
+    operationCode: 'LK-EHA1PJ6R1MAN',
+    environment: 'production',
+  }, {
+    supabaseClient: state117 as any,
+    envOverride: liveControlledEnv, // PAGUELOFACIL_MERCHANT_ID is unconfigured here
+    fetchFn: fetch117 as any,
+  });
+
+  const diagBody117 = diagRes117.body;
+  const diag117 = diagBody117.merchantIdentityDiagnostic;
+  const rawOutputString = JSON.stringify(diagBody117);
+
+  assert(
+    'Test 117: executeDiagnoseMerchantIdentity evaluates exact codOper, sanitizes masked credentials, identifies failing rule without exposing secrets or approving payment',
+    Boolean(
+      diagRes117.statusCode === 200 &&
+        diagBody117.success === true &&
+        diag117?.operationFound === true &&
+        diag117?.idMerchantExists === true &&
+        diag117?.idMerchantDataType === 'number' &&
+        diag117?.maskedIdMerchant === '***3372' &&
+        diag117?.cclwExistsInRecord === false &&
+        diag117?.paguelofacilMerchantIdConfigured === false &&
+        diag117?.merchantVerified === false &&
+        diag117?.failingValidationRule === 'missing_configured_merchant_id_and_record_lacks_cclw' &&
+        !rawOutputString.includes('LIVE_PROD_TOKEN_VALID_123456789') &&
+        !rawOutputString.includes('LIVE_PROD_CCLW_VALID_987654321')
+    ),
+    'HTTP 200, operationFound=true, idMerchant=***3372 (number), cclwExists=false, merchantVerified=false, failingRule=missing_configured_merchant_id_and_record_lacks_cclw, secrets suppressed',
+    `status=${diagRes117.statusCode}, found=${diag117?.operationFound}, idMerchant=${diag117?.maskedIdMerchant}, rule=${diag117?.failingValidationRule}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 118: APPROVED-PAYMENT BOOKING REPAIR REVALIDATES MERCHANT IDENTITY AND FAILS WHEN MERCHANT UNVERIFIED
+  // -------------------------------------------------------------
+  const state118 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-approved-unverified-merchant',
+        booking_reference: 'LIVE-DAYTOUR-GNY-118',
+        status: 'approved', // Transaction marked approved, but booking needs repair
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: 'LK-OPER-118',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-118',
+        status: 'pending_payment', // Pending booking repair
+      },
+    ]
+  );
+
+  const fetch118MismatchedMerchant = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-OPER-118',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'WRONG_UNAUTHORIZED_CCLW_118', // CCLW mismatch
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-118',
+        },
+      ],
+    }),
+  } as any);
+
+  const res118 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-118',
+    operationCode: 'LK-OPER-118',
+    environment: 'production',
+  }, {
+    supabaseClient: state118 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch118MismatchedMerchant as any,
+  });
+
+  const booking118After = state118.getBookingByRef('LIVE-DAYTOUR-GNY-118');
+
+  assert(
+    'Test 118: Approved-payment booking repair revalidates merchant identity and fails when merchant identity revalidation fails',
+    Boolean(
+      res118.statusCode === 422 &&
+        res118.body.success === false &&
+        res118.body.reconciliation?.category === 'needs_manual_review' &&
+        booking118After?.status === 'pending_payment' // Booking repair blocked
+    ),
+    'HTTP 422, category=needs_manual_review, booking remains pending_payment',
+    `status=${res118.statusCode}, cat=${res118.body.reconciliation?.category}, bookingStatus=${booking118After?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 119: FAIL CLOSED WHEN ALL EXPECTED MERCHANT CREDENTIALS ARE MISSING (NO FALLTHROUGH APPROVAL)
+  // -------------------------------------------------------------
+  const state119 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-119',
+        booking_reference: 'LIVE-DAYTOUR-GNY-119',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-119',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const env119NoMerchantCreds = {
+    ...liveControlledEnv,
+    PAGUELOFACIL_CCLW: '', // Missing
+    PAGUELOFACIL_MERCHANT_ID: '', // Missing
+  };
+
+  const fetch119 = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-OPER-119',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          idMerchant: '14233372', // Numeric ID only, no CCLW
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-119',
+        },
+      ],
+    }),
+  } as any);
+
+  const res119 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-119',
+    operationCode: 'LK-OPER-119',
+    environment: 'production',
+  }, {
+    supabaseClient: state119 as any,
+    envOverride: env119NoMerchantCreds,
+    fetchFn: fetch119 as any,
+  });
+
+  const tx119After = state119.getPaymentByRef('LIVE-DAYTOUR-GNY-119');
+
+  assert(
+    'Test 119: Fail closed when merchant identity cannot be positively verified or when all expected merchant credentials are missing (no fallthrough approval)',
+    Boolean(
+      res119.statusCode === 422 &&
+        res119.body.success === false &&
+        res119.body.reconciliation?.category === 'needs_manual_review' &&
+        tx119After?.status === 'pending' // Failed closed, not approved
+    ),
+    'HTTP 422, category=needs_manual_review, payment remains pending',
+    `status=${res119.statusCode}, cat=${res119.body.reconciliation?.category}, txStatus=${tx119After?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 120: MISSING ATOMIC RPC FAILS SAFELY WITH PARTIAL_SYNCHRONIZATION_FAILURE WITHOUT MODIFYING PAYMENT RECORD
+  // -------------------------------------------------------------
+  const state120NoRpc = {
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: 'admin-id', email: 'admin@example.com', app_metadata: { claims_admin: true } } },
+        error: null,
+      }),
+    },
+    payments: [
+      {
+        id: 'tx-live-120',
+        booking_reference: 'LIVE-DAYTOUR-GNY-120',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    from: (table: string) => {
+      if (table === 'quotation_admins') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { user_id: 'admin-id' }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: (_col: string, val: any) => ({
+              data: state120NoRpc.payments.filter(p => p.booking_reference === val || p.gateway_operation_id === val),
+              error: null,
+            }),
+          }),
+        };
+      }
+      return {};
+    },
+    // No rpc method defined (or throws error)
+    rpc: async () => ({ data: null, error: { message: 'Function reconcile_payment_and_booking_atomic does not exist' } }),
+  };
+
+  const fetch120 = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-OPER-120',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-120',
+        },
+      ],
+    }),
+  } as any);
+
+  const res120 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-120',
+    operationCode: 'LK-OPER-120',
+    environment: 'production',
+  }, {
+    supabaseClient: state120NoRpc as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch120 as any,
+  });
+
+  const tx120After = state120NoRpc.payments[0];
+
+  assert(
+    'Test 120: Missing or failing atomic RPC fails safely with partial_synchronization_failure without modifying payment or booking records',
+    Boolean(
+      res120.statusCode === 422 &&
+        res120.body.success === false &&
+        res120.body.reconciliation?.category === 'partial_synchronization_failure' &&
+        tx120After.status === 'pending' &&
+        tx120After.gateway_operation_id === null
+    ),
+    'HTTP 422, category=partial_synchronization_failure, status remains pending',
+    `status=${res120.statusCode}, cat=${res120.body.reconciliation?.category}, finalStatus=${tx120After.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 121: RELATIONSHIP VALIDATION INSPECTS ALL FIELDS AND REJECTS CONFLICTING EVIDENCE EVEN IF ANOTHER FIELD MATCHES
+  // -------------------------------------------------------------
+  const existingTx121 = {
+    booking_reference: 'LIVE-DAYTOUR-GNY-121',
+    gateway_link_code: 'LK-EXPECTED-LINK-121',
+    environment: 'production',
+  };
+
+  const matched121Conflicting = {
+    customParm1: 'LIVE-DAYTOUR-GNY-121', // Matches booking reference
+    linkCode: 'LK-CONFLICTING-LINK-999', // Conflicts with gateway_link_code
+  };
+
+  const relResult121 = validatePaymentRelationship(matched121Conflicting, existingTx121);
+
+  assert(
+    'Test 121: Relationship validation inspects all available fields and rejects conflicting evidence even if another field matches',
+    Boolean(
+      relResult121.verified === false &&
+        relResult121.diagnosticDetails?.hasConflicts === true
+    ),
+    'verified=false, hasConflicts=true',
+    `verified=${relResult121.verified}, hasConflicts=${relResult121.diagnosticDetails?.hasConflicts}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 122: MULTI-RECORD OPERATION ID AMBIGUITY RETURNS AMBIGUOUS_RECORDS
+  // -------------------------------------------------------------
+  const state122 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-122',
+        booking_reference: 'LIVE-DAYTOUR-GNY-122',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-122',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const fetch122DuplicateGatewayRecords = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-OPER-122-DUP',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-122',
+        },
+        {
+          codOper: 'LK-OPER-122-DUP',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-122',
+        },
+      ],
+    }),
+  } as any);
+
+  const res122 = await executeReconcileExistingTransaction('Bearer admin_token', {
+    bookingReference: 'LIVE-DAYTOUR-GNY-122',
+    operationCode: 'LK-OPER-122-DUP',
+    environment: 'production',
+  }, {
+    supabaseClient: state122 as any,
+    envOverride: liveControlledEnv,
+    fetchFn: fetch122DuplicateGatewayRecords as any,
+  });
+
+  assert(
+    'Test 122: Multi-record operation ID ambiguity returns ambiguous_records / needs_manual_review',
+    Boolean(
+      res122.statusCode === 422 &&
+        res122.body.success === false &&
+        res122.body.reconciliation?.category === 'ambiguous_records'
+    ),
+    'HTTP 422, category=ambiguous_records',
+    `status=${res122.statusCode}, cat=${res122.body.reconciliation?.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 123: ATOMIC RPC EXECUTES ROW-LOCKING RECONCILIATION AND CONFIRMS BOTH RECORDS ATOMICALLY
+  // -------------------------------------------------------------
+  const state123 = createMockSupabaseState(
+    [
+      {
+        id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5c6',
+        booking_reference: 'LIVE-DAYTOUR-GNY-123',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-123',
+        status: 'pending_payment',
+        special_notes: 'Initial note',
+      },
+    ]
+  );
+
+  const rpc123Result = await state123.rpc('reconcile_payment_and_booking_atomic', {
+    p_transaction_id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5c6',
+    p_booking_reference: 'LIVE-DAYTOUR-GNY-123',
+    p_gateway_operation_id: 'LK-OPER-123',
+    p_amount_paid: 69.00,
+    p_verified_at: new Date().toISOString(),
+    p_audit_metadata: { verified: true },
+  });
+
+  const tx123After = state123.getPaymentByRef('LIVE-DAYTOUR-GNY-123');
+  const booking123After = state123.getBookingByRef('LIVE-DAYTOUR-GNY-123');
+
+  assert(
+    'Test 123: Atomic RPC executes row-locking reconciliation and updates payment and booking records atomically',
+    Boolean(
+      rpc123Result.data?.success === true &&
+        rpc123Result.data?.already_approved === false &&
+        tx123After?.status === 'approved' &&
+        tx123After?.gateway_operation_id === 'LK-OPER-123' &&
+        booking123After?.status === 'fully_confirmed' &&
+        booking123After?.special_notes.includes('[RECONCILED]')
+    ),
+    'RPC success=true, tx status=approved, oper=LK-OPER-123, booking=fully_confirmed',
+    `rpcSuccess=${rpc123Result.data?.success}, txStatus=${tx123After?.status}, bookingStatus=${booking123After?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 124: ATOMIC RPC REJECTS MISMATCHED BOOKING REFERENCE
+  // -------------------------------------------------------------
+  const state124 = createMockSupabaseState(
+    [
+      {
+        id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5c7',
+        booking_reference: 'LIVE-DAYTOUR-GNY-124-EXPECTED',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-124-EXPECTED',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const rpc124Result = await state124.rpc('reconcile_payment_and_booking_atomic', {
+    p_transaction_id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5c7',
+    p_booking_reference: 'LIVE-DAYTOUR-GNY-124-WRONG-REF',
+    p_gateway_operation_id: 'LK-OPER-124',
+    p_amount_paid: 69.00,
+    p_verified_at: new Date().toISOString(),
+    p_audit_metadata: {},
+  });
+
+  assert(
+    'Test 124: Atomic RPC rejects mismatched booking reference parameter and leaves records unchanged',
+    Boolean(
+      rpc124Result.error !== null &&
+        rpc124Result.error?.message.includes('does not match requested booking_reference') &&
+        state124.getPaymentByRef('LIVE-DAYTOUR-GNY-124-EXPECTED')?.status === 'pending'
+    ),
+    'RPC error returned, payment status remains pending',
+    `error="${rpc124Result.error?.message}", status=${state124.getPaymentByRef('LIVE-DAYTOUR-GNY-124-EXPECTED')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 125: ATOMIC RPC REJECTS WRONG AMOUNT PAID
+  // -------------------------------------------------------------
+  const state125 = createMockSupabaseState(
+    [
+      {
+        id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5c8',
+        booking_reference: 'LIVE-DAYTOUR-GNY-125',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-125',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const rpc125Result = await state125.rpc('reconcile_payment_and_booking_atomic', {
+    p_transaction_id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5c8',
+    p_booking_reference: 'LIVE-DAYTOUR-GNY-125',
+    p_gateway_operation_id: 'LK-OPER-125',
+    p_amount_paid: 50.00, // Mismatched amount ($50 vs expected $69)
+    p_verified_at: new Date().toISOString(),
+    p_audit_metadata: {},
+  });
+
+  assert(
+    'Test 125: Atomic RPC rejects wrong amount paid not matching stored expected amount',
+    Boolean(
+      rpc125Result.error !== null &&
+        rpc125Result.error?.message.includes('does not match stored expected amount') &&
+        state125.getPaymentByRef('LIVE-DAYTOUR-GNY-125')?.status === 'pending'
+    ),
+    'RPC error describes amount mismatch, payment status remains pending',
+    `error="${rpc125Result.error?.message}", status=${state125.getPaymentByRef('LIVE-DAYTOUR-GNY-125')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 126: ATOMIC RPC PREVENTS ASSIGNING DUPLICATE OPERATION ID TO ANOTHER TRANSACTION
+  // -------------------------------------------------------------
+  const state126 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-existing-approved-126',
+        booking_reference: 'LIVE-DAYTOUR-GNY-126-A',
+        status: 'approved',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_paid: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: 'LK-OPER-DUP-126',
+      },
+      {
+        id: 'tx-target-pending-126',
+        booking_reference: 'LIVE-DAYTOUR-GNY-126-B',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-126-B',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  const rpc126Result = await state126.rpc('reconcile_payment_and_booking_atomic', {
+    p_transaction_id: 'tx-target-pending-126',
+    p_booking_reference: 'LIVE-DAYTOUR-GNY-126-B',
+    p_gateway_operation_id: 'LK-OPER-DUP-126', // Assigned to tx A already!
+    p_amount_paid: 69.00,
+    p_verified_at: new Date().toISOString(),
+    p_audit_metadata: {},
+  });
+
+  assert(
+    'Test 126: Atomic RPC prevents assigning duplicate operation ID to another payment transaction',
+    Boolean(
+      rpc126Result.error !== null &&
+        rpc126Result.error?.message.includes('is already assigned to another transaction') &&
+        state126.getPaymentByRef('LIVE-DAYTOUR-GNY-126-B')?.status === 'pending'
+    ),
+    'RPC error describes duplicate operation ID assignment, target payment remains pending',
+    `error="${rpc126Result.error?.message}", status=${state126.getPaymentByRef('LIVE-DAYTOUR-GNY-126-B')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 127: ATOMIC RPC PREVENTS OVERWRITING AN ALREADY APPROVED TRANSACTION WITH CONFLICTING OPER ID
+  // -------------------------------------------------------------
+  const state127 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-approved-127',
+        booking_reference: 'LIVE-DAYTOUR-GNY-127',
+        status: 'approved',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_paid: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: 'LK-OPER-ORIGINAL-127',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-127',
+        status: 'fully_confirmed',
+      },
+    ]
+  );
+
+  const rpc127Result = await state127.rpc('reconcile_payment_and_booking_atomic', {
+    p_transaction_id: 'tx-approved-127',
+    p_booking_reference: 'LIVE-DAYTOUR-GNY-127',
+    p_gateway_operation_id: 'LK-OPER-DIFFERENT-127', // Conflicting operation ID
+    p_amount_paid: 69.00,
+    p_verified_at: new Date().toISOString(),
+    p_audit_metadata: {},
+  });
+
+  assert(
+    'Test 127: Atomic RPC prevents overwriting an already approved transaction under a conflicting operation ID',
+    Boolean(
+      rpc127Result.error !== null &&
+        rpc127Result.error?.message.includes('already approved under operation ID') &&
+        state127.getPaymentByRef('LIVE-DAYTOUR-GNY-127')?.gateway_operation_id === 'LK-OPER-ORIGINAL-127'
+    ),
+    'RPC error describes conflicting operation ID overwrite attempt, operation ID unchanged',
+    `error="${rpc127Result.error?.message}", oper=${state127.getPaymentByRef('LIVE-DAYTOUR-GNY-127')?.gateway_operation_id}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 128: MISSING OR FAILING ATOMIC RPC RETURNS PARTIAL_SYNCHRONIZATION_FAILURE WITHOUT MUTATING RECORDS
+  // -------------------------------------------------------------
+  const state128NoRpc = createMockSupabaseState(
+    [
+      {
+        id: 'tx-128',
+        booking_reference: 'LIVE-DAYTOUR-GNY-128',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-128',
+        status: 'pending_payment',
+      },
+    ]
+  );
+  // Delete rpc method
+  delete (state128NoRpc as any).rpc;
+
+  const fetch128 = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-OPER-128',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 69.00,
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-128',
+        },
+      ],
+    }),
+  } as any);
+
+  const res128 = await reconcilePaymentTransaction({
+    bookingReference: 'LIVE-DAYTOUR-GNY-128',
+    operationCode: 'LK-OPER-128',
+    environment: 'production',
+    supabaseClient: state128NoRpc as any,
+    env: liveControlledEnv,
+    fetchFn: fetch128 as any,
+  });
+
+  assert(
+    'Test 128: Missing or unavailable atomic RPC returns partial_synchronization_failure without mutating payment or booking rows',
+    Boolean(
+      res128.success === false &&
+        res128.category === 'partial_synchronization_failure' &&
+        state128NoRpc.getPaymentByRef('LIVE-DAYTOUR-GNY-128')?.status === 'pending' &&
+        state128NoRpc.getBookingByRef('LIVE-DAYTOUR-GNY-128')?.status === 'pending_payment'
+    ),
+    'category=partial_synchronization_failure, payment status=pending, booking status=pending_payment',
+    `success=${res128.success}, cat=${res128.category}, txStatus=${state128NoRpc.getPaymentByRef('LIVE-DAYTOUR-GNY-128')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 129: ATOMIC RPC HANDLES IDEMPOTENT RETRY FOR MATCHING APPROVED TRANSACTION SUCCESSFULLY
+  // -------------------------------------------------------------
+  const state129 = createMockSupabaseState(
+    [
+      {
+        id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5d0',
+        booking_reference: 'LIVE-DAYTOUR-GNY-129',
+        status: 'approved',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_paid: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: 'LK-OPER-129',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-129',
+        status: 'fully_confirmed',
+        special_notes: '[RECONCILED]',
+      },
+    ]
+  );
+
+  const rpc129Result = await state129.rpc('reconcile_payment_and_booking_atomic', {
+    p_transaction_id: 'c8f42d99-7a31-4c5e-8b1d-91a2e3f4b5d0',
+    p_booking_reference: 'LIVE-DAYTOUR-GNY-129',
+    p_gateway_operation_id: 'LK-OPER-129', // Matching operation ID
+    p_amount_paid: 69.00, // Matching amount
+    p_verified_at: new Date().toISOString(),
+    p_audit_metadata: { retry: true },
+  });
+
+  assert(
+    'Test 129: Atomic RPC handles idempotent retry for matching approved transaction successfully with already_approved=true',
+    Boolean(
+      rpc129Result.data?.success === true &&
+        rpc129Result.data?.already_approved === true &&
+        state129.getPaymentByRef('LIVE-DAYTOUR-GNY-129')?.status === 'approved'
+    ),
+    'RPC success=true, already_approved=true, tx status=approved',
+    `rpcSuccess=${rpc129Result.data?.success}, alreadyApproved=${rpc129Result.data?.already_approved}, txStatus=${state129.getPaymentByRef('LIVE-DAYTOUR-GNY-129')?.status}`
   );
 
   console.log('----------------------------------------------------');
