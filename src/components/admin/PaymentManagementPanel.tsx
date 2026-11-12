@@ -332,6 +332,7 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
   const [liveTestBookingError, setLiveTestBookingError] = useState<string | null>(null);
 
   const [isCheckingLiveStatus, setIsCheckingLiveStatus] = useState<boolean>(false);
+  const [liveTestOperationCode, setLiveTestOperationCode] = useState<string>('');
   const [liveTestStatusResult, setLiveTestStatusResult] = useState<ControlledLiveTestStatusResponse | null>(null);
   const [liveTestStatusError, setLiveTestStatusError] = useState<string | null>(null);
 
@@ -413,6 +414,7 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
         body: JSON.stringify({
           action: 'check_controlled_live_test_status',
           bookingReference: liveTestBookingResult?.bookingReference,
+          operationCode: liveTestOperationCode.trim() || undefined,
         }),
       });
 
@@ -1215,6 +1217,19 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <label htmlFor="live-op-code-input" className="text-xs font-semibold text-slate-700 shrink-0">
+                Approved LIVE Operation Code:
+              </label>
+              <input
+                id="live-op-code-input"
+                type="text"
+                placeholder="Optional (e.g. LK-EHA1PJ6R1MAN)"
+                value={liveTestOperationCode}
+                onChange={(e) => setLiveTestOperationCode(e.target.value)}
+                className="px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 w-56 sm:w-64"
+              />
+            </div>
             <button
               onClick={handleCheckControlledLiveStatus}
               disabled={isCheckingLiveStatus}
@@ -1396,19 +1411,33 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
           <div className={`p-4 rounded-xl border font-mono text-xs space-y-2 ${
             liveTestStatusResult.paymentStatus === 'approved'
               ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
-              : 'bg-amber-50 border-amber-300 text-amber-950'
+              : liveTestStatusResult.paymentStatus === 'needs_manual_review' || liveTestStatusResult.category === 'needs_manual_review'
+              ? 'bg-amber-50 border-amber-400 text-amber-950'
+              : 'bg-slate-50 border-slate-300 text-slate-950'
           }`}>
-            <div className="flex items-center gap-2 font-bold text-sm">
-              {liveTestStatusResult.paymentStatus === 'approved' ? (
-                <>
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <span className="text-emerald-900">Live Payment Confirmed &amp; Approved!</span>
-                </>
-              ) : (
-                <>
-                  <Clock className="w-5 h-5 text-amber-600" />
-                  <span className="text-amber-900">Payment Status: Pending Card Authorization</span>
-                </>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                {liveTestStatusResult.paymentStatus === 'approved' ? (
+                  <>
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <span className="text-emerald-900">Live Payment Confirmed &amp; Approved!</span>
+                  </>
+                ) : liveTestStatusResult.paymentStatus === 'needs_manual_review' || liveTestStatusResult.category === 'needs_manual_review' ? (
+                  <>
+                    <AlertTriangle className="w-5 h-5 text-amber-600 text-amber-700" />
+                    <span className="text-amber-900">Payment Status: Needs Manual Review</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-5 h-5 text-slate-600" />
+                    <span className="text-slate-900">Payment Status: {liveTestStatusResult.paymentStatus || 'Pending'}</span>
+                  </>
+                )}
+              </div>
+              {liveTestStatusResult.category && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-slate-200 text-slate-800 font-semibold border border-slate-300">
+                  Category: {liveTestStatusResult.category}
+                </span>
               )}
             </div>
             <div><strong>Booking Reference:</strong> {liveTestStatusResult.bookingReference}</div>
@@ -1419,7 +1448,12 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             {liveTestStatusResult.verifiedAt && (
               <div><strong>Verified At:</strong> {liveTestStatusResult.verifiedAt}</div>
             )}
-            <div className="text-[11px] pt-1 text-gray-700"><strong>Gateway Note:</strong> {liveTestStatusResult.message}</div>
+            {liveTestStatusResult.message && (
+              <div className="text-[11px] pt-1 text-gray-700"><strong>Gateway Note:</strong> {liveTestStatusResult.message}</div>
+            )}
+            {liveTestStatusResult.error && (
+              <div className="text-[11px] text-red-700 font-semibold"><strong>Error Detail:</strong> {liveTestStatusResult.error}</div>
+            )}
           </div>
         )}
 

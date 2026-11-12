@@ -10,7 +10,9 @@ export type PaymentLifecycleStatus =
   | 'approved'          // Successfully verified by payment gateway
   | 'rejected'          // Card declined / fraud check failed
   | 'expired'           // Payment link expired before checkout
-  | 'refunded';         // Administratively refunded
+  | 'refunded'         // Administratively refunded
+  | 'needs_manual_review'
+  | 'cancelled_pending_expiry';
 
 export type PaymentType = 'deposit' | 'full' | 'balance';
 
@@ -278,6 +280,7 @@ export interface ControlledLiveTestStatusResponse {
   verifiedAt?: string;
   message: string;
   error?: string;
+  category?: string;
   reconciled?: boolean;
 }
 

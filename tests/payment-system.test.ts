@@ -4913,6 +4913,81 @@ async function runPaymentSecurityTests() {
     `status=${statusRes115.statusCode}, payStatus=${statusRes115.body.controlledLiveTestStatus?.paymentStatus}, oper=${statusRes115.body.controlledLiveTestStatus?.gatewayOperationId}`
   );
 
+  // -------------------------------------------------------------
+  // TEST 116: FRONTEND-TO-BACKEND API WIRING — CHECK LIVE STATUS WITH OPERATION CODE
+  // -------------------------------------------------------------
+  const state116 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-live-220728-116',
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending',
+        environment: 'production',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+        gateway_link_code: 'LK-EITKXJPE4PXWU8AA',
+      },
+    ],
+    [
+      {
+        booking_reference: 'LIVE-DAYTOUR-GNY-220728',
+        status: 'pending_payment',
+      },
+    ]
+  );
+
+  let queriedFilter116 = '';
+  const fetch116 = async (url: string) => {
+    queriedFilter116 = url;
+    return {
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            codOper: 'LK-EHA1PJ6R1MAN',
+            status: 1,
+            txType: 'AUTH_CAPTURE',
+            authCurrency: '840',
+            authAmount: 69.00,
+            cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+            urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-220728&linkCode=LK-EITKXJPE4PXWU8AA',
+          },
+        ],
+      }),
+    } as any;
+  };
+
+  const handlerRes116 = await executeAdminSandboxTest(
+    'Bearer admin_token',
+    {
+      supabaseClient: state116 as any,
+      envOverride: liveControlledEnv,
+      fetchFn: fetch116 as any,
+    },
+    {
+      action: 'check_controlled_live_test_status',
+      bookingReference: 'LIVE-DAYTOUR-GNY-220728',
+      operationCode: 'LK-EHA1PJ6R1MAN',
+    }
+  );
+
+  const handlerBody116 = handlerRes116.body;
+
+  assert(
+    'Test 116: Admin API handler receives operationCode from frontend request body, queries production gateway with codOper filter, and authoritatively confirms booking',
+    Boolean(
+      handlerRes116.statusCode === 200 &&
+        handlerBody116.success === true &&
+        handlerBody116.controlledLiveTestStatus?.paymentStatus === 'approved' &&
+        handlerBody116.controlledLiveTestStatus?.gatewayOperationId === 'LK-EHA1PJ6R1MAN' &&
+        queriedFilter116.includes('codOper%3A%3ALK-EHA1PJ6R1MAN')
+    ),
+    'HTTP 200, operationCode passed to gateway query, paymentStatus=approved',
+    `status=${handlerRes116.statusCode}, oper=${handlerBody116.controlledLiveTestStatus?.gatewayOperationId}, query=${queriedFilter116}`
+  );
+
   console.log('----------------------------------------------------');
   console.log('         PART 25I PAYMENT SECURITY TEST MATRIX');
   console.log('----------------------------------------------------');
