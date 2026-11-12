@@ -10,6 +10,8 @@ import {
   PagueloFacilLinkDaemonRequest,
   PagueloFacilLinkDaemonResponse,
   ExistingTransactionDiagnosticResult,
+  ControlledLiveTestBookingResponse,
+  ControlledLiveTestStatusResponse,
 } from '../../src/types/payment.js';
 import { reconcilePaymentTransaction, validatePaymentRelationship } from './paymentReconciliation.js';
 
@@ -59,11 +61,98 @@ function checkRateLimit(adminId: string): { allowed: boolean; error?: string } {
   return { allowed: true };
 }
 
+export function resetRateLimitStoreForTesting(): void {
+  rateLimitStore.clear();
+}
+
+let liveTestCreationInProgress = false;
+
+export function resetLiveTestMutexForTesting(): void {
+  liveTestCreationInProgress = false;
+}
+
+export const CONTROLLED_LIVE_TEST_LOCK_NAME = 'CONTROLLED_LIVE_TEST_ACTIVE_LOCK';
+export const DEFAULT_LOCK_TTL_SECONDS = 300; // 5 minutes (300 seconds)
+
+export async function acquireAtomicLiveTestLock(
+  supabase: any,
+  adminUserId: string,
+  ttlSeconds: number = DEFAULT_LOCK_TTL_SECONDS
+): Promise<{ acquired: boolean; ownerToken?: string; error?: string }> {
+  const ownerToken = crypto.randomUUID();
+  try {
+    if (!supabase || typeof supabase.rpc !== 'function') {
+      return {
+        acquired: false,
+        error: 'Database lock acquisition failed: Supabase RPC client unavailable.',
+      };
+    }
+
+    const { data, error } = await supabase.rpc('acquire_controlled_live_test_lock', {
+      p_lock_name: CONTROLLED_LIVE_TEST_LOCK_NAME,
+      p_owner_token: ownerToken,
+      p_admin_user_id: adminUserId,
+      p_ttl_seconds: ttlSeconds,
+    });
+
+    if (error || !data) {
+      return {
+        acquired: false,
+        error: `Database lock acquisition failed: ${error?.message || 'RPC returned no data'}`,
+      };
+    }
+
+    if (data.acquired === true) {
+      return { acquired: true, ownerToken };
+    }
+
+    return {
+      acquired: false,
+      error: data.message || 'A controlled live test creation request is currently in progress across function instances. Please wait.',
+    };
+  } catch (err: any) {
+    // CRITICAL SECURITY RULE: Exception handler MUST NEVER return acquired: true!
+    return {
+      acquired: false,
+      error: `Database lock acquisition failed: ${err?.message || 'Unknown database exception'}`,
+    };
+  }
+}
+
+export async function releaseAtomicLiveTestLock(
+  supabase: any,
+  ownerToken?: string | null
+): Promise<{ released: boolean; reason?: string }> {
+  if (!ownerToken) {
+    return { released: false, reason: 'missing_owner_token' };
+  }
+
+  try {
+    if (!supabase || typeof supabase.rpc !== 'function') {
+      return { released: false, reason: 'rpc_unavailable' };
+    }
+
+    const { data, error } = await supabase.rpc('release_controlled_live_test_lock', {
+      p_lock_name: CONTROLLED_LIVE_TEST_LOCK_NAME,
+      p_owner_token: ownerToken,
+    });
+
+    if (error || !data) {
+      return { released: false, reason: error?.message || 'rpc_error' };
+    }
+
+    return { released: Boolean(data.released), reason: data.reason };
+  } catch (err: any) {
+    return { released: false, reason: err?.message || 'error' };
+  }
+}
+
 export interface AdminSandboxTestDependencies {
   supabaseClient?: SupabaseClient;
   testTransport?: (payload: PagueloFacilLinkDaemonRequest) => Promise<PagueloFacilLinkDaemonResponse>;
   envOverride?: Record<string, string | undefined>;
   fetchFn?: typeof fetch;
+  skipRateLimit?: boolean;
 }
 
 /**
@@ -1012,6 +1101,864 @@ export async function executeTestLiveCheckoutConnection(
 }
 
 /**
+ * Admin-Only Action: Create Controlled Single LIVE Payment Test ($69.00 USD Carti Port)
+ * Explicit admin confirmation required.
+ * Enforces single authorized outstanding live test transaction.
+ * Creates genuine production booking and pending payment row in Supabase.
+ * Generates genuine production checkout URL via PagueloFacil LinkDeamon.
+ * Returns checkout link ONLY to the authenticated admin.
+ */
+export async function executeCreateControlledLiveTest(
+  authToken: string | null,
+  requestBody: any = {},
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const fetchFn = dependencies.fetchFn || global.fetch;
+
+  // 1. Authenticate administrator server-side using quotation_admins authorization table
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Administrator Bearer token is required.',
+      },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Invalid or expired administrator credentials.',
+      },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: {
+        success: false,
+        error: 'Forbidden: Access restricted to authorized quotation administrators.',
+      },
+    };
+  }
+
+  // Rate limit check
+  if (!dependencies.skipRateLimit) {
+    const rateLimit = checkRateLimit(adminUserId);
+    if (!rateLimit.allowed) {
+      return {
+        statusCode: 429,
+        body: {
+          success: false,
+          error: rateLimit.error,
+        },
+      };
+    }
+  }
+
+  // Concurrency Guard: Make one-active-LIVE-test creation safe against simultaneous admin requests
+  if (liveTestCreationInProgress) {
+    return {
+      statusCode: 409,
+      body: {
+        success: false,
+        action: 'create_controlled_live_test',
+        error: 'A controlled live test creation request is currently in progress. Please wait for it to complete.',
+      },
+    };
+  }
+
+  liveTestCreationInProgress = true;
+  let atomicLockAcquired = false;
+  let activeOwnerToken: string | undefined = undefined;
+
+  try {
+    // 2. Explicit Administrator Confirmation Check
+    if (requestBody?.confirmed !== true) {
+      return {
+        statusCode: 400,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: 'Explicit administrator confirmation is required before creating a real production payment checkout link.',
+        },
+      };
+    }
+
+    // 3. Acquire atomic database-backed lock across serverless function instances
+    const dbLock = await acquireAtomicLiveTestLock(supabase, adminUserId);
+    if (!dbLock.acquired || !dbLock.ownerToken) {
+      return {
+        statusCode: 409,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: dbLock.error || 'A controlled live test creation request is currently in progress across function instances. Please wait.',
+        },
+      };
+    }
+    atomicLockAcquired = true;
+    activeOwnerToken = dbLock.ownerToken;
+
+    // 3. Enforce single authorized outstanding live test transaction
+    // MUST apply ONLY to controlled live test records (LIVE-DAYTOUR-GNY-*), never to unrelated future production customers!
+    const { data: allProdTxs } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('environment', 'production');
+
+    const controlledLiveTxs = (allProdTxs || []).filter((tx: any) =>
+      String(tx.booking_reference || '').startsWith('LIVE-DAYTOUR-GNY-') &&
+      (tx.audit_metadata?.is_live_test === true || tx.audit_metadata?.created_via === 'admin_controlled_live_test' || !tx.audit_metadata)
+    );
+
+    const now = Date.now();
+
+    // Cancellation Safety Check:
+    // Block creation if any controlled live test is:
+    // 1. In needs_manual_review status (uncertain gateway failure requiring independent resolution), REGARDLESS of expires_at!
+    // 2. Pending and still within its payable window (expires_at in future).
+    const unresolvedTest = controlledLiveTxs.find((tx: any) => {
+      if (tx.status === 'approved') return false;
+      if (tx.status === 'needs_manual_review') return true;
+      if (tx.status === 'pending') {
+        return tx.expires_at ? new Date(tx.expires_at).getTime() > now : true;
+      }
+      return false;
+    });
+
+    if (unresolvedTest) {
+      const isManualReview = unresolvedTest.status === 'needs_manual_review';
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: isManualReview
+            ? `An authorized production live test is awaiting manual review (Booking: ${unresolvedTest.booking_reference}). Replacement link creation is blocked until the previous attempt is independently resolved.`
+            : `An authorized production live test is already outstanding (Booking: ${unresolvedTest.booking_reference}). Only one active live test is permitted to prevent duplicate charges. Check status or cancel previous test first.`,
+          activeBookingReference: unresolvedTest.booking_reference,
+          activeStatus: unresolvedTest.status,
+          activeExpiresAt: unresolvedTest.expires_at,
+          gatewayLinkStillPayable: unresolvedTest.status === 'pending',
+          requiresManualReview: isManualReview,
+        },
+      };
+    }
+
+    // Check if any expired pending live tests exist
+    const expiredPendingTxs = controlledLiveTxs.filter((tx: any) =>
+      tx.status === 'pending' &&
+      tx.expires_at &&
+      new Date(tx.expires_at).getTime() <= now
+    );
+
+    if (expiredPendingTxs.length > 0) {
+      if (requestBody?.forceCancelPrevious === true) {
+        for (const oldTx of expiredPendingTxs) {
+          await supabase
+            .from('payment_transactions')
+            .update({
+              status: 'expired',
+              audit_metadata: {
+                ...(oldTx.audit_metadata || {}),
+                expired_at_payable_window_end: true,
+                canceled_by_admin: true,
+                canceled_at: new Date().toISOString(),
+                cancel_reason: 'Replaced after payable window ended',
+              },
+            })
+            .eq('id', oldTx.id)
+            .select('id');
+
+          if (oldTx.booking_reference) {
+            await supabase
+              .from('booking_requests')
+              .update({
+                status: 'cancelled',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('booking_reference', oldTx.booking_reference)
+              .select('booking_reference');
+          }
+        }
+      } else {
+        const activeTx = expiredPendingTxs[0];
+        return {
+          statusCode: 200,
+          body: {
+            success: false,
+            action: 'create_controlled_live_test',
+            error: `An authorized production live test has expired (Booking: ${activeTx.booking_reference}). Clean up expired test with forceCancelPrevious before issuing a new one.`,
+            activeBookingReference: activeTx.booking_reference,
+            activeExpiresAt: activeTx.expires_at,
+          },
+        };
+      }
+    }
+
+    // 4. Verify Server-Side Production CCLW
+    const liveCclw = (env.PAGUELOFACIL_CCLW || '').trim();
+    if (!liveCclw || !validateCclw(liveCclw)) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: 'PAGUELOFACIL_CCLW is missing or invalid in server environment.',
+        },
+      };
+    }
+
+    // 5. Generate Distinct Production Live Test Booking Reference & Parameters
+    const bookingRef = `LIVE-DAYTOUR-GNY-${Math.floor(100000 + Math.random() * 900000)}`;
+    const idempotencyKey = `idem_prod_live_test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const amount = 69.00;
+    const amountInCents = 6900;
+    const expiresAt = new Date(Date.now() + 7200 * 1000).toISOString();
+
+    // 6. Record Genuine Production Day Tour Booking in booking_requests
+    // Check errors and exactly-one-row results
+    const customerName = (requestBody?.customerName || 'Petra (Live Acceptance Test)').trim();
+    const customerEmail = (requestBody?.customerEmail || authData.user.email || 'petra@gunayalapanama.com').trim();
+
+    const { data: bookingRows, error: bookingErr } = await supabase
+      .from('booking_requests')
+      .upsert(
+        {
+          booking_reference: bookingRef,
+          booking_type: 'day-trip',
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_phone: (requestBody?.customerPhone || '').trim(),
+          experience_title: 'San Blas Day Tour (Cartí Port Direct Arrival)',
+          target_date: new Date().toISOString().split('T')[0],
+          adults: 1,
+          children: 0,
+          pickup_location: 'Cartí Port (Direct Arrival)',
+          special_notes: '[PROD LIVE TEST] Authorized single production payment test by administrator. Carti Port $69.00 USD.',
+          terms_accepted: true,
+          terms_version: '2026-10-18',
+          customer_language: 'es',
+          status: 'pending_payment',
+          idempotency_key: idempotencyKey,
+        },
+        { onConflict: 'booking_reference' }
+      )
+      .select('*');
+
+    if (bookingErr || !bookingRows || bookingRows.length !== 1) {
+      return {
+        statusCode: 500,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: `Database write failure on booking_requests: ${bookingErr?.message || 'Expected exactly 1 row'}`,
+        },
+      };
+    }
+
+    // 7. Record Production Payment Transaction in payment_transactions
+    // Check errors and exactly-one-row results
+    const { data: txRows, error: txErr } = await supabase
+      .from('payment_transactions')
+      .upsert(
+        {
+          booking_reference: bookingRef,
+          booking_type: 'day-trip',
+          gateway: 'paguelofacil',
+          environment: 'production',
+          currency: 'USD',
+          expected_amount: amount,
+          amount_in_cents: amountInCents,
+          payment_type: 'full',
+          status: 'pending',
+          idempotency_key: idempotencyKey,
+          expires_at: expiresAt,
+          audit_metadata: {
+            environment: 'production',
+            is_live_test: true,
+            is_demo: false,
+            is_test: false,
+            amount_in_cents: amountInCents,
+            package_id: 'day-tour-port',
+            created_via: 'admin_controlled_live_test',
+            created_by_admin: adminUserId,
+            created_at: new Date().toISOString(),
+          },
+        },
+        { onConflict: 'idempotency_key' }
+      )
+      .select('*');
+
+    if (txErr || !txRows || txRows.length !== 1) {
+      // Rollback booking_requests to prevent orphaned records
+      await supabase.from('booking_requests').delete().eq('booking_reference', bookingRef);
+      return {
+        statusCode: 500,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: `Database write failure on payment_transactions: ${txErr?.message || 'Expected exactly 1 row'}`,
+        },
+      };
+    }
+
+    // 8. Generate Genuine Production Checkout Link via PagueloFacil LinkDeamon
+    const endpoint = 'https://secure.paguelofacil.com/LinkDeamon.cfm';
+    const returnUrl = `https://gunayalapanama.com/checkout/complete?bookingReference=${bookingRef}`;
+
+    const formParams = new URLSearchParams();
+    formParams.append('CCLW', liveCclw);
+    formParams.append('CMTN', '69.00'); // $69.00 USD
+    formParams.append('CDSC', 'Guna Yala Day Tour Carti Port Live Test');
+    formParams.append('RETURN_URL', returnUrl);
+    formParams.append('PARM_1', bookingRef);
+    formParams.append('PARM_2', idempotencyKey);
+    formParams.append('EXPIRES_IN', '7200'); // 2 hours
+
+    try {
+      const response = await fetchFn(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formParams.toString(),
+      });
+
+      if (!response.ok) {
+        return {
+          statusCode: 200,
+          body: {
+            success: false,
+            action: 'create_controlled_live_test',
+            error: `Production LinkDeamon returned HTTP ${response.status}.`,
+          },
+        };
+      }
+
+      let responseData: any;
+      try {
+        responseData = await response.json();
+      } catch {
+        return {
+          statusCode: 200,
+          body: {
+            success: false,
+            action: 'create_controlled_live_test',
+            error: 'Production LinkDeamon returned non-JSON response.',
+          },
+        };
+      }
+
+      if (responseData.headerStatus?.code !== 200 || !responseData.data?.url) {
+        const errorMsg =
+          responseData.headerStatus?.description ||
+          responseData.message ||
+          'PagueloFacil rejected production checkout link creation.';
+        return {
+          statusCode: 200,
+          body: {
+            success: false,
+            action: 'create_controlled_live_test',
+            error: errorMsg,
+          },
+        };
+      }
+
+      // Validate returned URL against trusted PagueloFacil production hostnames
+      const rawUrl = String(responseData.data.url);
+      const urlValidation = validatePagueloFacilCheckoutUrl(rawUrl, 'production');
+
+      if (!urlValidation.valid || !urlValidation.url) {
+        return {
+          statusCode: 200,
+          body: {
+            success: false,
+            action: 'create_controlled_live_test',
+            error: 'Generated checkout URL does not match trusted PagueloFacil production hostnames.',
+          },
+        };
+      }
+
+      // Check errors and exactly-one-row for gateway link persistence
+      const { data: updatedTxRows, error: updateErr } = await supabase
+        .from('payment_transactions')
+        .update({
+          gateway_link_code: responseData.data.code || null,
+          payment_url: urlValidation.url,
+        })
+        .eq('booking_reference', bookingRef)
+        .select('*');
+
+      if (updateErr || !updatedTxRows || updatedTxRows.length !== 1) {
+        // Link was generated but failed to persist durably in database!
+        // Suppress payable link so it cannot be orphaned or blindly paid
+        await supabase
+          .from('payment_transactions')
+          .update({
+            status: 'needs_manual_review',
+            audit_metadata: {
+              ...(txRows[0].audit_metadata || {}),
+              link_persistence_failed: true,
+              gateway_code: responseData.data.code,
+              error: updateErr?.message,
+            },
+          })
+          .eq('booking_reference', bookingRef);
+
+        return {
+          statusCode: 500,
+          body: {
+            success: false,
+            action: 'create_controlled_live_test',
+            error: `Database failure: Failed to durably persist gateway checkout link in database: ${updateErr?.message || 'Expected exactly 1 row'}. Link suppressed for safety.`,
+          },
+        };
+      }
+
+      // Return genuine checkout link to the authenticated administrator only for secure sharing with Petra
+      return {
+        statusCode: 200,
+        body: {
+          success: true,
+          action: 'create_controlled_live_test',
+          controlledLiveTestBooking: {
+            success: true,
+            bookingReference: bookingRef,
+            paymentUrl: urlValidation.url,
+            gatewayLinkCode: responseData.data.code,
+            amount: 69.00,
+            currency: 'USD',
+            status: 'pending_payment',
+            environment: 'production',
+            expiresAt,
+            message: 'Production $69.00 Carti Port checkout link generated successfully for Petra.',
+          },
+        },
+      };
+    } catch (err: any) {
+      // Conservative failure handling on uncertain production LinkDeamon failures:
+      // Preserve transaction as needs_manual_review (NOT expired) so replacement links remain blocked until independently resolved.
+      if (typeof bookingRef === 'string' && bookingRef) {
+        try {
+          await supabase
+            .from('payment_transactions')
+            .update({
+              status: 'needs_manual_review',
+              audit_metadata: {
+                gateway_creation_failed: true,
+                uncertain_gateway_failure: true,
+                error: err?.message || 'Uncertain gateway creation error',
+              },
+            })
+            .eq('booking_reference', bookingRef);
+
+          await supabase
+            .from('booking_requests')
+            .update({ status: 'needs_manual_review' })
+            .eq('booking_reference', bookingRef);
+        } catch {
+          // Ignore cleanup error
+        }
+      }
+
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'create_controlled_live_test',
+          error: `Uncertain network error connecting to production LinkDeamon: ${err.message}. Transaction preserved as needs_manual_review for safe manual review.`,
+        },
+      };
+    }
+  } finally {
+    if (atomicLockAcquired && activeOwnerToken) {
+      await releaseAtomicLiveTestLock(supabase, activeOwnerToken);
+    }
+    liveTestCreationInProgress = false;
+  }
+}
+
+/**
+ * Admin-Only Action: Check Controlled LIVE Test Booking Status
+ * Queries Supabase and reconciles against PagueloFacil production MerchantTransactions API if pending.
+ * Never reports a payment approved based solely on browser return.
+ */
+export async function executeCheckControlledLiveTestStatus(
+  authToken: string | null,
+  requestBody: any = {},
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const fetchFn = dependencies.fetchFn || global.fetch;
+
+  // 1. Authenticate administrator
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Administrator Bearer token is required.',
+      },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Invalid or expired administrator credentials.',
+      },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: {
+        success: false,
+        error: 'Forbidden: Access restricted to authorized quotation administrators.',
+      },
+    };
+  }
+
+  // 2. Query target production live test transaction
+  let targetTx: any = null;
+  const bookingRef = requestBody?.bookingReference;
+
+  if (bookingRef) {
+    const { data: foundTx } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('booking_reference', bookingRef)
+      .eq('environment', 'production')
+      .maybeSingle();
+    targetTx = foundTx;
+  } else {
+    // Look up latest production live test
+    const { data: foundRows } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('environment', 'production')
+      .ilike('booking_reference', 'LIVE-DAYTOUR-GNY-%')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (foundRows && foundRows.length > 0) {
+      targetTx = foundRows[0];
+    }
+  }
+
+  if (!targetTx) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        action: 'check_controlled_live_test_status',
+        error: 'No production live test transaction found in database.',
+      },
+    };
+  }
+
+  // 3. If already approved, return authoritative status
+  if (targetTx.status === 'approved') {
+    const { data: bookingRow } = await supabase
+      .from('booking_requests')
+      .select('status')
+      .eq('booking_reference', targetTx.booking_reference)
+      .maybeSingle();
+
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        action: 'check_controlled_live_test_status',
+        controlledLiveTestStatus: {
+          success: true,
+          bookingReference: targetTx.booking_reference,
+          environment: 'production',
+          paymentStatus: 'approved',
+          bookingStatus: bookingRow?.status || 'fully_confirmed',
+          amountPaid: targetTx.amount_paid || targetTx.expected_amount,
+          expectedAmount: targetTx.expected_amount || 69.00,
+          currency: 'USD',
+          gatewayOperationId: targetTx.gateway_operation_id,
+          verifiedAt: targetTx.verified_at,
+          reconciled: true,
+          message: 'Live test payment is confirmed and approved in Supabase!',
+        },
+      },
+    };
+  }
+
+  // 4. If pending, query PagueloFacil production MerchantTransactions authoritatively to reconcile
+  const reconciliation = await reconcilePaymentTransaction({
+    bookingReference: targetTx.booking_reference,
+    operationCode: targetTx.gateway_operation_id,
+    linkCode: targetTx.gateway_link_code,
+    idempotencyKey: targetTx.idempotency_key,
+    environment: 'production',
+    supabaseClient: supabase,
+    env,
+    fetchFn,
+  });
+
+  if (reconciliation.success && reconciliation.category === 'approved') {
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        action: 'check_controlled_live_test_status',
+        controlledLiveTestStatus: {
+          success: true,
+          bookingReference: targetTx.booking_reference,
+          environment: 'production',
+          paymentStatus: 'approved',
+          bookingStatus: 'fully_confirmed',
+          amountPaid: reconciliation.amountPaid || 69.00,
+          expectedAmount: targetTx.expected_amount || 69.00,
+          currency: 'USD',
+          gatewayOperationId: reconciliation.operationCode,
+          verifiedAt: new Date().toISOString(),
+          reconciled: true,
+          message: 'Payment verified and confirmed via PagueloFacil production MerchantTransactions API!',
+        },
+      },
+    };
+  }
+
+  if (reconciliation.category === 'needs_manual_review') {
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        action: 'check_controlled_live_test_status',
+        controlledLiveTestStatus: {
+          success: false,
+          bookingReference: targetTx.booking_reference,
+          environment: 'production',
+          paymentStatus: 'needs_manual_review',
+          bookingStatus: 'pending_payment',
+          expectedAmount: targetTx.expected_amount || 69.00,
+          currency: 'USD',
+          reconciled: false,
+          category: 'needs_manual_review',
+          message: reconciliation.message || 'Multiple or ambiguous PagueloFacil transactions detected. Manual review required.',
+        },
+      },
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: {
+      success: true,
+      action: 'check_controlled_live_test_status',
+      controlledLiveTestStatus: {
+        success: false,
+        bookingReference: targetTx.booking_reference,
+        environment: 'production',
+        paymentStatus: targetTx.status,
+        bookingStatus: 'pending_payment',
+        expectedAmount: targetTx.expected_amount || 69.00,
+        currency: 'USD',
+        reconciled: false,
+        category: reconciliation.category || 'absent_records',
+        message: reconciliation.message || 'Payment has not yet been completed on PagueloFacil portal.',
+      },
+    },
+  };
+}
+
+/**
+ * Admin-Only Action: Cancel Controlled LIVE Test Booking
+ * Allows administrator to expire a pending live test so a fresh one can be issued after expiry.
+ */
+export async function executeCancelControlledLiveTest(
+  authToken: string | null,
+  requestBody: any = {},
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  // 1. Authenticate administrator
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Administrator Bearer token is required.',
+      },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Invalid or expired administrator credentials.',
+      },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: {
+        success: false,
+        error: 'Forbidden: Access restricted to authorized quotation administrators.',
+      },
+    };
+  }
+
+  const bookingRef = requestBody?.bookingReference;
+  let targetRef = bookingRef;
+
+  // Strict check: if a bookingReference is provided, it must be a controlled live test
+  if (targetRef && !targetRef.startsWith('LIVE-DAYTOUR-GNY-')) {
+    return {
+      statusCode: 400,
+      body: {
+        success: false,
+        error: 'Invalid booking reference: only controlled live test bookings (LIVE-DAYTOUR-GNY-*) can be cancelled here.',
+      },
+    };
+  }
+
+  let targetTx: any = null;
+
+  if (targetRef) {
+    const { data: foundTx } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('booking_reference', targetRef)
+      .eq('environment', 'production')
+      .maybeSingle();
+    targetTx = foundTx;
+  } else {
+    const { data: latestRows } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('environment', 'production')
+      .ilike('booking_reference', 'LIVE-DAYTOUR-GNY-%')
+      .in('status', ['pending', 'cancelled_pending_expiry'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (latestRows && latestRows.length > 0) {
+      targetTx = latestRows[0];
+      targetRef = targetTx.booking_reference;
+    }
+  }
+
+  if (!targetTx) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        error: 'No active pending production live test found to cancel.',
+      },
+    };
+  }
+
+  if (targetTx.status === 'approved') {
+    return {
+      statusCode: 400,
+      body: {
+        success: false,
+        error: `Cannot cancel live test ${targetRef} because the payment has already been approved and confirmed.`,
+      },
+    };
+  }
+
+  const isStillInPayableWindow = targetTx.expires_at && new Date(targetTx.expires_at).getTime() > Date.now();
+  const newStatus = isStillInPayableWindow ? 'cancelled_pending_expiry' : 'expired';
+
+  await supabase
+    .from('payment_transactions')
+    .update({
+      status: newStatus,
+      audit_metadata: {
+        ...(typeof targetTx.audit_metadata === 'object' ? targetTx.audit_metadata : {}),
+        canceled_by_admin: true,
+        canceled_at: new Date().toISOString(),
+        canceled_by_user_id: adminUserId,
+        gateway_link_still_payable: isStillInPayableWindow,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('booking_reference', targetRef)
+    .eq('environment', 'production');
+
+  await supabase
+    .from('booking_requests')
+    .update({
+      status: 'cancelled',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('booking_reference', targetRef);
+
+  return {
+    statusCode: 200,
+    body: {
+      success: true,
+      action: 'cancel_controlled_live_test',
+      status: newStatus,
+      gatewayLinkStillPayable: isStillInPayableWindow,
+      expiresAt: targetTx.expires_at,
+      message: isStillInPayableWindow
+        ? `Production live test ${targetRef} marked as cancelled, but the PagueloFacil hosted link remains active until ${targetTx.expires_at}. No new live test can be created until this window expires to prevent duplicate charges.`
+        : `Production live test ${targetRef} expired and cancelled successfully.`,
+    },
+  };
+}
+
+/**
  * Core test execution logic, separated for isolated unit testing with mocks.
  */
 export async function executeAdminSandboxTest(
@@ -1030,6 +1977,15 @@ export async function executeAdminSandboxTest(
   }
   if (requestBody?.action === 'test_live_checkout_connection') {
     return await executeTestLiveCheckoutConnection(authToken, dependencies);
+  }
+  if (requestBody?.action === 'create_controlled_live_test') {
+    return await executeCreateControlledLiveTest(authToken, requestBody, dependencies);
+  }
+  if (requestBody?.action === 'check_controlled_live_test_status') {
+    return await executeCheckControlledLiveTestStatus(authToken, requestBody, dependencies);
+  }
+  if (requestBody?.action === 'cancel_controlled_live_test') {
+    return await executeCancelControlledLiveTest(authToken, requestBody, dependencies);
   }
 
   const env = dependencies.envOverride || process.env;

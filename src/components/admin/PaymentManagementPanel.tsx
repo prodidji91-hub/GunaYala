@@ -17,8 +17,17 @@ import {
   Server,
   ShieldCheck,
   Terminal,
+  Copy,
+  Check,
 } from 'lucide-react';
-import { PaymentLifecycleStatus, AdminSandboxTestResponse, LiveApiConnectionTestResult, LiveCheckoutConnectionTestResult } from '../../types/payment';
+import {
+  PaymentLifecycleStatus,
+  AdminSandboxTestResponse,
+  LiveApiConnectionTestResult,
+  LiveCheckoutConnectionTestResult,
+  ControlledLiveTestBookingResponse,
+  ControlledLiveTestStatusResponse,
+} from '../../types/payment';
 import { supabase } from '../../lib/supabase';
 import { parseSandboxReturnParams, ParsedSandboxReturn } from '../../utils/sandboxReturnParser';
 
@@ -313,6 +322,155 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
       setLiveCheckoutTestError(err.message || 'An unexpected error occurred during live checkout connection test.');
     } finally {
       setIsTestingLiveCheckout(false);
+    }
+  };
+
+  // Controlled LIVE Payment Acceptance Test State ($69.00 USD Carti Port)
+  const [liveTestConfirmed, setLiveTestConfirmed] = useState<boolean>(false);
+  const [isCreatingLiveTest, setIsCreatingLiveTest] = useState<boolean>(false);
+  const [liveTestBookingResult, setLiveTestBookingResult] = useState<ControlledLiveTestBookingResponse | null>(null);
+  const [liveTestBookingError, setLiveTestBookingError] = useState<string | null>(null);
+
+  const [isCheckingLiveStatus, setIsCheckingLiveStatus] = useState<boolean>(false);
+  const [liveTestStatusResult, setLiveTestStatusResult] = useState<ControlledLiveTestStatusResponse | null>(null);
+  const [liveTestStatusError, setLiveTestStatusError] = useState<string | null>(null);
+
+  const [isCancelingLiveTest, setIsCancelingLiveTest] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  const handleCreateControlledLiveTest = async (forceCancelPrevious = false) => {
+    if (!liveTestConfirmed && !forceCancelPrevious) {
+      setLiveTestBookingError('Please check the confirmation box before generating a real production payment checkout link.');
+      return;
+    }
+
+    setIsCreatingLiveTest(true);
+    setLiveTestBookingError(null);
+    setLiveTestBookingResult(null);
+
+    try {
+      if (!supabase) throw new Error('Supabase client is not available.');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'create_controlled_live_test',
+          confirmed: true,
+          forceCancelPrevious,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setLiveTestBookingError(data.error || `HTTP ${response.status}: Failed to create controlled live test.`);
+        if (data.activeBookingReference) {
+          setLiveTestBookingResult({
+            success: false,
+            bookingReference: data.activeBookingReference,
+            expiresAt: data.activeExpiresAt,
+            amount: 69.00,
+            currency: 'USD',
+            status: 'pending_payment',
+            environment: 'production',
+            message: data.error,
+          });
+        }
+      } else if (data.controlledLiveTestBooking) {
+        setLiveTestBookingResult(data.controlledLiveTestBooking);
+      }
+    } catch (err: any) {
+      setLiveTestBookingError(err.message || 'An unexpected error occurred creating controlled live test.');
+    } finally {
+      setIsCreatingLiveTest(false);
+    }
+  };
+
+  const handleCheckControlledLiveStatus = async () => {
+    setIsCheckingLiveStatus(true);
+    setLiveTestStatusError(null);
+
+    try {
+      if (!supabase) throw new Error('Supabase client is not available.');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'check_controlled_live_test_status',
+          bookingReference: liveTestBookingResult?.bookingReference,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setLiveTestStatusError(data.error || `HTTP ${response.status}: Failed to check live test status.`);
+      } else if (data.controlledLiveTestStatus) {
+        setLiveTestStatusResult(data.controlledLiveTestStatus);
+      }
+    } catch (err: any) {
+      setLiveTestStatusError(err.message || 'An unexpected error occurred checking live test status.');
+    } finally {
+      setIsCheckingLiveStatus(false);
+    }
+  };
+
+  const handleCancelControlledLiveTest = async () => {
+    if (!liveTestBookingResult?.bookingReference) return;
+    setIsCancelingLiveTest(true);
+
+    try {
+      if (!supabase) throw new Error('Supabase client is not available.');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'cancel_controlled_live_test',
+          bookingReference: liveTestBookingResult.bookingReference,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setLiveTestBookingResult(null);
+        setLiveTestStatusResult(null);
+      } else {
+        setLiveTestBookingError(data.error || 'Failed to cancel live test.');
+      }
+    } catch (err: any) {
+      setLiveTestBookingError(err.message || 'Failed to cancel live test.');
+    } finally {
+      setIsCancelingLiveTest(false);
+    }
+  };
+
+  const handleCopyLiveLink = () => {
+    if (liveTestBookingResult?.paymentUrl) {
+      navigator.clipboard.writeText(liveTestBookingResult.paymentUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 3000);
     }
   };
 
@@ -1029,6 +1187,245 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             <p className="text-[11px] text-[#475569] italic">
               {existingTxDiagnosticResult.message} Zero database mutations were performed.
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================
+          CONTROLLED LIVE PAYMENT ACCEPTANCE TEST ($69.00 USD CARTÍ PORT)
+         ======================================================== */}
+      <div className="bg-white border-2 border-amber-600/60 rounded-2xl p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#F1F5F9] pb-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-amber-700" />
+              <h3 className="text-sm sm:text-base font-bold text-[#06121e]">
+                Controlled LIVE Payment Acceptance Test (Cartí Port $69.00 USD)
+              </h3>
+              <span className="px-2.5 py-0.5 text-[10px] font-mono uppercase rounded bg-red-100 text-red-900 border border-red-300 font-bold">
+                Real Production Money ($69.00)
+              </span>
+              <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold">
+                Single Admin Test
+              </span>
+            </div>
+            <p className="text-xs text-[#64748b]">
+              Authorized single production transaction for Petra to test a real credit card payment on PagueloFacil. Public website checkout remains strictly sandbox.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleCheckControlledLiveStatus}
+              disabled={isCheckingLiveStatus}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer shrink-0"
+            >
+              {isCheckingLiveStatus ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Checking Status...</span>
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4 text-[#D6BA80]" />
+                  <span>Check LIVE Test Status</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Real-Money Warning & Confirmation */}
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 space-y-3 text-xs text-amber-950">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="space-y-1 flex-1">
+              <p className="font-bold text-amber-900">
+                Live Production Gateway Notice (Real Funds Transfer)
+              </p>
+              <p className="text-[11px] leading-relaxed text-amber-900">
+                This feature communicates directly with PagueloFacil's production checkout gateway (<code className="font-mono text-[10px] bg-amber-100 px-1 py-0.5 rounded">secure.paguelofacil.com</code>) using Petra's live CCLW. Completing payment on the generated link will charge exactly <strong>$69.00 USD</strong> to the card entered. Only <strong>one active live test</strong> is permitted at any time.
+              </p>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-3 p-3 bg-white/90 border border-amber-200 rounded-xl cursor-pointer hover:bg-white transition-colors">
+            <input
+              type="checkbox"
+              checked={liveTestConfirmed}
+              onChange={(e) => setLiveTestConfirmed(e.target.checked)}
+              className="w-4 h-4 text-[#0e3b2f] rounded border-amber-400 focus:ring-amber-500"
+            />
+            <span className="text-xs font-semibold text-amber-950 select-none">
+              I confirm that I am authorized to generate ONE genuine production checkout link for Petra to test with real card funds.
+            </span>
+          </label>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => handleCreateControlledLiveTest(false)}
+            disabled={isCreatingLiveTest || !liveTestConfirmed}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {isCreatingLiveTest ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>Contacting Production Gateway...</span>
+              </>
+            ) : (
+              <>
+                <CreditCard className="w-4 h-4 text-white" />
+                <span>Create Controlled LIVE Test Checkout ($69.00 USD)</span>
+              </>
+            )}
+          </button>
+
+          {liveTestBookingResult?.activeBookingReference && (
+            <button
+              onClick={() => handleCreateControlledLiveTest(true)}
+              disabled={isCreatingLiveTest}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-800 hover:bg-amber-900 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Cancel Previous &amp; Re-generate Link</span>
+            </button>
+          )}
+
+          {liveTestBookingResult?.bookingReference && (
+            <button
+              onClick={handleCancelControlledLiveTest}
+              disabled={isCancelingLiveTest}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-medium rounded-xl border border-gray-300 transition-colors cursor-pointer"
+            >
+              {isCancelingLiveTest ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600" />
+                  <span>Canceling...</span>
+                </>
+              ) : (
+                <span>Cancel / Expire Active Live Test</span>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Live Test Error Display */}
+        {liveTestBookingError && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono space-y-1">
+            <div className="font-bold flex items-center gap-1.5">
+              <XCircle className="w-4 h-4 text-red-600" />
+              <span>Live Test Request Error:</span>
+            </div>
+            <div>{liveTestBookingError}</div>
+          </div>
+        )}
+
+        {/* Generated Live Checkout Link Display Card */}
+        {liveTestBookingResult && liveTestBookingResult.paymentUrl && (
+          <div className="p-5 rounded-xl bg-emerald-50 border-2 border-emerald-400 text-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
+              <div className="flex items-center gap-2 font-bold text-sm text-emerald-950">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <span>Genuine Production Checkout Link Generated!</span>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-emerald-200 text-emerald-900 font-bold">
+                $69.00 USD — Live Card Ready
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px] text-emerald-950">
+              <div><strong>Booking Reference:</strong> {liveTestBookingResult.bookingReference}</div>
+              <div><strong>Package:</strong> San Blas Day Tour — Cartí Port Direct Arrival</div>
+              <div><strong>Expected Amount:</strong> $69.00 USD</div>
+              <div><strong>Link Code:</strong> {liveTestBookingResult.gatewayLinkCode || 'N/A'}</div>
+              <div><strong>Environment:</strong> PRODUCTION (Real Funds)</div>
+              <div><strong>Expires:</strong> {liveTestBookingResult.expiresAt}</div>
+            </div>
+
+            {/* Secure Link Sharing Box */}
+            <div className="p-3.5 rounded-xl bg-white border border-emerald-300 space-y-2">
+              <label className="block text-[11px] font-bold text-[#06121e]">
+                Secure Production Checkout Link for Petra (Share Privately):
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={liveTestBookingResult.paymentUrl}
+                  className="flex-1 px-3 py-2 text-xs font-mono bg-gray-50 border border-gray-300 rounded-lg select-all text-gray-900"
+                />
+                <button
+                  onClick={handleCopyLiveLink}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#0e3b2f] hover:bg-[#155243] text-white text-xs font-semibold rounded-lg shadow-sm transition-colors cursor-pointer shrink-0"
+                >
+                  {copiedLink ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-[#D6BA80]" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-[#D6BA80]" />
+                      <span>Copy Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 text-[11px] text-[#64748b]">
+                <p>
+                  Share this link directly with Petra. Instruct her to complete the $69.00 USD payment using her real Visa or Mastercard.
+                </p>
+                <a
+                  href={liveTestBookingResult.paymentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[#0e3b2f] hover:underline font-semibold"
+                >
+                  <span>Open PagueloFacil Production Portal</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Live Status Result Card */}
+        {liveTestStatusResult && (
+          <div className={`p-4 rounded-xl border font-mono text-xs space-y-2 ${
+            liveTestStatusResult.paymentStatus === 'approved'
+              ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+              : 'bg-amber-50 border-amber-300 text-amber-950'
+          }`}>
+            <div className="flex items-center gap-2 font-bold text-sm">
+              {liveTestStatusResult.paymentStatus === 'approved' ? (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span className="text-emerald-900">Live Payment Confirmed &amp; Approved!</span>
+                </>
+              ) : (
+                <>
+                  <Clock className="w-5 h-5 text-amber-600" />
+                  <span className="text-amber-900">Payment Status: Pending Card Authorization</span>
+                </>
+              )}
+            </div>
+            <div><strong>Booking Reference:</strong> {liveTestStatusResult.bookingReference}</div>
+            <div><strong>Payment Status:</strong> <span className="uppercase font-bold">{liveTestStatusResult.paymentStatus}</span></div>
+            <div><strong>Booking Status:</strong> <span className="uppercase font-bold">{liveTestStatusResult.bookingStatus}</span></div>
+            <div><strong>Amount:</strong> ${liveTestStatusResult.amountPaid ? liveTestStatusResult.amountPaid.toFixed(2) : liveTestStatusResult.expectedAmount.toFixed(2)} {liveTestStatusResult.currency}</div>
+            <div><strong>Gateway Operation ID:</strong> {liveTestStatusResult.gatewayOperationId || 'N/A (pending completion)'}</div>
+            {liveTestStatusResult.verifiedAt && (
+              <div><strong>Verified At:</strong> {liveTestStatusResult.verifiedAt}</div>
+            )}
+            <div className="text-[11px] pt-1 text-gray-700"><strong>Gateway Note:</strong> {liveTestStatusResult.message}</div>
+          </div>
+        )}
+
+        {liveTestStatusError && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
+            <strong>Live Test Status Error:</strong> {liveTestStatusError}
           </div>
         )}
       </div>

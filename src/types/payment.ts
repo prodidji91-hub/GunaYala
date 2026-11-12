@@ -245,6 +245,40 @@ export interface AdminSandboxTestResponse {
   existingTransactionDiagnostic?: ExistingTransactionDiagnosticResult;
   liveApiTest?: LiveApiConnectionTestResult;
   liveCheckoutTest?: LiveCheckoutConnectionTestResult;
+  controlledLiveTestBooking?: ControlledLiveTestBookingResponse;
+  controlledLiveTestStatus?: ControlledLiveTestStatusResponse;
+}
+
+export interface ControlledLiveTestBookingResponse {
+  success: boolean;
+  bookingReference?: string;
+  paymentUrl?: string;
+  gatewayLinkCode?: string;
+  amount: number;
+  currency: 'USD';
+  status: 'pending_payment';
+  environment: 'production';
+  expiresAt?: string;
+  message: string;
+  error?: string;
+  activeBookingReference?: string;
+  activeExpiresAt?: string;
+}
+
+export interface ControlledLiveTestStatusResponse {
+  success: boolean;
+  bookingReference: string;
+  environment: 'production';
+  paymentStatus: PaymentLifecycleStatus;
+  bookingStatus: string;
+  amountPaid?: number;
+  expectedAmount: number;
+  currency: 'USD';
+  gatewayOperationId?: string;
+  verifiedAt?: string;
+  message: string;
+  error?: string;
+  reconciled?: boolean;
 }
 
 export interface LiveApiConnectionTestResult {

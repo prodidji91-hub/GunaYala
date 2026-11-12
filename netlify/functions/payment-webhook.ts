@@ -29,7 +29,9 @@ export function logWebhookDiagnostic(step: number, stepName: string, data: Recor
  */
 export function extractVerifiedBookingReferenceFromUrl(
   rawUrl: string,
-  expectedReturnUrlBase: string = process.env.PAGUELOFACIL_RETURN_URL || 'https://gunayalapanama.com/checkout/complete'
+  expectedReturnUrlBase: string = process.env.PAGUELOFACIL_RETURN_URL || 'https://gunayalapanama.com/checkout/complete',
+  environment: 'sandbox' | 'production' = 'sandbox',
+  storedIdempotencyKey?: string
 ): { valid: boolean; bookingReference?: string; error?: string } {
   if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
     return { valid: false, error: 'Missing or empty urlString in gateway record.' };
@@ -41,38 +43,64 @@ export function extractVerifiedBookingReferenceFromUrl(
 
     // 1. Require exact trusted HTTPS protocol
     if (parsed.protocol !== 'https:') {
-      return { valid: false, error: 'Insecure protocol in urlString. HTTPS required.' };
+      const isSandboxLocal = environment === 'sandbox' && parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+      if (!isSandboxLocal) {
+        return { valid: false, error: 'Insecure protocol in urlString. HTTPS required.' };
+      }
     }
     if (parsed.port && parsed.port !== '443') {
-      return { valid: false, error: 'Custom port detected in urlString.' };
+      const isSandboxPort = environment === 'sandbox' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+      if (!isSandboxPort) {
+        return { valid: false, error: 'Custom port detected in urlString.' };
+      }
     }
     if (parsed.username || parsed.password) {
       return { valid: false, error: 'Embedded credentials detected in urlString.' };
     }
 
-    // 2. Require exact trusted origin
-    const host = parsed.hostname.toLowerCase();
-    const expectedHost = expectedBase.hostname.toLowerCase();
-    const isAllowedHost = host === expectedHost || host === 'gunayalapanama.com' || host.endsWith('.gunayalapanama.com') || host === 'localhost' || host === '127.0.0.1';
-    if (!isAllowedHost) {
-      return { valid: false, error: `Untrusted host "${parsed.hostname}" in urlString.` };
-    }
-
-    // 3. Require expected pathname used by checkout
-    const path = parsed.pathname.toLowerCase();
+    // 2. Production vs Sandbox Origin & Path Validation
+    const currentOrigin = parsed.origin.toLowerCase();
+    const currentPath = parsed.pathname.toLowerCase();
+    const expectedOrigin = expectedBase.origin.toLowerCase();
     const expectedPath = expectedBase.pathname.toLowerCase();
-    const isAllowedPath = path === expectedPath || path.startsWith('/checkout/complete');
-    if (!isAllowedPath) {
-      return { valid: false, error: `Untrusted pathname "${parsed.pathname}" in urlString. Expected "${expectedBase.pathname}".` };
+
+    if (environment === 'production') {
+      // STRICT PRODUCTION RULES:
+      if (currentOrigin !== expectedOrigin) {
+        return { valid: false, error: `Untrusted host "${parsed.hostname}" in urlString for production. Expected "${expectedBase.hostname}".` };
+      }
+      if (currentPath !== expectedPath) {
+        return { valid: false, error: `Untrusted pathname "${parsed.pathname}" in urlString for production. Expected "${expectedBase.pathname}".` };
+      }
+    } else {
+      // SANDBOX / DEV ALLOWANCES:
+      const host = parsed.hostname.toLowerCase();
+      const expectedHost = expectedBase.hostname.toLowerCase();
+      const isAllowedHost = host === expectedHost || host === 'gunayalapanama.com' || host.endsWith('.gunayalapanama.com') || host === 'localhost' || host === '127.0.0.1';
+      if (!isAllowedHost) {
+        return { valid: false, error: `Untrusted host "${parsed.hostname}" in urlString.` };
+      }
+
+      const isAllowedPath = currentPath === expectedPath || currentPath === '/checkout/complete' || currentPath.startsWith('/checkout/');
+      if (!isAllowedPath) {
+        return { valid: false, error: `Untrusted pathname "${parsed.pathname}" in urlString. Expected "${expectedBase.pathname}".` };
+      }
     }
 
-    // 4. Reject fragments with identifiers
+    // 3. Reject fragments with identifiers
     if (parsed.hash && (parsed.hash.includes('booking') || parsed.hash.includes('ref') || parsed.hash.includes('parm'))) {
       return { valid: false, error: 'Fragment with identifier detected in urlString.' };
     }
 
-    // 5. Require exactly one bookingReference query parameter
+    // 4. Query Parameters & Idempotency Validation
     const searchParams = parsed.searchParams;
+
+    // Idempotency check: PARM_2 / idem / idempotencyKey
+    const idemParam = searchParams.get('idem') || searchParams.get('idempotencyKey') || searchParams.get('PARM_2');
+    if (idemParam && storedIdempotencyKey && idemParam.trim() !== storedIdempotencyKey.trim()) {
+      return { valid: false, error: 'Conflicting idempotency identifier detected in urlString.' };
+    }
+
     const bookingRefVals = searchParams.getAll('bookingReference');
     if (bookingRefVals.length > 1) {
       return { valid: false, error: 'Duplicate bookingReference query parameters detected in urlString.' };
@@ -93,7 +121,7 @@ export function extractVerifiedBookingReferenceFromUrl(
       return { valid: false, error: 'No bookingReference query parameter found in urlString.' };
     }
 
-    // 6. Reject conflicting reference parameters
+    // 5. Reject conflicting reference parameters
     const otherParams = ['PARM_1', 'booking_reference', 'ref', 'parm1'];
     for (const p of otherParams) {
       const vals = searchParams.getAll(p);
@@ -182,7 +210,14 @@ export const handler = async (
   logWebhookDiagnostic(2, 'Payload Parsed', { format: parsedFormat });
 
   // 3. Webhook Signature & Status Parsing via Gateway Adapter
-  const gateway = new PagueloFacilGatewayAdapter();
+  const gateway = new PagueloFacilGatewayAdapter({
+    cclw: env.PAGUELOFACIL_CCLW,
+    accessToken: env.PAGUELOFACIL_ACCESS_TOKEN,
+    sandboxCclw: env.PAGUELOFACIL_SANDBOX_CCLW || env.PAGUELOFACIL_DEMO_CCLW,
+    sandboxAccessToken: env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN || env.PAGUELOFACIL_DEMO_ACCESS_TOKEN,
+    returnUrlBase: env.PAGUELOFACIL_RETURN_URL,
+    webhookUrl: env.PAGUELOFACIL_WEBHOOK_URL,
+  });
   const parsed = gateway.parseWebhook(payload, event.headers);
 
   // Requirement 1: Treat callback PARM_1, Oper, status, and amount as UNTRUSTED
@@ -241,18 +276,83 @@ export const handler = async (
     };
   }
 
-  // Requirement 2: SERVER-SIDE authenticated MerchantTransactions API request using sandbox credentials
-  // Never trust incoming environment value to select live credentials
-  const sandboxToken = (env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN || env.PAGUELOFACIL_DEMO_ACCESS_TOKEN || '').trim();
-  if (!sandboxToken) {
+  // Determine target environment securely from CCLW, stored database records, or reference prefix
+  // Never trust incoming query params alone; select live credentials only for verified production transactions
+  const liveCclw = (env.PAGUELOFACIL_CCLW || '').trim();
+  const sandboxCclw = (env.PAGUELOFACIL_SANDBOX_CCLW || '').trim();
+  const incomingCclw = String(payload?.CCLW || payload?.cclw || '').trim();
+
+  let targetEnvironment: 'sandbox' | 'production' = 'sandbox';
+
+  if (liveCclw && incomingCclw && incomingCclw === liveCclw) {
+    targetEnvironment = 'production';
+  } else if (sandboxCclw && incomingCclw && incomingCclw === sandboxCclw) {
+    targetEnvironment = 'sandbox';
+  } else {
+    // If CCLW missing or ambiguous in callback body, inspect database for corresponding transaction
+    let dbEnv: string | null = null;
+    if (oper) {
+      const { data: opRow } = await supabase
+        .from('payment_transactions')
+        .select('environment')
+        .eq('gateway_operation_id', oper)
+        .maybeSingle();
+      if (opRow?.environment) {
+        dbEnv = opRow.environment;
+      }
+    }
+    if (!dbEnv && callbackParm1) {
+      const { data: refRow } = await supabase
+        .from('payment_transactions')
+        .select('environment')
+        .eq('booking_reference', callbackParm1)
+        .maybeSingle();
+      if (refRow?.environment) {
+        dbEnv = refRow.environment;
+      } else if (callbackParm1.length === 15) {
+        // Handle truncated 15-character callback PARM_1 prefix
+        const selectQuery: any = supabase
+          .from('payment_transactions')
+          .select('environment');
+        if (typeof selectQuery?.ilike === 'function') {
+          const { data: prefixRows } = await selectQuery
+            .ilike('booking_reference', `${callbackParm1}%`)
+            .limit(2);
+          if (prefixRows && prefixRows.length === 1) {
+            dbEnv = prefixRows[0].environment;
+          }
+        }
+      }
+    }
+
+    if (dbEnv === 'production') {
+      targetEnvironment = 'production';
+    } else {
+      targetEnvironment = 'sandbox';
+    }
+  }
+
+  const isProduction = targetEnvironment === 'production';
+  const activeToken = isProduction
+    ? (env.PAGUELOFACIL_ACCESS_TOKEN || '').trim()
+    : (env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN || env.PAGUELOFACIL_DEMO_ACCESS_TOKEN || '').trim();
+
+  const expectedCclw = isProduction ? liveCclw : sandboxCclw;
+
+  if (!activeToken) {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ success: false, error: 'Authoritative transaction verification requires configured PagueloFacil sandbox access token.' }),
+      body: JSON.stringify({
+        success: false,
+        error: `Authoritative transaction verification requires configured PagueloFacil ${isProduction ? 'production' : 'sandbox'} access token.`,
+      }),
     };
   }
 
-  const verifyUrl = 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
+  const verifyUrl = isProduction
+    ? 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions'
+    : 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
   const filterParam = `codOper::${oper}`;
 
   let gatewayResponse: Response;
@@ -260,7 +360,7 @@ export const handler = async (
     gatewayResponse = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
       method: 'GET',
       headers: {
-        Authorization: sandboxToken,
+        Authorization: activeToken,
         Accept: 'application/json',
       },
     });
@@ -397,16 +497,65 @@ export const handler = async (
     };
   }
 
-  const merchantId = String(matchedGw.idMerchant || matchedGw.id_merchant || matchedGw.merchant || matchedGw.cclw || '').trim();
-  if (!merchantId) {
+  const gwCclw = String(matchedGw.cclw || matchedGw.CCLW || '').trim();
+  const gwMerchantId = String(matchedGw.idMerchant ?? matchedGw.id_merchant ?? matchedGw.merchant ?? '').trim();
+  const configuredMerchantId = String(
+    (isProduction ? env.PAGUELOFACIL_MERCHANT_ID : (env.PAGUELOFACIL_SANDBOX_MERCHANT_ID || env.PAGUELOFACIL_MERCHANT_ID)) || ''
+  ).trim();
+
+  let merchantVerified = false;
+
+  // 1. If gateway record provides CCLW, verify against expected CCLW
+  if (gwCclw && expectedCclw) {
+    if (gwCclw === expectedCclw) {
+      merchantVerified = true;
+    } else {
+      return {
+        statusCode: 422,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: false,
+          verified: false,
+          category: 'needs_manual_review',
+          error: 'Merchant account identity mismatch.',
+        }),
+      };
+    }
+  }
+
+  // 2. If configured merchant ID is set and record provides idMerchant, verify it
+  if (!merchantVerified && gwMerchantId && configuredMerchantId) {
+    if (gwMerchantId === configuredMerchantId) {
+      merchantVerified = true;
+    } else {
+      return {
+        statusCode: 422,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: false,
+          verified: false,
+          category: 'needs_manual_review',
+          error: 'Merchant account identity mismatch.',
+        }),
+      };
+    }
+  }
+
+  // 3. Fallback: if gwMerchantId matches expectedCclw (e.g. sandbox mock where idMerchant carries the key)
+  if (!merchantVerified && gwMerchantId && expectedCclw && gwMerchantId === expectedCclw) {
+    merchantVerified = true;
+  }
+
+  // If merchant identity is configured but could not be established
+  if (!merchantVerified && (expectedCclw || configuredMerchantId)) {
     return {
       statusCode: 422,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         success: false,
         verified: false,
-        category: 'validation_rejection',
-        error: 'Missing merchant identifier in gateway record.',
+        category: 'needs_manual_review',
+        error: 'Merchant account identity unverified or mismatched.',
       }),
     };
   }
@@ -414,7 +563,7 @@ export const handler = async (
   // Requirement 4: Parse urlString as merchant return URL and require exactly one bookingReference
   const urlStringVal = matchedGw.urlString || matchedGw.url || matchedGw.returnUrl;
   const expectedReturnBase = env.PAGUELOFACIL_RETURN_URL || 'https://gunayalapanama.com/checkout/complete';
-  const urlExtraction = extractVerifiedBookingReferenceFromUrl(urlStringVal, expectedReturnBase);
+  const urlExtraction = extractVerifiedBookingReferenceFromUrl(urlStringVal, expectedReturnBase, targetEnvironment);
 
   if (!urlExtraction.valid || !urlExtraction.bookingReference) {
     logWebhookDiagnostic(10, 'Webhook Response', { statusCode: 422, success: false, error: urlExtraction.error });
@@ -479,8 +628,8 @@ export const handler = async (
 
   const targetTx = dbRows[0];
 
-  // Verify unique sandbox-environment row
-  if (targetTx.environment !== 'sandbox') {
+  // Verify unique environment match (strict separation between sandbox and production)
+  if (targetTx.environment !== targetEnvironment) {
     return {
       statusCode: 422,
       headers: { 'Content-Type': 'application/json' },
@@ -488,7 +637,7 @@ export const handler = async (
         success: false,
         verified: false,
         category: 'validation_rejection',
-        error: 'Cross-environment mismatch: Found transaction is not in sandbox environment.',
+        error: `Cross-environment mismatch: Found transaction is in "${targetTx.environment}" but verification expected "${targetEnvironment}".`,
       }),
     };
   }
@@ -542,7 +691,7 @@ export const handler = async (
     operationCode: oper,
     linkCode: parsed.gatewayLinkCode,
     idempotencyKey: parsed.idempotencyKey,
-    environment: 'sandbox',
+    environment: targetEnvironment,
     supabaseClient: supabase,
     env,
     fetchFn,

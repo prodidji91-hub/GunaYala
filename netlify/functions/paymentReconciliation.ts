@@ -46,31 +46,74 @@ export interface RelationshipValidationResult {
 export function validateMerchantReturnUrl(
   rawUrl: string,
   storedRef: string,
-  storedIdem?: string
+  storedIdem?: string,
+  configuredReturnUrl?: string,
+  environment: 'sandbox' | 'production' = 'sandbox'
 ): { valid: boolean; recognizedParams: string[]; matchingParams: string[]; hasConflicts: boolean; rejectionReason?: string } {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== 'https:') {
-      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'insecure_protocol' };
+      const isSandboxLocal = environment === 'sandbox' && parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+      if (!isSandboxLocal) {
+        return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'insecure_protocol' };
+      }
     }
-    if (parsed.port && parsed.port !== '443') {
-      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'custom_port' };
+    if (parsed.port && parsed.port !== '443' && parsed.port !== '80') {
+      const isSandboxPort = environment === 'sandbox' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+      if (!isSandboxPort) {
+        return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'custom_port' };
+      }
     }
     if (parsed.username || parsed.password) {
       return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'embedded_credentials' };
     }
 
-    const hostname = parsed.hostname.toLowerCase();
-    const allowedDomains = ['gunayalapanama.com', 'localhost', '127.0.0.1'];
-    const isAllowedHost = allowedDomains.includes(hostname) || hostname.endsWith('.gunayalapanama.com');
-    if (!isAllowedHost) {
-      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_origin' };
+    const expectedUrlBase = configuredReturnUrl || process.env.PAGUELOFACIL_RETURN_URL || 'https://gunayalapanama.com/checkout/complete';
+    let expectedOrigin = 'https://gunayalapanama.com';
+    let expectedPath = '/checkout/complete';
+    try {
+      const parsedExpected = new URL(expectedUrlBase);
+      expectedOrigin = parsedExpected.origin.toLowerCase();
+      expectedPath = parsedExpected.pathname.toLowerCase();
+    } catch {
+      // Keep defaults
     }
 
-    const path = parsed.pathname.toLowerCase();
-    const isAllowedPath = path.includes('/checkout') || path.includes('/complete') || path.includes('/return') || path === '/';
-    if (!isAllowedPath) {
-      return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_path' };
+    const currentOrigin = parsed.origin.toLowerCase();
+    const currentPath = parsed.pathname.toLowerCase();
+
+    if (environment === 'production') {
+      // STRICT PRODUCTION RULES:
+      // Exact HTTPS origin matching expected return URL (e.g. https://gunayalapanama.com).
+      // Reject localhost, 127.0.0.1, http, and subdomains (e.g. sub.gunayalapanama.com)
+      if (currentOrigin !== expectedOrigin) {
+        return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_origin' };
+      }
+
+      // Exact pathname matching expected return URL (e.g. /checkout/complete).
+      // Reject extended paths (/checkout/complete/extra, /checkout/other)
+      if (currentPath !== expectedPath) {
+        return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_path' };
+      }
+    } else {
+      // SANDBOX / DEV ALLOWANCES:
+      const allowedOrigins = [
+        expectedOrigin,
+        'https://gunayalapanama.com',
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'http://localhost',
+        'http://127.0.0.1',
+      ];
+      const isAllowedHost = allowedOrigins.includes(currentOrigin) || currentOrigin.endsWith('.gunayalapanama.com');
+      if (!isAllowedHost) {
+        return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_origin' };
+      }
+
+      const isAllowedPath = currentPath === expectedPath || currentPath === '/checkout/complete' || currentPath.startsWith('/checkout/');
+      if (!isAllowedPath) {
+        return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: false, rejectionReason: 'untrusted_path' };
+      }
     }
 
     const searchParams = parsed.searchParams;
@@ -79,7 +122,7 @@ export function validateMerchantReturnUrl(
     const matchingParams: string[] = [];
     let hasConflicts = false;
 
-    const idemParam = searchParams.get('idem') || searchParams.get('idempotencyKey');
+    const idemParam = searchParams.get('idem') || searchParams.get('idempotencyKey') || searchParams.get('PARM_2');
     if (idemParam && storedIdem && idemParam.trim() !== storedIdem.trim()) {
       return { valid: false, recognizedParams: [], matchingParams: [], hasConflicts: true, rejectionReason: 'idem_mismatch' };
     }
@@ -314,7 +357,8 @@ export function validatePaymentRelationship(matched: any, existingTx: any): Rela
       }
     } else {
       const storedIdem = existingTx.idempotency_key || existingTx.idempotencyKey;
-      const returnUrlVal = validateMerchantReturnUrl(urlStringVal, storedRef, storedIdem);
+      const configuredReturnUrl = process.env.PAGUELOFACIL_RETURN_URL;
+      const returnUrlVal = validateMerchantReturnUrl(urlStringVal, storedRef, storedIdem, configuredReturnUrl, env);
 
       if (!returnUrlVal.valid) {
         return {
@@ -584,7 +628,21 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       .maybeSingle();
 
     const existingNotes = currentBooking?.special_notes || '';
-    const updatedNotes = existingNotes.includes('[TEST') ? existingNotes : `[TEST / RECONCILED] ${existingNotes}`.trim();
+    const wasCancelled = ['cancelled', 'expired', 'cancelled_pending_expiry', 'needs_manual_review'].includes(existingTx?.status);
+    let updatedNotes = existingNotes;
+    if (isSandbox) {
+      updatedNotes = existingNotes.includes('[TEST') ? existingNotes : `[TEST / RECONCILED] ${existingNotes}`.trim();
+    } else {
+      if (wasCancelled) {
+        updatedNotes = existingNotes.includes('[PROD LIVE TEST / LATE PAYMENT RECONCILED]')
+          ? existingNotes
+          : `[PROD LIVE TEST / LATE PAYMENT RECONCILED] ${existingNotes.replace('[PROD LIVE TEST]', '').trim()}`.trim();
+      } else {
+        updatedNotes = (existingNotes.includes('[PROD LIVE TEST') || existingNotes.includes('[LIVE'))
+          ? existingNotes
+          : `[PROD LIVE TEST / RECONCILED] ${existingNotes}`.trim();
+      }
+    }
 
     const { data: bookingUpdatedRows, error: bookingUpdateErr } = await supabaseClient
       .from('booking_requests')
@@ -837,67 +895,164 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     ? 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions'
     : 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
 
-  const opToQuery = operationCode || existingTx.gateway_operation_id;
-  if (!opToQuery) {
-    return {
-      success: false,
-      category: 'mismatched_identifiers',
-      bookingReference: existingTx.booking_reference,
-      message: 'Cannot query MerchantTransactions API without an authoritative operation code (Oper/codOper).',
-      error: 'Missing operation code.',
-    };
-  }
-
-  const filterParam = `codOper::${opToQuery}`;
+  let opToQuery = (operationCode || existingTx.gateway_operation_id || '').trim();
+  let matched: any = null;
 
   try {
-    const response = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
-      method: 'GET',
-      headers: {
-        Authorization: activeToken, // Direct access token without Bearer prefix
-        Accept: 'application/json',
-      },
-    });
+    if (opToQuery) {
+    const filterParam = `codOper::${opToQuery}`;
+    try {
+      const response = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: activeToken, // Direct access token without Bearer prefix
+          Accept: 'application/json',
+        },
+      });
 
-    if (!response.ok) {
+      if (!response.ok) {
+        return {
+          success: false,
+          category: 'parsing_problem',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Verification API returned HTTP ${response.status}.`,
+          error: `HTTP ${response.status}`,
+        };
+      }
+
+      const data = await response.json();
+      const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
+      const matchingRecords = records.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(opToQuery).trim());
+
+      if (matchingRecords.length === 0) {
+        return {
+          success: false,
+          category: 'absent_records',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `No authoritative record found in gateway for operation ${opToQuery}.`,
+          error: 'Record not found in gateway.',
+        };
+      }
+
+      if (matchingRecords.length > 1) {
+        return {
+          success: false,
+          category: 'ambiguous_records',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: `Ambiguous gateway response: Multiple records found for operation code ${opToQuery}.`,
+          error: 'Ambiguous gateway records.',
+        };
+      }
+
+      matched = matchingRecords[0];
+    } catch (err: any) {
       return {
         success: false,
         category: 'parsing_problem',
         bookingReference: existingTx.booking_reference,
         operationCode: opToQuery,
-        message: `Verification API returned HTTP ${response.status}.`,
-        error: `HTTP ${response.status}`,
+        message: `Network or parsing error querying MerchantTransactions API: ${err.message}`,
+        error: err.message,
       };
     }
+  } else {
+    // Operation recovery path: when existingTx has gateway_operation_id = NULL
+    // Query authenticated PagueloFacil MerchantTransactions endpoint for recent transactions
+    try {
+      const response = await fetchFn(`${verifyUrl}?limit=25&sort=-dateAdded`, {
+        method: 'GET',
+        headers: {
+          Authorization: activeToken,
+          Accept: 'application/json',
+        },
+      });
 
-    const data = await response.json();
-    const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
+      if (!response.ok) {
+        return {
+          success: false,
+          category: 'parsing_problem',
+          bookingReference: existingTx.booking_reference,
+          message: `Operation recovery API returned HTTP ${response.status}.`,
+          error: `HTTP ${response.status}`,
+        };
+      }
 
-    const matchingRecords = records.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(opToQuery).trim());
+      const data = await response.json();
+      const records = Array.isArray(data?.data) ? data.data : (data?.data ? [data.data] : (Array.isArray(data) ? data : []));
 
-    if (matchingRecords.length === 0) {
+      const candidates: any[] = [];
+      let conflictDetected = false;
+
+      for (const rec of records) {
+        const relCheck = validatePaymentRelationship(rec, existingTx);
+        if (relCheck.diagnosticDetails?.hasConflicts) {
+          conflictDetected = true;
+        }
+        if (relCheck.verified) {
+          const rawStatus = rec.status !== undefined ? Number(rec.status) : String(rec.estado || '').trim().toLowerCase();
+          const isApproved = rawStatus === 1 || rawStatus === '1' || rawStatus === 'aprobada' || rawStatus === 'approved';
+          const txType = String(rec.txType || rec.type || rec.operationType || rec.tipo || '').trim().toUpperCase();
+          const isAuthCapture = txType === 'AUTH_CAPTURE' || txType === 'SALE' || txType === 'CAPTURE';
+          if (isApproved && isAuthCapture) {
+            candidates.push(rec);
+          }
+        }
+      }
+
+      if (conflictDetected) {
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
+          message: 'Conflicting booking identifiers detected in gateway transaction records. Manual review required.',
+          error: 'Identifier conflict.',
+        };
+      }
+
+      if (candidates.length === 0) {
+        return {
+          success: false,
+          category: 'absent_records',
+          bookingReference: existingTx.booking_reference,
+          message: `No approved gateway transaction found for booking ${existingTx.booking_reference}. Payment is still pending.`,
+          error: 'Record not found in gateway.',
+        };
+      }
+
+      if (candidates.length > 1) {
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
+          message: `Ambiguous recovery: Multiple (${candidates.length}) gateway records matched booking ${existingTx.booking_reference}. Cannot automatically select operation. Manual review required.`,
+          error: 'Ambiguous recovery.',
+        };
+      }
+
+      matched = candidates[0];
+      opToQuery = String(matched.codOper || matched.oper || matched.id || '').trim();
+      if (!opToQuery) {
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
+          message: 'Gateway record verified but lacks authoritative operation code. Manual review required.',
+          error: 'Missing operation code in matched record.',
+        };
+      }
+    } catch (err: any) {
       return {
         success: false,
-        category: 'absent_records',
+        category: 'parsing_problem',
         bookingReference: existingTx.booking_reference,
-        operationCode: opToQuery,
-        message: `No authoritative record found in gateway for operation ${opToQuery}.`,
-        error: 'Record not found in gateway.',
+        message: `Network or parsing error querying MerchantTransactions API for recovery: ${err.message}`,
+        error: err.message,
       };
     }
-
-    if (matchingRecords.length > 1) {
-      return {
-        success: false,
-        category: 'ambiguous_records',
-        bookingReference: existingTx.booking_reference,
-        operationCode: opToQuery,
-        message: `Ambiguous gateway response: Multiple records found for operation code ${opToQuery}.`,
-        error: 'Ambiguous gateway records.',
-      };
-    }
-
-    const matched = matchingRecords[0];
+  }
 
     // 4. Validate Authoritative Evidence
     const rawStatus = matched.status !== undefined ? Number(matched.status) : String(matched.estado || '').trim().toLowerCase();
@@ -996,6 +1151,64 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       };
     }
 
+    // Merchant account identity validation
+    const expectedCclw = isSandbox
+      ? (env.PAGUELOFACIL_SANDBOX_CCLW || env.PAGUELOFACIL_DEMO_CCLW || '').trim()
+      : (env.PAGUELOFACIL_CCLW || '').trim();
+    const gwCclw = String(matched.cclw || matched.CCLW || '').trim();
+    const gwMerchantId = String(matched.idMerchant ?? matched.id_merchant ?? matched.merchant ?? '').trim();
+    const configuredMerchantId = String(
+      (isSandbox ? (env.PAGUELOFACIL_SANDBOX_MERCHANT_ID || env.PAGUELOFACIL_MERCHANT_ID) : env.PAGUELOFACIL_MERCHANT_ID) || ''
+    ).trim();
+
+    let merchantVerified = false;
+    if (gwCclw && expectedCclw) {
+      if (gwCclw === expectedCclw) {
+        merchantVerified = true;
+      } else {
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: 'Merchant account identity mismatch.',
+          error: 'Merchant CCLW mismatch.',
+        };
+      }
+    }
+
+    if (!merchantVerified && gwMerchantId && configuredMerchantId) {
+      if (gwMerchantId === configuredMerchantId) {
+        merchantVerified = true;
+      } else {
+        return {
+          success: false,
+          category: 'needs_manual_review',
+          bookingReference: existingTx.booking_reference,
+          operationCode: opToQuery,
+          message: 'Merchant account identity mismatch.',
+          error: 'Merchant ID mismatch.',
+        };
+      }
+    }
+
+    if (!merchantVerified && gwMerchantId && expectedCclw && gwMerchantId === expectedCclw) {
+      merchantVerified = true;
+    }
+
+    if (!merchantVerified && (expectedCclw || configuredMerchantId)) {
+      return {
+        success: false,
+        category: 'needs_manual_review',
+        bookingReference: existingTx.booking_reference,
+        operationCode: opToQuery,
+        message: 'Could not establish verified merchant account identity from gateway record.',
+        error: 'Merchant identity unverified.',
+      };
+    }
+
+    const isLateReconciliation = ['cancelled', 'expired', 'cancelled_pending_expiry', 'needs_manual_review'].includes(existingTx.status);
+
     // 5. Persist updates consistently to payment_transactions and booking_requests
     const { data: updatedRows, error: updateErr } = await supabaseClient
       .from('payment_transactions')
@@ -1014,6 +1227,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
           auth_code: matched.authCode || matched.authStatus,
           card_type: matched.cardType || matched.Tipo,
           relationship_evidence: relCheck.evidence,
+          ...(isLateReconciliation ? { late_payment_reconciled: true, previous_status: existingTx.status } : {}),
         },
       })
       .eq('id', existingTx.id)

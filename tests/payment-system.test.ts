@@ -8,14 +8,20 @@ import {
   validatePagueloFacilCheckoutUrl,
   TRUSTED_CHECKOUT_HOSTNAMES,
 } from '../netlify/functions/paymentGateway.js';
-import { reconcilePaymentTransaction, validatePaymentRelationship } from '../netlify/functions/paymentReconciliation.js';
+import { reconcilePaymentTransaction, validatePaymentRelationship, validateMerchantReturnUrl } from '../netlify/functions/paymentReconciliation.js';
 import { handler as checkoutHandler } from '../netlify/functions/payment-checkout.js';
-import { handler as webhookHandler } from '../netlify/functions/payment-webhook.js';
+import { handler as webhookHandler, extractVerifiedBookingReferenceFromUrl } from '../netlify/functions/payment-webhook.js';
 import {
   executeAdminSandboxTest,
   executeExistingTransactionDiagnostic,
   executeTestLiveApiConnection,
   executeTestLiveCheckoutConnection,
+  executeCreateControlledLiveTest,
+  executeCheckControlledLiveTestStatus,
+  executeCancelControlledLiveTest,
+  resetLiveTestMutexForTesting,
+  acquireAtomicLiveTestLock,
+  releaseAtomicLiveTestLock,
   handler as adminSandboxTestHandler,
 } from '../netlify/functions/admin-payment-sandbox-test.js';
 import {
@@ -2619,30 +2625,157 @@ async function runPaymentSecurityTests() {
   function createMockSupabaseState(initialPayments: any[], initialBookings: any[]) {
     let payments = initialPayments.map((p) => ({ ...p }));
     let bookings = initialBookings.map((b) => ({ ...b }));
+    const locks: any[] = [];
     const paymentUpdates: any[] = [];
     const bookingUpdates: any[] = [];
 
     const mockClient = {
       getPayments: () => payments,
       getBookings: () => bookings,
+      getLocks: () => locks,
       getPaymentByRef: (ref: string) => payments.find((p) => p.booking_reference === ref),
       getBookingByRef: (ref: string) => bookings.find((b) => b.booking_reference === ref),
       getPaymentUpdates: () => paymentUpdates,
       getBookingUpdates: () => bookingUpdates,
+      rpc: async (fnName: string, args: any) => {
+        if (fnName === 'acquire_controlled_live_test_lock') {
+          const { p_lock_name, p_owner_token, p_admin_user_id, p_ttl_seconds } = args;
+          const now = new Date();
+          const expiresAt = new Date(now.getTime() + (p_ttl_seconds || 300) * 1000);
+          const existing = locks.find((l) => l.lock_name === p_lock_name);
+
+          if (existing) {
+            if (new Date(existing.expires_at).getTime() > now.getTime()) {
+              return {
+                data: {
+                  acquired: false,
+                  reason: 'locked',
+                  message: 'A controlled live test creation request is currently in progress across function instances. Please wait.',
+                },
+                error: null,
+              };
+            } else {
+              existing.owner_token = p_owner_token;
+              existing.admin_user_id = p_admin_user_id;
+              existing.locked_at = now.toISOString();
+              existing.expires_at = expiresAt.toISOString();
+              return { data: { acquired: true, owner_token: p_owner_token, expires_at: expiresAt.toISOString() }, error: null };
+            }
+          } else {
+            locks.push({
+              lock_name: p_lock_name,
+              owner_token: p_owner_token,
+              admin_user_id: p_admin_user_id,
+              locked_at: now.toISOString(),
+              expires_at: expiresAt.toISOString(),
+            });
+            return { data: { acquired: true, owner_token: p_owner_token, expires_at: expiresAt.toISOString() }, error: null };
+          }
+        }
+        if (fnName === 'release_controlled_live_test_lock') {
+          const { p_lock_name, p_owner_token } = args;
+          const idx = locks.findIndex((l) => l.lock_name === p_lock_name && l.owner_token === p_owner_token);
+          if (idx >= 0) {
+            locks.splice(idx, 1);
+            return { data: { released: true }, error: null };
+          }
+          return { data: { released: false, reason: 'owner_mismatch_or_not_found' }, error: null };
+        }
+        return { data: null, error: { message: `Unknown RPC function: ${fnName}` } };
+      },
       from: (table: string) => {
-        if (table === 'payment_transactions') {
+        if (table === 'admin_live_test_locks') {
           return {
-            select: (_fields?: string) => ({
+            select: (_fields?: string) => {
+              const buildLockResult = (items: any[]) => ({
+                data: items,
+                error: null,
+                eq: (col: string, val: any) => buildLockResult(items.filter((l) => l[col] === val)),
+                limit: (num: number) => buildLockResult(items.slice(0, num)),
+                maybeSingle: async () => ({ data: items.length > 0 ? items[0] : null, error: null }),
+                single: async () => ({ data: items.length > 0 ? items[0] : null, error: null }),
+                then: (resolve: any) => resolve({ data: items, error: null }),
+              });
+              return buildLockResult(locks);
+            },
+            insert: (recordOrRecords: any) => {
+              const records = Array.isArray(recordOrRecords) ? recordOrRecords : [recordOrRecords];
+              for (const rec of records) {
+                const idx = locks.findIndex((l) => l.lock_name === rec.lock_name);
+                if (idx >= 0) {
+                  locks[idx] = { ...locks[idx], ...rec };
+                } else {
+                  locks.push({ ...rec });
+                }
+              }
+              const ret = { data: records, error: null };
+              return {
+                ...ret,
+                select: () => ret,
+                then: (resolve: any) => resolve(ret),
+              };
+            },
+            update: (fields: any) => ({
               eq: (col: string, val: any) => {
-                const matches = payments.filter((p) => p[col] === val);
-                const res = { data: matches, error: null };
                 return {
-                  ...res,
-                  maybeSingle: async () => ({ data: matches.length > 0 ? matches[0] : null, error: null }),
-                  then: (resolve: any) => resolve(res),
+                  eq: (col2: string, val2: any) => {
+                    const updated: any[] = [];
+                    for (const l of locks) {
+                      if (l[col] === val && l[col2] === val2) {
+                        Object.assign(l, fields);
+                        updated.push(l);
+                      }
+                    }
+                    const ret = { data: updated, error: null };
+                    return {
+                      ...ret,
+                      select: () => ret,
+                      then: (resolve: any) => resolve(ret),
+                    };
+                  },
                 };
               },
             }),
+            delete: () => ({
+              eq: (col: string, val: any) => ({
+                eq: (col2: string, val2: any) => {
+                  const deleted: any[] = [];
+                  for (let i = locks.length - 1; i >= 0; i--) {
+                    if (locks[i][col] === val && locks[i][col2] === val2) {
+                      deleted.push(locks[i]);
+                      locks.splice(i, 1);
+                    }
+                  }
+                  const ret = { data: deleted, error: null };
+                  return {
+                    ...ret,
+                    select: () => ret,
+                    then: (resolve: any) => resolve(ret),
+                  };
+                },
+              }),
+            }),
+          };
+        }
+        if (table === 'payment_transactions') {
+          return {
+            select: (_fields?: string) => {
+              const buildResult = (items: any[]) => ({
+                data: items,
+                error: null,
+                eq: (col: string, val: any) => buildResult(items.filter((p) => p[col] === val)),
+                ilike: (col: string, pat: string) => {
+                  const prefix = pat.replace(/[%_]/g, '').toLowerCase();
+                  return buildResult(items.filter((p) => String(p[col] || '').toLowerCase().startsWith(prefix)));
+                },
+                order: (_col: string, _opts?: any) => buildResult(items),
+                limit: (num: number) => buildResult(items.slice(0, num)),
+                maybeSingle: async () => ({ data: items.length > 0 ? items[0] : null, error: null }),
+                single: async () => ({ data: items.length > 0 ? items[0] : null, error: null }),
+                then: (resolve: any) => resolve({ data: items, error: null }),
+              });
+              return buildResult(payments);
+            },
             update: (fields: any) => ({
               eq: (col: string, val: any) => {
                 const updated: any[] = [];
@@ -2663,21 +2796,43 @@ async function runPaymentSecurityTests() {
                 };
               },
             }),
+            upsert: (recordOrRecords: any) => {
+              const records = Array.isArray(recordOrRecords) ? recordOrRecords : [recordOrRecords];
+              for (const rec of records) {
+                const idx = payments.findIndex((p) =>
+                  (rec.id && p.id === rec.id) ||
+                  (rec.booking_reference && p.booking_reference === rec.booking_reference) ||
+                  (rec.idempotency_key && p.idempotency_key === rec.idempotency_key)
+                );
+                if (idx >= 0) {
+                  payments[idx] = { ...payments[idx], ...rec };
+                } else {
+                  payments.push({ ...rec });
+                }
+              }
+              const ret = { data: records, error: null };
+              return {
+                ...ret,
+                select: () => ret,
+                then: (resolve: any) => resolve(ret),
+              };
+            },
           };
         }
         if (table === 'booking_requests') {
           return {
-            select: (_fields?: string) => ({
-              eq: (col: string, val: any) => {
-                const match = bookings.find((b) => b[col] === val);
-                const res = { data: match || null, error: null };
-                return {
-                  ...res,
-                  maybeSingle: async () => res,
-                  then: (resolve: any) => resolve(res),
-                };
-              },
-            }),
+            select: (_fields?: string) => {
+              const buildBookingResult = (items: any[]) => ({
+                data: items,
+                error: null,
+                eq: (col: string, val: any) => buildBookingResult(items.filter((b) => b[col] === val)),
+                limit: (num: number) => buildBookingResult(items.slice(0, num)),
+                maybeSingle: async () => ({ data: items.length > 0 ? items[0] : null, error: null }),
+                single: async () => ({ data: items.length > 0 ? items[0] : null, error: null }),
+                then: (resolve: any) => resolve({ data: items, error: null }),
+              });
+              return buildBookingResult(bookings);
+            },
             update: (fields: any) => ({
               eq: (col: string, val: any) => {
                 const updated: any[] = [];
@@ -2698,6 +2853,27 @@ async function runPaymentSecurityTests() {
                 };
               },
             }),
+            upsert: (recordOrRecords: any) => {
+              const records = Array.isArray(recordOrRecords) ? recordOrRecords : [recordOrRecords];
+              for (const rec of records) {
+                const idx = bookings.findIndex((b) =>
+                  (rec.id && b.id === rec.id) ||
+                  (rec.booking_reference && b.booking_reference === rec.booking_reference) ||
+                  (rec.idempotency_key && b.idempotency_key === rec.idempotency_key)
+                );
+                if (idx >= 0) {
+                  bookings[idx] = { ...bookings[idx], ...rec };
+                } else {
+                  bookings.push({ ...rec });
+                }
+              }
+              const ret = { data: records, error: null };
+              return {
+                ...ret,
+                select: () => ret,
+                then: (resolve: any) => resolve(ret),
+              };
+            },
           };
         }
         if (table === 'quotation_admins') {
@@ -3721,8 +3897,653 @@ async function runPaymentSecurityTests() {
   );
 
   // -------------------------------------------------------------
-  // PRINT TEST MATRIX
+  // TEST 94: CONTROLLED LIVE TEST — ADMIN AUTHORIZATION & EXPLICIT CONFIRMATION
   // -------------------------------------------------------------
+  const liveControlledEnv = {
+    PAGUELOFACIL_CCLW: 'LIVE_PROD_CCLW_VALID_987654321',
+    PAGUELOFACIL_ACCESS_TOKEN: 'LIVE_PROD_TOKEN_VALID_123456789',
+    PAGUELOFACIL_SANDBOX_CCLW: 'SANDBOX_CCLW_TEST',
+    PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'SANDBOX_ACCESS_TOKEN_TEST',
+    PAGUELOFACIL_ENV: 'sandbox',
+    ENABLE_LIVE_PAYMENTS: 'false',
+  };
+
+  const unauthControlled = await executeCreateControlledLiveTest(null, { confirmed: true }, {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveControlledEnv,
+    skipRateLimit: true,
+  });
+
+  const nonAdminControlled = await executeCreateControlledLiveTest('Bearer regular_user_token', { confirmed: true }, {
+    supabaseClient: nonAdminSupabase as any,
+    envOverride: liveControlledEnv,
+    skipRateLimit: true,
+  });
+
+  const unconfirmedControlled = await executeCreateControlledLiveTest('Bearer admin_token', { confirmed: false }, {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveControlledEnv,
+    skipRateLimit: true,
+  });
+
+  assert(
+    'Test 94: Controlled live test creation strictly requires quotation_admins auth (HTTP 401/403) and explicit admin confirmation',
+    Boolean(
+      unauthControlled.statusCode === 401 &&
+        nonAdminControlled.statusCode === 403 &&
+        unconfirmedControlled.statusCode === 400 &&
+        unconfirmedControlled.body.success === false &&
+        unconfirmedControlled.body.error?.includes('Explicit administrator confirmation')
+    ),
+    'unauth=401, nonAdmin=403, unconfirmed=400',
+    `unauth=${unauthControlled.statusCode}, nonAdmin=${nonAdminControlled.statusCode}, unconfirmed=${unconfirmedControlled.statusCode}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 95: PUBLIC CHECKOUT REMAINS BLOCKED IN SAFE PREPARATION MODE
+  // -------------------------------------------------------------
+  const publicLiveAttemptReq = {
+    httpMethod: 'POST',
+    headers: {}, // No admin authorization
+    body: JSON.stringify({
+      bookingType: 'day-trip',
+      dayTourPackageId: 'day-tour-port',
+      customerName: 'Public Visitor',
+      customerEmail: 'visitor@example.com',
+      adults: 1,
+      children: 0,
+      idempotencyKey: 'idem_public_live_attempt_999',
+    }),
+  };
+
+  const publicLiveAttemptRes = await checkoutHandler(publicLiveAttemptReq as any);
+  const publicLiveAttemptBody = JSON.parse(publicLiveAttemptRes.body);
+
+  assert(
+    'Test 95: Public checkout cannot trigger live payments while ENABLE_LIVE_PAYMENTS is disabled (safe preparation mode)',
+    Boolean(
+      publicLiveAttemptRes.statusCode === 200 &&
+        publicLiveAttemptBody.success === false &&
+        publicLiveAttemptBody.mode === 'request_only' &&
+        publicLiveAttemptBody.environment === 'unconfigured' &&
+        publicLiveAttemptBody.message?.includes('safe preparation mode')
+    ),
+    'mode=request_only, environment=unconfigured',
+    `status=${publicLiveAttemptRes.statusCode}, mode=${publicLiveAttemptBody.mode}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 96: SINGLE AUTHORIZED OUTSTANDING LIVE TEST ENFORCEMENT
+  // -------------------------------------------------------------
+  const controlledSupabaseMock = createMockSupabaseState([], []);
+
+  let capturedLinkParams: any = null;
+  const mockLinkDaemonControlledFetch = async (url: any, opts: any) => {
+    capturedLinkParams = new URLSearchParams(String(opts?.body || ''));
+    return {
+      status: 200,
+      ok: true,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'SUCCESS' },
+        data: {
+          url: 'https://secure.paguelofacil.com/checkout?code=LK-PROD-LIVE-TEST-001',
+          code: 'LK-PROD-LIVE-TEST-001',
+        },
+      }),
+    } as any;
+  };
+
+  // First create: should succeed
+  const firstLiveTestRes = await executeCreateControlledLiveTest('Bearer admin_token', {
+    confirmed: true,
+  }, {
+    supabaseClient: controlledSupabaseMock as any,
+    envOverride: liveControlledEnv,
+    fetchFn: mockLinkDaemonControlledFetch as any,
+    skipRateLimit: true,
+  });
+
+  const firstLiveBody = firstLiveTestRes.body?.controlledLiveTestBooking;
+
+  // Second create without forceCancelPrevious: should be blocked to prevent repeated charges
+  const duplicateLiveTestRes = await executeCreateControlledLiveTest('Bearer admin_token', {
+    confirmed: true,
+    forceCancelPrevious: false,
+  }, {
+    supabaseClient: controlledSupabaseMock as any,
+    envOverride: liveControlledEnv,
+    fetchFn: mockLinkDaemonControlledFetch as any,
+    skipRateLimit: true,
+  });
+
+  assert(
+    'Test 96: Single authorized outstanding live test is strictly enforced to prevent repeated charges',
+    Boolean(
+      firstLiveTestRes.statusCode === 200 &&
+        firstLiveTestRes.body.success === true &&
+        duplicateLiveTestRes.statusCode === 200 &&
+        duplicateLiveTestRes.body.success === false &&
+        duplicateLiveTestRes.body.error?.includes('already outstanding') &&
+        duplicateLiveTestRes.body.activeBookingReference === firstLiveBody?.bookingReference
+    ),
+    'first=success, duplicate=blocked with activeBookingReference',
+    `firstSuccess=${firstLiveTestRes.body.success}, duplicateSuccess=${duplicateLiveTestRes.body.success}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 97: GENUINE $69 CARTI PORT PRODUCTION CHECKOUT LINK CREATION
+  // -------------------------------------------------------------
+  assert(
+    'Test 97: Genuine $69 Carti Port production checkout link generated with live CCLW, expected amount, and live test tag (never labeled demo/sandbox money)',
+    Boolean(
+      firstLiveBody?.success === true &&
+        firstLiveBody?.amount === 69.00 &&
+        firstLiveBody?.currency === 'USD' &&
+        firstLiveBody?.environment === 'production' &&
+        firstLiveBody?.bookingReference?.startsWith('LIVE-DAYTOUR-GNY-') &&
+        firstLiveBody?.paymentUrl === 'https://secure.paguelofacil.com/checkout?code=LK-PROD-LIVE-TEST-001' &&
+        capturedLinkParams?.get('CMTN') === '69.00' &&
+        capturedLinkParams?.get('CCLW') === 'LIVE_PROD_CCLW_VALID_987654321' &&
+        capturedLinkParams?.get('RETURN_URL')?.includes('https://gunayalapanama.com/checkout/complete') &&
+        capturedLinkParams?.get('RETURN_URL')?.includes(firstLiveBody?.bookingReference || '')
+    ),
+    'amount=69.00, env=production, valid LinkDeamon parameters',
+    `amount=${firstLiveBody?.amount}, env=${firstLiveBody?.environment}, ref=${firstLiveBody?.bookingReference}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 98: AUTHORITATIVE PRODUCTION WEBHOOK APPROVAL & CONFIRMATION
+  // -------------------------------------------------------------
+  const liveBookingRef = firstLiveBody?.bookingReference || 'LIVE-DAYTOUR-GNY-TEST999';
+
+  const mockProdGwFetch = async (url: any, opts: any) => {
+    const urlStr = String(url);
+    const authHeader = opts?.headers?.Authorization;
+
+    // Verify it called production MerchantTransactions endpoint with production token (never sandbox token)
+    if (!urlStr.includes('https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions')) {
+      throw new Error(`Untrusted endpoint called: ${urlStr}`);
+    }
+    if (authHeader !== 'LIVE_PROD_TOKEN_VALID_123456789') {
+      throw new Error(`Invalid or sandbox token passed to production API: ${authHeader}`);
+    }
+
+    return {
+      status: 200,
+      ok: true,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'SUCCESS' },
+        data: [{
+          codOper: 'LK-PROD-OPER-777888',
+          status: 1, // Approved
+          txType: 'AUTH_CAPTURE',
+          authAmount: 69.00,
+          authCurrency: 840, // USD
+          cclw: 'LIVE_PROD_CCLW_VALID_987654321',
+          urlString: `https://gunayalapanama.com/checkout/complete?bookingReference=${liveBookingRef}`,
+          authCode: 'AUTH999LIVE',
+          cardType: 'VISA',
+        }],
+      }),
+    } as any;
+  };
+
+  const prodWebhookEvent = {
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      CCLW: 'LIVE_PROD_CCLW_VALID_987654321',
+      Estado: 'Aprobada',
+      Oper: 'LK-PROD-OPER-777888',
+      TotalPagado: '69.00',
+      PARM_1: liveBookingRef,
+    }),
+  };
+
+  const prodWebhookRes = await webhookHandler(prodWebhookEvent as any, {}, {
+    supabaseClient: controlledSupabaseMock as any,
+    env: liveControlledEnv,
+    fetchFn: mockProdGwFetch as any,
+  });
+
+  const prodWebhookBody = JSON.parse(prodWebhookRes.body);
+
+  assert(
+    'Test 98: Production webhook validates transaction authoritatively via production MerchantTransactions API and updates booking to fully_confirmed',
+    Boolean(
+      prodWebhookRes.statusCode === 200 &&
+        prodWebhookBody.success === true &&
+        prodWebhookBody.verified === true &&
+        prodWebhookBody.bookingReference === liveBookingRef &&
+        prodWebhookBody.amountPaid === 69.00 &&
+        prodWebhookBody.gatewayOperationId === 'LK-PROD-OPER-777888'
+    ),
+    'HTTP 200, verified=true, bookingReference confirmed, amountPaid=69',
+    `status=${prodWebhookRes.statusCode}, verified=${prodWebhookBody.verified}, ref=${prodWebhookBody.bookingReference}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 99: PRODUCTION WEBHOOK IDEMPOTENCY & DUPLICATE PROTECTION
+  // -------------------------------------------------------------
+  const secondProdWebhookRes = await webhookHandler(prodWebhookEvent as any, {}, {
+    supabaseClient: controlledSupabaseMock as any,
+    env: liveControlledEnv,
+    fetchFn: mockProdGwFetch as any,
+  });
+
+  const secondProdWebhookBody = JSON.parse(secondProdWebhookRes.body);
+
+  assert(
+    'Test 99: Duplicate production webhook callback is safely handled as idempotent repeat with duplicate=true',
+    Boolean(
+      secondProdWebhookRes.statusCode === 200 &&
+        secondProdWebhookBody.success === true &&
+        secondProdWebhookBody.duplicate === true
+    ),
+    'HTTP 200, duplicate=true',
+    `status=${secondProdWebhookRes.statusCode}, duplicate=${secondProdWebhookBody.duplicate}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 100: SANDBOX AND PRODUCTION STRICT CROSS-ENVIRONMENT ISOLATION
+  // -------------------------------------------------------------
+  // A sandbox callback targeting a production booking reference must be rejected with cross-environment mismatch
+  const crossEnvEvent = {
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      CCLW: 'SANDBOX_CCLW_TEST', // Sandbox callback
+      Estado: 'Aprobada',
+      Oper: 'OP-CROSS-ENV-TEST',
+      TotalPagado: '69.00',
+      PARM_1: liveBookingRef, // Target production booking
+    }),
+  };
+
+  const crossEnvFetch = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => ({
+      headerStatus: { code: 200 },
+      data: [{
+        codOper: 'OP-CROSS-ENV-TEST',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 69.00,
+        authCurrency: 840,
+        cclw: 'SANDBOX_CCLW_TEST',
+        urlString: `https://gunayalapanama.com/checkout/complete?bookingReference=${liveBookingRef}`,
+      }],
+    }),
+  } as any);
+
+  const crossEnvRes = await webhookHandler(crossEnvEvent as any, {}, {
+    supabaseClient: controlledSupabaseMock as any,
+    env: liveControlledEnv,
+    fetchFn: crossEnvFetch as any,
+  });
+
+  const crossEnvBody = JSON.parse(crossEnvRes.body);
+
+  assert(
+    'Test 100: Sandbox callback cannot modify or confirm production transaction (strict cross-environment isolation rejected with HTTP 422)',
+    Boolean(
+      crossEnvRes.statusCode === 422 &&
+        crossEnvBody.success === false &&
+        crossEnvBody.category === 'validation_rejection' &&
+        crossEnvBody.error?.includes('Cross-environment mismatch')
+    ),
+    'HTTP 422, category=validation_rejection, Cross-environment mismatch',
+    `status=${crossEnvRes.statusCode}, cat=${crossEnvBody.category}, error=${crossEnvBody.error}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 101: ADMIN LIVE TEST STATUS CHECKER RECONCILES PAYMENT
+  // -------------------------------------------------------------
+  const statusCheckRes = await executeCheckControlledLiveTestStatus('Bearer admin_token', {
+    bookingReference: liveBookingRef,
+  }, {
+    supabaseClient: controlledSupabaseMock as any,
+    envOverride: liveControlledEnv,
+    fetchFn: mockProdGwFetch as any,
+  });
+
+  const statusCheckBody = statusCheckRes.body?.controlledLiveTestStatus;
+
+  assert(
+    'Test 101: Admin status checker authoritatively verifies and reports live test status (approved & fully_confirmed) in case of webhook failure',
+    Boolean(
+      statusCheckRes.statusCode === 200 &&
+        statusCheckRes.body.success === true &&
+        statusCheckBody?.paymentStatus === 'approved' &&
+        statusCheckBody?.bookingStatus === 'fully_confirmed' &&
+        statusCheckBody?.amountPaid === 69.00 &&
+        statusCheckBody?.gatewayOperationId === 'LK-PROD-OPER-777888'
+    ),
+    'statusCode=200, paymentStatus=approved, bookingStatus=fully_confirmed, amount=69.00',
+    `status=${statusCheckRes.statusCode}, payStatus=${statusCheckBody?.paymentStatus}, bookStatus=${statusCheckBody?.bookingStatus}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 102: ATOMIC DEDICATED DATABASE LOCK ENFORCEMENT (HTTP 409)
+  // -------------------------------------------------------------
+  resetLiveTestMutexForTesting();
+  const dbLockStateMock = createMockSupabaseState([], []);
+
+  // Pre-acquire atomic database lock under a different instance owner token
+  const initialLockResult = await acquireAtomicLiveTestLock(
+    dbLockStateMock as any,
+    'other_admin_instance',
+    300
+  );
+
+  const concurrentLockRes = await executeCreateControlledLiveTest('Bearer admin_token', {
+    confirmed: true,
+  }, {
+    supabaseClient: dbLockStateMock as any,
+    envOverride: liveControlledEnv,
+    fetchFn: mockLinkDaemonControlledFetch as any,
+    skipRateLimit: true,
+  });
+
+  assert(
+    'Test 102: Dedicated admin_live_test_locks table blocks concurrent creation requests across serverless instances with HTTP 409 Conflict',
+    Boolean(
+      initialLockResult.acquired === true &&
+        concurrentLockRes.statusCode === 409 &&
+        concurrentLockRes.body.success === false &&
+        concurrentLockRes.body.error?.includes('in progress across function instances')
+    ),
+    'HTTP 409 Conflict, in progress across function instances',
+    `initAcquired=${initialLockResult.acquired}, status=${concurrentLockRes.statusCode}, error=${concurrentLockRes.body.error}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 103: VERIFIED PRODUCTION MERCHANT IDENTITY & SECRET REDACTION
+  // -------------------------------------------------------------
+  const numericMerchantEnv = {
+    ...liveControlledEnv,
+    PAGUELOFACIL_MERCHANT_ID: '703571',
+    PAGUELOFACIL_CCLW: 'LIVE_PROD_CCLW_SECRET_KEY_123',
+  };
+
+  const numericMerchantFetch = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => ({
+      headerStatus: { code: 200, status: 'SUCCESS' },
+      data: [{
+        codOper: 'LK-NUMERIC-MERCHANT-888',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 69.00,
+        authCurrency: 840,
+        idMerchant: '703571', // Numeric merchant ID returned by PagueloFacil
+        urlString: `https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-NUMERIC703`,
+      }],
+    }),
+  } as any);
+
+  const numericMerchantState = createMockSupabaseState(
+    [{
+      id: 'tx-num-merch-1',
+      booking_reference: 'LIVE-DAYTOUR-GNY-NUMERIC703',
+      environment: 'production',
+      status: 'pending',
+      expected_amount: 69.00,
+      currency: 'USD',
+    }],
+    [{ booking_reference: 'LIVE-DAYTOUR-GNY-NUMERIC703', status: 'pending_payment' }]
+  );
+
+  const numericMerchantWebhook = await webhookHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      CCLW: 'LIVE_PROD_CCLW_SECRET_KEY_123',
+      Estado: 'Aprobada',
+      Oper: 'LK-NUMERIC-MERCHANT-888',
+      TotalPagado: '69.00',
+      PARM_1: 'LIVE-DAYTOUR-GNY-NUMERIC703',
+    }),
+  } as any, {}, {
+    supabaseClient: numericMerchantState as any,
+    env: numericMerchantEnv,
+    fetchFn: numericMerchantFetch as any,
+  });
+
+  const numMerchBody = JSON.parse(numericMerchantWebhook.body);
+
+  // Test unverified/mismatched merchant ID returns category needs_manual_review without exposing secrets
+  const mismatchedMerchantFetch = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => ({
+      headerStatus: { code: 200, status: 'SUCCESS' },
+      data: [{
+        codOper: 'LK-MISMATCH-MERCHANT-999',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authAmount: 69.00,
+        authCurrency: 840,
+        idMerchant: '999999', // Mismatched merchant ID
+        urlString: `https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-MISMATCH`,
+      }],
+    }),
+  } as any);
+
+  const mismatchedMerchantWebhook = await webhookHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      CCLW: 'LIVE_PROD_CCLW_SECRET_KEY_123',
+      Estado: 'Aprobada',
+      Oper: 'LK-MISMATCH-MERCHANT-999',
+      TotalPagado: '69.00',
+      PARM_1: 'LIVE-DAYTOUR-GNY-MISMATCH',
+    }),
+  } as any, {}, {
+    supabaseClient: numericMerchantState as any,
+    env: numericMerchantEnv,
+    fetchFn: mismatchedMerchantFetch as any,
+  });
+
+  const mismatchBody = JSON.parse(mismatchedMerchantWebhook.body);
+
+  assert(
+    'Test 103: Numeric idMerchant is verified against configured merchant ID and unverified mismatch returns needs_manual_review without secret exposure',
+    Boolean(
+      numericMerchantWebhook.statusCode === 200 &&
+        numMerchBody.success === true &&
+        numMerchBody.verified === true &&
+        mismatchedMerchantWebhook.statusCode === 422 &&
+        mismatchBody.category === 'needs_manual_review' &&
+        !JSON.stringify(mismatchBody).includes('LIVE_PROD_CCLW_SECRET_KEY_123')
+    ),
+    'numeric idMerchant verified, mismatch=needs_manual_review, no secret exposure',
+    `numSuccess=${numMerchBody.success}, mismatchCat=${mismatchBody.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 104: STRICT PRODUCTION RETURN URL VALIDATION
+  // -------------------------------------------------------------
+  const prodReturnUrlExact = extractVerifiedBookingReferenceFromUrl(
+    'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-PROD123',
+    'https://gunayalapanama.com/checkout/complete',
+    'production'
+  );
+
+  const prodReturnUrlLocalhost = extractVerifiedBookingReferenceFromUrl(
+    'http://localhost:3000/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-PROD123',
+    'https://gunayalapanama.com/checkout/complete',
+    'production'
+  );
+
+  const prodReturnUrlSubdomain = extractVerifiedBookingReferenceFromUrl(
+    'https://subdomain.gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-PROD123',
+    'https://gunayalapanama.com/checkout/complete',
+    'production'
+  );
+
+  const prodReturnUrlExtendedPath = extractVerifiedBookingReferenceFromUrl(
+    'https://gunayalapanama.com/checkout/complete/extra_path?bookingReference=LIVE-DAYTOUR-GNY-PROD123',
+    'https://gunayalapanama.com/checkout/complete',
+    'production'
+  );
+
+  const prodReturnUrlIdemMismatch = validateMerchantReturnUrl(
+    'https://gunayalapanama.com/checkout/complete?bookingReference=LIVE-DAYTOUR-GNY-PROD123&PARM_2=wrong_idem',
+    'LIVE-DAYTOUR-GNY-PROD123',
+    'stored_idem_valid_123',
+    'https://gunayalapanama.com/checkout/complete',
+    'production'
+  );
+
+  const sandboxReturnUrlLocalhost = extractVerifiedBookingReferenceFromUrl(
+    'http://localhost:3000/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-SANDBOX1',
+    'https://gunayalapanama.com/checkout/complete',
+    'sandbox'
+  );
+
+  assert(
+    'Test 104: Production return URL strictly requires exact HTTPS origin & pathname, rejecting localhost/subdomains/extended paths/idem mismatches while preserving sandbox allowances',
+    Boolean(
+      prodReturnUrlExact.valid === true &&
+        prodReturnUrlExact.bookingReference === 'LIVE-DAYTOUR-GNY-PROD123' &&
+        prodReturnUrlLocalhost.valid === false &&
+        prodReturnUrlSubdomain.valid === false &&
+        prodReturnUrlExtendedPath.valid === false &&
+        prodReturnUrlIdemMismatch.valid === false &&
+        prodReturnUrlIdemMismatch.rejectionReason === 'idem_mismatch' &&
+        sandboxReturnUrlLocalhost.valid === true
+    ),
+    'Exact prod URL valid; localhost/subdomain/path/idem rejected in prod; localhost allowed in sandbox',
+    `exact=${prodReturnUrlExact.valid}, local=${prodReturnUrlLocalhost.valid}, sub=${prodReturnUrlSubdomain.valid}, path=${prodReturnUrlExtendedPath.valid}, idem=${prodReturnUrlIdemMismatch.rejectionReason}, sandbox=${sandboxReturnUrlLocalhost.valid}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 105: LOCK OWNERSHIP VERIFICATION ON RELEASE
+  // -------------------------------------------------------------
+  const ownershipStateMock = createMockSupabaseState([], []);
+  const realOwnerToken = (await acquireAtomicLiveTestLock(ownershipStateMock as any, 'real_admin_user', 300)).ownerToken;
+  const wrongReleaseResult = await releaseAtomicLiveTestLock(ownershipStateMock as any, 'wrong-owner-uuid-999');
+  const locksAfterWrongRelease = [...(ownershipStateMock as any).getLocks()];
+  const validReleaseResult = await releaseAtomicLiveTestLock(ownershipStateMock as any, realOwnerToken);
+  const locksAfterValidRelease = [...(ownershipStateMock as any).getLocks()];
+
+  assert(
+    'Test 105: Lock release operation verifies owner token and rejects unauthorized release attempts',
+    Boolean(
+      realOwnerToken !== undefined &&
+        wrongReleaseResult.released === false &&
+        wrongReleaseResult.reason === 'owner_mismatch_or_not_found' &&
+        locksAfterWrongRelease.length === 1 &&
+        validReleaseResult.released === true &&
+        locksAfterValidRelease.length === 0
+    ),
+    'Wrong owner token rejected (released=false, lock retained); matching owner token succeeds (released=true)',
+    `wrongReleased=${wrongReleaseResult.released}, countAfterWrong=${locksAfterWrongRelease.length}, validReleased=${validReleaseResult.released}, countAfterValid=${locksAfterValidRelease.length}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 106: EXCEPTION HANDLING SAFETY (ACQUIRED NEVER TRUE ON ERROR)
+  // -------------------------------------------------------------
+  const throwingClientMock = {
+    rpc: async () => {
+      throw new Error('Simulated PostgreSQL connection failure');
+    },
+    from: () => {
+      throw new Error('Simulated table query failure');
+    },
+  };
+
+  const exceptionLockResult = await acquireAtomicLiveTestLock(throwingClientMock as any, 'admin_user_err', 300);
+
+  assert(
+    'Test 106: Database or RPC exception in acquireAtomicLiveTestLock returns acquired: false and never bypasses lock safety',
+    Boolean(
+      exceptionLockResult.acquired === false &&
+        exceptionLockResult.error?.toLowerCase().includes('lock acquisition failed')
+    ),
+    'acquired=false, error describes lock acquisition failure',
+    `acquired=${exceptionLockResult.acquired}, error=${exceptionLockResult.error}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 107: EXPIRED LOCK RE-ACQUISITION AFTER TTL EXPIRES
+  // -------------------------------------------------------------
+  const ttlStateMock = createMockSupabaseState([], []);
+  // Insert an expired lock (expires_at in the past)
+  (ttlStateMock as any).getLocks().push({
+    lock_name: 'CONTROLLED_LIVE_TEST_ACTIVE_LOCK',
+    owner_token: 'old-expired-owner-uuid',
+    admin_user_id: 'old_admin',
+    locked_at: new Date(Date.now() - 600000).toISOString(),
+    expires_at: new Date(Date.now() - 1000).toISOString(), // Expired 1 sec ago
+  });
+
+  const reacquirerResult = await acquireAtomicLiveTestLock(ttlStateMock as any, 'new_admin_user', 300);
+
+  assert(
+    'Test 107: Expired lock is atomically overwritten and acquired by new caller after TTL expires',
+    Boolean(
+      reacquirerResult.acquired === true &&
+        typeof reacquirerResult.ownerToken === 'string' &&
+        reacquirerResult.ownerToken !== 'old-expired-owner-uuid'
+    ),
+    'acquired=true with new ownerToken replacing expired lock',
+    `acquired=${reacquirerResult.acquired}, newOwner=${reacquirerResult.ownerToken}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 108: CONSERVATIVE GATEWAY FAILURE CLEANUP PREVENTS DUP LINKS
+  // -------------------------------------------------------------
+  const gatewayErrStateMock = createMockSupabaseState([], []);
+  const failingLinkDaemonFetch = async () => {
+    throw new Error('Connection reset by PagueloFacil LinkDeamon server');
+  };
+
+  resetLiveTestMutexForTesting();
+  const failedCreationRes = await executeCreateControlledLiveTest('Bearer admin_token', {
+    confirmed: true,
+  }, {
+    supabaseClient: gatewayErrStateMock as any,
+    envOverride: liveControlledEnv,
+    fetchFn: failingLinkDaemonFetch as any,
+    skipRateLimit: true,
+  });
+
+  const dbTxAfterFailure = (gatewayErrStateMock as any).getPayments();
+
+  assert(
+    'Test 108: Uncertain production LinkDeamon failure preserves transaction as needs_manual_review (NOT expired) blocking replacement links until resolved',
+    Boolean(
+      failedCreationRes.statusCode === 200 &&
+        failedCreationRes.body.success === false &&
+        failedCreationRes.body.error?.includes('Uncertain network error connecting to production LinkDeamon') &&
+        dbTxAfterFailure.length === 1 &&
+        dbTxAfterFailure[0].status === 'needs_manual_review' &&
+        dbTxAfterFailure[0].audit_metadata?.uncertain_gateway_failure === true
+    ),
+    'Creation returns success=false, transaction status preserved as needs_manual_review',
+    `success=${failedCreationRes.body.success}, txCount=${dbTxAfterFailure.length}, txStatus=${dbTxAfterFailure[0]?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 109: UNSET OR NON-FUNCTION RPC CLIENT REJECTS LOCK ACQUISITION
+  // -------------------------------------------------------------
+  const noRpcClientMock = { from: () => ({ select: () => ({ limit: () => Promise.resolve({ data: [] }) }) }) };
+  const noRpcLockRes = await acquireAtomicLiveTestLock(noRpcClientMock as any, 'admin_no_rpc', 300);
+
+  assert(
+    'Test 109: Client without valid Supabase RPC function fails lock acquisition and never falls back to non-atomic table queries',
+    Boolean(
+      noRpcLockRes.acquired === false &&
+        noRpcLockRes.error?.includes('Supabase RPC client unavailable')
+    ),
+    'acquired=false, error indicates Supabase RPC client unavailable',
+    `acquired=${noRpcLockRes.acquired}, error=${noRpcLockRes.error}`
+  );
   console.log('----------------------------------------------------');
   console.log('         PART 25I PAYMENT SECURITY TEST MATRIX');
   console.log('----------------------------------------------------');
