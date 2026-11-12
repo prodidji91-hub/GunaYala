@@ -243,6 +243,25 @@ export interface AdminSandboxTestResponse {
     requestTimestamp: string;
   };
   existingTransactionDiagnostic?: ExistingTransactionDiagnosticResult;
+  liveApiTest?: LiveApiConnectionTestResult;
+}
+
+export interface LiveApiConnectionTestResult {
+  reachable: boolean;
+  authenticated: boolean | 'unknown';
+  httpStatus: number | null;
+  category:
+    | 'authenticated_empty'
+    | 'authenticated'
+    | 'invalid_credentials'
+    | 'unauthorized'
+    | 'unsupported_endpoint'
+    | 'network_error'
+    | 'missing_configuration'
+    | 'inconclusive';
+  explanation: string;
+  endpoint: string;
+  timestamp: string;
 }
 
 

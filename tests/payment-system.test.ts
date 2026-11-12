@@ -14,6 +14,7 @@ import { handler as webhookHandler } from '../netlify/functions/payment-webhook.
 import {
   executeAdminSandboxTest,
   executeExistingTransactionDiagnostic,
+  executeTestLiveApiConnection,
   handler as adminSandboxTestHandler,
 } from '../netlify/functions/admin-payment-sandbox-test.js';
 import {
@@ -3361,6 +3362,158 @@ async function runPaymentSecurityTests() {
       resSecond282502.body.reconciliation.duplicate === true,
     'HTTP 200, category=approved, payment=approved, oper=LK-1ONSIEENSC9H, booking=fully_confirmed, repeat duplicate=true',
     `status=${res282502.statusCode}, cat=${res282502.body.reconciliation?.category}, payStatus=${state282502.getPaymentByRef('TEST-DAYTOUR-GNY-282502')?.status}, bookStatus=${state282502.getBookingByRef('TEST-DAYTOUR-GNY-282502')?.status}, secondDup=${resSecond282502.body.reconciliation?.duplicate}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 85: LIVE API CONNECTION TEST — AUTHENTICATED EMPTY RESPONSE (0 matching records for probe)
+  // -------------------------------------------------------------
+  const liveTestEnv = {
+    PAGUELOFACIL_ACCESS_TOKEN: 'LIVE_PRODUCTION_API_SECRET_TOKEN_99999',
+    PAGUELOFACIL_ENV: 'sandbox', // Verify PAGUELOFACIL_ENV is unchanged
+    ENABLE_LIVE_PAYMENTS: 'false',
+  };
+
+  let capturedLiveProbeUrl = '';
+  let capturedLiveProbeHeaders: Record<string, string> = {};
+
+  const mockLiveAuthFetchSuccess = async (url: any, opts: any) => {
+    capturedLiveProbeUrl = String(url);
+    capturedLiveProbeHeaders = opts?.headers || {};
+    return {
+      status: 200,
+      ok: true,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'SUCCESS' },
+        data: [], // 0 matching records for nonexistent probe
+        message: 'Operación exitosa',
+      }),
+    } as any;
+  };
+
+  const mockAdminClient = createMockSupabaseState([], []);
+
+  const liveTestResultSuccess = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveTestEnv,
+    fetchFn: mockLiveAuthFetchSuccess as any,
+  }, { action: 'test_live_api_connection' });
+
+  const liveBodySuccess = liveTestResultSuccess.body?.liveApiTest;
+
+  assert(
+    'Test 85: Live API Connection Test verifies valid credential on probe query with 0 records (authenticated_empty) without creating payment',
+    liveTestResultSuccess.statusCode === 200 &&
+      liveTestResultSuccess.body.success === true &&
+      liveBodySuccess?.reachable === true &&
+      liveBodySuccess?.authenticated === true &&
+      liveBodySuccess?.httpStatus === 200 &&
+      liveBodySuccess?.category === 'authenticated_empty' &&
+      capturedLiveProbeUrl.includes('https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions') &&
+      capturedLiveProbeUrl.includes('codOper') &&
+      capturedLiveProbeHeaders['Authorization'] === 'LIVE_PRODUCTION_API_SECRET_TOKEN_99999' &&
+      !JSON.stringify(liveTestResultSuccess.body).includes('LIVE_PRODUCTION_API_SECRET_TOKEN_99999'),
+    'statusCode=200, success=true, authenticated=true, category=authenticated_empty, token not exposed in response',
+    `status=${liveTestResultSuccess.statusCode}, success=${liveTestResultSuccess.body.success}, cat=${liveBodySuccess?.category}, auth=${liveBodySuccess?.authenticated}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 86: LIVE API CONNECTION TEST — AUTHENTICATION FAILURE (HTTP 401)
+  // -------------------------------------------------------------
+  const mockLiveAuthFetchFail = async () => ({
+    status: 401,
+    ok: false,
+    json: async () => ({
+      headerStatus: { code: 401, status: 'UNAUTHORIZED' },
+      message: 'Token de acceso inválido',
+    }),
+  } as any);
+
+  const liveTestResultFail = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveTestEnv,
+    fetchFn: mockLiveAuthFetchFail as any,
+  }, { action: 'test_live_api_connection' });
+
+  const liveBodyFail = liveTestResultFail.body?.liveApiTest;
+
+  assert(
+    'Test 86: Live API Connection Test detects invalid production token (HTTP 401) and reports authenticated=false with category invalid_credentials',
+    liveTestResultFail.statusCode === 200 &&
+      liveTestResultFail.body.success === false &&
+      liveBodyFail?.reachable === true &&
+      liveBodyFail?.authenticated === false &&
+      liveBodyFail?.httpStatus === 401 &&
+      liveBodyFail?.category === 'invalid_credentials' &&
+      !JSON.stringify(liveTestResultFail.body).includes('LIVE_PRODUCTION_API_SECRET_TOKEN_99999'),
+    'success=false, reachable=true, authenticated=false, category=invalid_credentials, HTTP 401',
+    `success=${liveTestResultFail.body.success}, auth=${liveBodyFail?.authenticated}, cat=${liveBodyFail?.category}, http=${liveBodyFail?.httpStatus}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 87: LIVE API CONNECTION TEST — UNAUTHENTICATED / NON-ADMIN REJECTION
+  // -------------------------------------------------------------
+  const unauthLiveTest = await executeTestLiveApiConnection(null, {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveTestEnv,
+  });
+
+  const nonAdminSupabase = {
+    ...mockAdminClient,
+    from: (table: string) => {
+      if (table === 'quotation_admins') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }), // User not in quotation_admins
+            }),
+          }),
+        };
+      }
+      return (mockAdminClient as any).from(table);
+    },
+  };
+
+  const nonAdminLiveTest = await executeTestLiveApiConnection('Bearer regular_user_token', {
+    supabaseClient: nonAdminSupabase as any,
+    envOverride: liveTestEnv,
+  });
+
+  assert(
+    'Test 87: Live API Connection Test rejects unauthenticated (HTTP 401) and non-admin callers (HTTP 403)',
+    unauthLiveTest.statusCode === 401 &&
+      unauthLiveTest.body.success === false &&
+      nonAdminLiveTest.statusCode === 403 &&
+      nonAdminLiveTest.body.success === false,
+    'Unauth -> 401, NonAdmin -> 403',
+    `unauthStatus=${unauthLiveTest.statusCode}, nonAdminStatus=${nonAdminLiveTest.statusCode}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 88: LIVE API CONNECTION TEST — MISSING PRODUCTION TOKEN IN SERVER ENVIRONMENT
+  // -------------------------------------------------------------
+  const missingTokenEnv = {
+    PAGUELOFACIL_ACCESS_TOKEN: '', // Empty live token
+    PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'SANDBOX_TOKEN_MUST_NOT_BE_USED',
+    PAGUELOFACIL_ENV: 'sandbox',
+  };
+
+  const missingTokenResult = await executeTestLiveApiConnection('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: missingTokenEnv,
+  });
+
+  const missingTokenBody = missingTokenResult.body?.liveApiTest;
+
+  assert(
+    'Test 88: Live API Connection Test identifies missing PAGUELOFACIL_ACCESS_TOKEN without falling back to sandbox credentials',
+    missingTokenResult.statusCode === 200 &&
+      missingTokenResult.body.success === false &&
+      missingTokenBody?.reachable === false &&
+      missingTokenBody?.authenticated === false &&
+      missingTokenBody?.category === 'missing_configuration' &&
+      !JSON.stringify(missingTokenResult.body).includes('SANDBOX_TOKEN_MUST_NOT_BE_USED'),
+    'success=false, reachable=false, category=missing_configuration, no sandbox fallback',
+    `success=${missingTokenResult.body.success}, cat=${missingTokenBody?.category}`
   );
 
   // -------------------------------------------------------------

@@ -18,7 +18,7 @@ import {
   ShieldCheck,
   Terminal,
 } from 'lucide-react';
-import { PaymentLifecycleStatus, AdminSandboxTestResponse } from '../../types/payment';
+import { PaymentLifecycleStatus, AdminSandboxTestResponse, LiveApiConnectionTestResult } from '../../types/payment';
 import { supabase } from '../../lib/supabase';
 import { parseSandboxReturnParams, ParsedSandboxReturn } from '../../utils/sandboxReturnParser';
 
@@ -225,6 +225,50 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
       setRecovery282502Error(err.message || 'An unexpected error occurred during payment recovery.');
     } finally {
       setIsRecovering282502(false);
+    }
+  };
+
+  const [isTestingLiveApi, setIsTestingLiveApi] = useState<boolean>(false);
+  const [liveApiTestResult, setLiveApiTestResult] = useState<LiveApiConnectionTestResult | null>(null);
+  const [liveApiTestError, setLiveApiTestError] = useState<string | null>(null);
+
+  const handleTestLiveApiConnection = async () => {
+    setIsTestingLiveApi(true);
+    setLiveApiTestError(null);
+    setLiveApiTestResult(null);
+
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client is not available.');
+      }
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'test_live_api_connection',
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setLiveApiTestError(data.error || data.message || `HTTP ${response.status}: Live API connection test failed.`);
+      } else if (data.liveApiTest) {
+        setLiveApiTestResult(data.liveApiTest);
+      } else {
+        setLiveApiTestError('Unexpected response format from live API test endpoint.');
+      }
+    } catch (err: any) {
+      setLiveApiTestError(err.message || 'An unexpected error occurred during live API connection test.');
+    } finally {
+      setIsTestingLiveApi(false);
     }
   };
 
@@ -706,6 +750,24 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
                 </>
               )}
             </button>
+
+            <button
+              onClick={handleTestLiveApiConnection}
+              disabled={isTestingLiveApi}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isTestingLiveApi ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Testing LIVE API...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Test LIVE API Connection (No Charge)</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -755,6 +817,50 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             {recovery282502Result.duplicate && (
               <div className="text-amber-800 font-semibold">[Idempotent Repeat: Transaction was already verified &amp; approved]</div>
             )}
+          </div>
+        )}
+
+        {liveApiTestError && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
+            <strong>Live API Test Error:</strong> {liveApiTestError}
+          </div>
+        )}
+
+        {liveApiTestResult && (
+          <div className={`p-4 rounded-xl border text-xs font-mono space-y-2 ${
+            liveApiTestResult.authenticated === true
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : liveApiTestResult.authenticated === false
+              ? 'bg-red-50 border-red-300 text-red-950'
+              : 'bg-amber-50 border-amber-300 text-amber-950'
+          }`}>
+            <div className="flex items-center gap-2 font-bold text-sm">
+              {liveApiTestResult.authenticated === true ? (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span className="text-emerald-900">Live API Authentication Verified (No Charge)</span>
+                </>
+              ) : liveApiTestResult.authenticated === false ? (
+                <>
+                  <XCircle className="w-5 h-5 text-red-600" />
+                  <span className="text-red-900">Live API Authentication Failed</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  <span className="text-amber-900">Live API Connection Inconclusive</span>
+                </>
+              )}
+            </div>
+            <div><strong>Reachable:</strong> {liveApiTestResult.reachable ? 'Yes' : 'No'}</div>
+            <div><strong>Authenticated:</strong> {String(liveApiTestResult.authenticated)}</div>
+            <div><strong>HTTP Status:</strong> {liveApiTestResult.httpStatus ?? 'N/A'}</div>
+            <div><strong>API Status Category:</strong> <span className="underline">{liveApiTestResult.category}</span></div>
+            <div><strong>Explanation:</strong> {liveApiTestResult.explanation}</div>
+            <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-200">
+              <div><strong>Endpoint:</strong> {liveApiTestResult.endpoint}</div>
+              <div><strong>Timestamp:</strong> {liveApiTestResult.timestamp}</div>
+            </div>
           </div>
         )}
 

@@ -458,6 +458,289 @@ export async function executeReconcileExistingTransaction(
 }
 
 /**
+ * Admin-Only Action: Secure Read-Only PagueloFacil LIVE REST API Connection Test (No Charge)
+ * Verifies production REST API credential without creating payments, modifying bookings, or enabling checkout.
+ */
+export async function executeTestLiveApiConnection(
+  authToken: string | null,
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const fetchFn = dependencies.fetchFn || global.fetch;
+
+  // 1. Authenticate administrator server-side using quotation_admins authorization table
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Administrator Bearer token is required.',
+      },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Invalid or expired administrator credentials.',
+      },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: {
+        success: false,
+        error: 'Forbidden: Access restricted to authorized quotation administrators.',
+      },
+    };
+  }
+
+  // 2. Read PAGUELOFACIL_ACCESS_TOKEN only from server-side environment variables
+  // Never read sandbox credentials or fall back to sandbox credentials.
+  // Never expose this token in results, error messages, or logs.
+  const liveToken = (env.PAGUELOFACIL_ACCESS_TOKEN || '').trim();
+  const endpoint = 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
+  const timestamp = new Date().toISOString();
+
+  if (!liveToken) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        action: 'test_live_api_connection',
+        liveApiTest: {
+          reachable: false,
+          authenticated: false,
+          httpStatus: null,
+          category: 'missing_configuration',
+          explanation: 'PAGUELOFACIL_ACCESS_TOKEN is not configured in server environment variables.',
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  }
+
+  // 3. Perform read-only GET request to production MerchantTransactions API endpoint
+  // Using a deliberately nonexistent, well-formed operation code filter so no real customer transaction data is requested.
+  const probeCodOper = 'LK-LIVE-PROBE-NONEXISTENT-000';
+  const filterParam = `codOper::${probeCodOper}`;
+  const requestUrl = `${endpoint}?filter=${encodeURIComponent(filterParam)}`;
+
+  try {
+    const response = await fetchFn(requestUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: liveToken, // Documented raw token header
+        Accept: 'application/json',
+      },
+    });
+
+    const httpStatus = response.status;
+
+    // 4. Inspect HTTP status & API-level response
+    if (httpStatus === 401 || httpStatus === 403) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: false,
+            httpStatus,
+            category: httpStatus === 401 ? 'invalid_credentials' : 'unauthorized',
+            explanation: `PagueloFacil production API rejected authentication (HTTP ${httpStatus}). The configured PAGUELOFACIL_ACCESS_TOKEN is invalid or unauthorized.`,
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    if (httpStatus === 404 || httpStatus === 405 || httpStatus === 501) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: 'unknown',
+            httpStatus,
+            category: 'unsupported_endpoint',
+            explanation: `PagueloFacil endpoint returned unexpected HTTP ${httpStatus}. The requested endpoint path may have changed.`,
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    if (httpStatus >= 500) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: 'unknown',
+            httpStatus,
+            category: 'network_error',
+            explanation: `PagueloFacil gateway service returned HTTP ${httpStatus}. Gateway may be experiencing temporary issues.`,
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    if (httpStatus !== 200) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: 'unknown',
+            httpStatus,
+            category: 'inconclusive',
+            explanation: `PagueloFacil returned unexpected HTTP status ${httpStatus}.`,
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    // Inspect HTTP 200 response body - do NOT treat HTTP 200 alone as proof of authentication
+    let payload: any;
+    try {
+      payload = await response.json();
+    } catch {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: 'unknown',
+            httpStatus: 200,
+            category: 'inconclusive',
+            explanation: 'Received HTTP 200 from production endpoint, but response body was not valid JSON.',
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    // Check if body signals authentication failure or error despite HTTP 200
+    const rawHeaderCode = payload?.headerStatus?.code;
+    const isHeaderAuthFail = rawHeaderCode === 401 || rawHeaderCode === 403 || payload?.status === 401 || payload?.status === 403;
+    const bodyStr = JSON.stringify(payload);
+    const hasAuthFailureText = /unauthorized|token.*inv[aá]lido|invalid.*token|no.*autorizado|credencial.*inv[aá]lida|authentication.*fail/i.test(bodyStr);
+
+    if (isHeaderAuthFail || hasAuthFailureText) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: false,
+            httpStatus: 200,
+            category: 'invalid_credentials',
+            explanation: 'PagueloFacil API returned HTTP 200 but reported authentication failure in response body.',
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    // Check for records in response
+    const records = Array.isArray(payload?.data)
+      ? payload.data
+      : (payload?.data ? [payload.data] : (Array.isArray(payload) ? payload : []));
+
+    if (records.length === 0) {
+      return {
+        statusCode: 200,
+        body: {
+          success: true,
+          action: 'test_live_api_connection',
+          liveApiTest: {
+            reachable: true,
+            authenticated: true,
+            httpStatus: 200,
+            category: 'authenticated_empty',
+            explanation: 'Production REST API credential verified successfully! Connected and authenticated to MerchantTransactions with zero matching records for probe filter.',
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        action: 'test_live_api_connection',
+        liveApiTest: {
+          reachable: true,
+          authenticated: true,
+          httpStatus: 200,
+          category: 'authenticated',
+          explanation: 'Production REST API credential verified successfully.',
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  } catch (err: any) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        action: 'test_live_api_connection',
+        liveApiTest: {
+          reachable: false,
+          authenticated: 'unknown',
+          httpStatus: null,
+          category: 'network_error',
+          explanation: `Network error connecting to PagueloFacil production API: ${err.message}`,
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  }
+}
+
+/**
  * Core test execution logic, separated for isolated unit testing with mocks.
  */
 export async function executeAdminSandboxTest(
@@ -470,6 +753,9 @@ export async function executeAdminSandboxTest(
   }
   if (requestBody?.action === 'reconcile_existing_transaction') {
     return await executeReconcileExistingTransaction(authToken, requestBody, dependencies);
+  }
+  if (requestBody?.action === 'test_live_api_connection') {
+    return await executeTestLiveApiConnection(authToken, dependencies);
   }
 
   const env = dependencies.envOverride || process.env;
