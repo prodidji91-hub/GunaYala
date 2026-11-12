@@ -184,6 +184,50 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
     }
   };
 
+  const [isRecovering282502, setIsRecovering282502] = useState<boolean>(false);
+  const [recovery282502Result, setRecovery282502Result] = useState<any>(null);
+  const [recovery282502Error, setRecovery282502Error] = useState<string | null>(null);
+
+  const handleRecover282502 = async () => {
+    setIsRecovering282502(true);
+    setRecovery282502Error(null);
+    setRecovery282502Result(null);
+
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client is not available.');
+      }
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'reconcile_existing_transaction',
+          bookingReference: 'TEST-DAYTOUR-GNY-282502',
+          operationCode: 'LK-1ONSIEENSC9H',
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setRecovery282502Error(data.error || data.message || `HTTP ${response.status}: Recovery failed.`);
+      } else {
+        setRecovery282502Result(data.reconciliation);
+      }
+    } catch (err: any) {
+      setRecovery282502Error(err.message || 'An unexpected error occurred during payment recovery.');
+    } finally {
+      setIsRecovering282502(false);
+    }
+  };
+
   const statusDefinitions: Array<{
     status: PaymentLifecycleStatus;
     labelEn: string;
@@ -644,6 +688,24 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
                 </>
               )}
             </button>
+
+            <button
+              onClick={handleRecover282502}
+              disabled={isRecovering282502}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isRecovering282502 ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Recovering 282502...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-white" />
+                  <span>Recover Approved Sandbox Payment — 282502</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -669,6 +731,30 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             <div><strong>Category:</strong> {reconciliationResult.category}</div>
             <div><strong>Database Updated:</strong> {reconciliationResult.databaseUpdated ? 'Yes' : 'No (Already Approved / Skipped)'}</div>
             <div><strong>Amount Paid:</strong> ${reconciliationResult.amountPaid?.toFixed(2)} USD</div>
+          </div>
+        )}
+
+        {recovery282502Error && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
+            <strong>Recovery Error (282502):</strong> {recovery282502Error}
+          </div>
+        )}
+
+        {recovery282502Result && (
+          <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-950 space-y-2 font-mono">
+            <div className="flex items-center gap-2 font-bold text-sm text-emerald-900">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <span>Recovery Completed (282502)!</span>
+            </div>
+            <div><strong>Booking Reference:</strong> {recovery282502Result.bookingReference || 'TEST-DAYTOUR-GNY-282502'}</div>
+            <div><strong>Operation Code:</strong> {recovery282502Result.operationCode || 'LK-1ONSIEENSC9H'}</div>
+            <div><strong>Message:</strong> {recovery282502Result.message}</div>
+            <div><strong>Category:</strong> {recovery282502Result.category}</div>
+            <div><strong>Database Updated:</strong> {recovery282502Result.databaseUpdated ? 'Yes' : 'No (Already Approved / Skipped)'}</div>
+            <div><strong>Amount Paid:</strong> ${recovery282502Result.amountPaid?.toFixed(2)} USD</div>
+            {recovery282502Result.duplicate && (
+              <div className="text-amber-800 font-semibold">[Idempotent Repeat: Transaction was already verified &amp; approved]</div>
+            )}
           </div>
         )}
 

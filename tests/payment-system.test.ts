@@ -2698,7 +2698,24 @@ async function runPaymentSecurityTests() {
             }),
           };
         }
+        if (table === 'quotation_admins') {
+          return {
+            select: () => ({
+              eq: (_col: string, val: string) => ({
+                maybeSingle: async () => ({ data: { user_id: val }, error: null }),
+              }),
+            }),
+          };
+        }
         return {} as any;
+      },
+      auth: {
+        getUser: async (token: string) => {
+          if (!token || token.includes('invalid')) {
+            return { data: { user: null }, error: { message: 'Invalid token' } };
+          }
+          return { data: { user: { id: 'admin_petra_user' } }, error: null };
+        },
       },
     };
     return mockClient;
@@ -3262,6 +3279,88 @@ async function runPaymentSecurityTests() {
       stateJ.getBookingByRef('ATTACKER-EVIL-REF')?.status === 'pending_payment',
     'HTTP 200, target booking fully_confirmed, attacker booking remains pending_payment',
     `status=${resJ.statusCode}, ref=${bodyJ.bookingReference}, targetStatus=${stateJ.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status}, attackerStatus=${stateJ.getBookingByRef('ATTACKER-EVIL-REF')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 84: RECOVER APPROVED SANDBOX PAYMENT — 282502 (INITIALLY NULL gateway_operation_id)
+  // -------------------------------------------------------------
+  const state282502 = createMockSupabaseState(
+    [
+      {
+        id: 'tx-sandbox-282502',
+        booking_reference: 'TEST-DAYTOUR-GNY-282502',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null, // Initially NULL as specified
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-282502',
+        status: 'pending_payment',
+        special_notes: '',
+      },
+    ]
+  );
+
+  const fetch282502 = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-1ONSIEENSC9H',
+          id: 703571,
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: 840,
+          authAmount: 69.00,
+          idMerchant: 'SANDBOX_MERCHANT',
+          urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-282502',
+        },
+      ],
+    }),
+  } as any);
+
+  // 1. Initial Recovery Call
+  const recoveryReq282502 = {
+    action: 'reconcile_existing_transaction',
+    bookingReference: 'TEST-DAYTOUR-GNY-282502',
+    operationCode: 'LK-1ONSIEENSC9H',
+  };
+
+  const res282502 = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: state282502 as any,
+    envOverride: standardEnv,
+    fetchFn: fetch282502,
+  }, recoveryReq282502);
+
+  // 2. Second Call to Test Idempotency
+  const resSecond282502 = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: state282502 as any,
+    envOverride: standardEnv,
+    fetchFn: fetch282502,
+  }, recoveryReq282502);
+
+  assert(
+    'Test 84: Recover Approved Sandbox Payment — 282502 (LK-1ONSIEENSC9H, initially NULL operation_id) verifies and syncs booking, repeated calls idempotent',
+    res282502.statusCode === 200 &&
+      res282502.body.success === true &&
+      res282502.body.bookingReference === 'TEST-DAYTOUR-GNY-282502' &&
+      res282502.body.operationCode === 'LK-1ONSIEENSC9H' &&
+      res282502.body.reconciliation.category === 'approved' &&
+      res282502.body.reconciliation.amountPaid === 69.00 &&
+      state282502.getPaymentByRef('TEST-DAYTOUR-GNY-282502')?.status === 'approved' &&
+      state282502.getPaymentByRef('TEST-DAYTOUR-GNY-282502')?.gateway_operation_id === 'LK-1ONSIEENSC9H' &&
+      state282502.getBookingByRef('TEST-DAYTOUR-GNY-282502')?.status === 'fully_confirmed' &&
+      state282502.getBookingByRef('TEST-DAYTOUR-GNY-282502')?.special_notes.includes('[TEST / RECONCILED]') &&
+      resSecond282502.statusCode === 200 &&
+      resSecond282502.body.success === true &&
+      resSecond282502.body.reconciliation.duplicate === true,
+    'HTTP 200, category=approved, payment=approved, oper=LK-1ONSIEENSC9H, booking=fully_confirmed, repeat duplicate=true',
+    `status=${res282502.statusCode}, cat=${res282502.body.reconciliation?.category}, payStatus=${state282502.getPaymentByRef('TEST-DAYTOUR-GNY-282502')?.status}, bookStatus=${state282502.getBookingByRef('TEST-DAYTOUR-GNY-282502')?.status}, secondDup=${resSecond282502.body.reconciliation?.duplicate}`
   );
 
   // -------------------------------------------------------------

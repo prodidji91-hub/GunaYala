@@ -63,6 +63,7 @@ export interface AdminSandboxTestDependencies {
   supabaseClient?: SupabaseClient;
   testTransport?: (payload: PagueloFacilLinkDaemonRequest) => Promise<PagueloFacilLinkDaemonResponse>;
   envOverride?: Record<string, string | undefined>;
+  fetchFn?: typeof fetch;
 }
 
 /**
@@ -440,6 +441,7 @@ export async function executeReconcileExistingTransaction(
     environment: 'sandbox',
     supabaseClient: supabase,
     env,
+    fetchFn: dependencies.fetchFn,
   });
 
   return {
