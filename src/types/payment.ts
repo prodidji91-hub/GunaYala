@@ -244,6 +244,7 @@ export interface AdminSandboxTestResponse {
   };
   existingTransactionDiagnostic?: ExistingTransactionDiagnosticResult;
   liveApiTest?: LiveApiConnectionTestResult;
+  liveCheckoutTest?: LiveCheckoutConnectionTestResult;
 }
 
 export interface LiveApiConnectionTestResult {
@@ -260,6 +261,25 @@ export interface LiveApiConnectionTestResult {
     | 'missing_configuration'
     | 'inconclusive';
   explanation: string;
+  endpoint: string;
+  timestamp: string;
+}
+
+export interface LiveCheckoutConnectionTestResult {
+  reachable: boolean;
+  httpStatus: number | null;
+  category:
+    | 'checkout_link_created'
+    | 'invalid_cclw'
+    | 'untrusted_hostname'
+    | 'malformed_response'
+    | 'gateway_error'
+    | 'missing_configuration'
+    | 'inconclusive';
+  credentialAccepted: boolean | 'unknown';
+  checkoutUrlGenerated: boolean;
+  validatedHost: string | null;
+  sanitizedErrorReason?: string;
   endpoint: string;
   timestamp: string;
 }

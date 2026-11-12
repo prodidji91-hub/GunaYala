@@ -15,6 +15,7 @@ import {
   executeAdminSandboxTest,
   executeExistingTransactionDiagnostic,
   executeTestLiveApiConnection,
+  executeTestLiveCheckoutConnection,
   handler as adminSandboxTestHandler,
 } from '../netlify/functions/admin-payment-sandbox-test.js';
 import {
@@ -3514,6 +3515,209 @@ async function runPaymentSecurityTests() {
       !JSON.stringify(missingTokenResult.body).includes('SANDBOX_TOKEN_MUST_NOT_BE_USED'),
     'success=false, reachable=false, category=missing_configuration, no sandbox fallback',
     `success=${missingTokenResult.body.success}, cat=${missingTokenBody?.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 89: LIVE CHECKOUT CONNECTION TEST — VALID CCLW & GENUINE LINK GENERATION ($1.00 PROBE)
+  // -------------------------------------------------------------
+  const liveCheckoutEnv = {
+    PAGUELOFACIL_CCLW: 'LIVE_PROD_CCLW_VALID_987654321',
+    PAGUELOFACIL_SANDBOX_CCLW: 'SANDBOX_CCLW_DO_NOT_USE',
+    PAGUELOFACIL_ENV: 'sandbox', // Must stay sandbox
+    ENABLE_LIVE_PAYMENTS: 'false', // Must stay false
+  };
+
+  let capturedLinkDaemonUrl = '';
+  let capturedLinkDaemonBody = '';
+
+  const mockLiveCheckoutFetchSuccess = async (url: any, opts: any) => {
+    capturedLinkDaemonUrl = String(url);
+    capturedLinkDaemonBody = String(opts?.body || '');
+    return {
+      status: 200,
+      ok: true,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'SUCCESS' },
+        data: {
+          url: 'https://secure.paguelofacil.com/checkout?code=LK-PROBE-LIVE-VALID-001',
+          code: 'LK-PROBE-LIVE-VALID-001',
+        },
+        message: 'Operación exitosa',
+      }),
+    } as any;
+  };
+
+  const liveCheckoutSuccess = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveCheckoutEnv,
+    fetchFn: mockLiveCheckoutFetchSuccess as any,
+  }, { action: 'test_live_checkout_connection' });
+
+  const liveCheckoutBodySuccess = liveCheckoutSuccess.body?.liveCheckoutTest;
+  const parsedParams = new URLSearchParams(capturedLinkDaemonBody);
+
+  assert(
+    'Test 89: Live Checkout Connection Test posts isolated $1.00 probe to secure LinkDeamon and verifies genuine link created without exposing URL or CCLW',
+    Boolean(
+      liveCheckoutSuccess.statusCode === 200 &&
+        liveCheckoutSuccess.body.success === true &&
+        liveCheckoutBodySuccess?.reachable === true &&
+        liveCheckoutBodySuccess?.credentialAccepted === true &&
+        liveCheckoutBodySuccess?.checkoutUrlGenerated === true &&
+        liveCheckoutBodySuccess?.validatedHost === 'secure.paguelofacil.com' &&
+        liveCheckoutBodySuccess?.category === 'checkout_link_created' &&
+        capturedLinkDaemonUrl === 'https://secure.paguelofacil.com/LinkDeamon.cfm' &&
+        parsedParams.get('CCLW') === 'LIVE_PROD_CCLW_VALID_987654321' &&
+        parsedParams.get('CMTN') === '1.00' &&
+        parsedParams.get('CDSC') === 'Connection test - do not pay' &&
+        parsedParams.get('EXPIRES_IN') === '900' &&
+        parsedParams.get('PARM_1')?.startsWith('LIVE-CONNECTION-PROBE-') &&
+        !JSON.stringify(liveCheckoutSuccess.body).includes('https://secure.paguelofacil.com/checkout') &&
+        !JSON.stringify(liveCheckoutSuccess.body).includes('LIVE_PROD_CCLW_VALID_987654321')
+    ),
+    'success=true, category=checkout_link_created, validatedHost=secure.paguelofacil.com, checkoutUrl and CCLW suppressed',
+    `success=${liveCheckoutSuccess.body.success}, cat=${liveCheckoutBodySuccess?.category}, host=${liveCheckoutBodySuccess?.validatedHost}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 90: LIVE CHECKOUT CONNECTION TEST — INVALID OR REJECTED CCLW
+  // -------------------------------------------------------------
+  const mockLiveCheckoutFetchInvalidCclw = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => ({
+      headerStatus: { code: 400, description: 'CCLW Invalido o no autorizado' },
+      data: null,
+      message: 'Credencial inválida',
+    }),
+  } as any);
+
+  const liveCheckoutInvalidCclw = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveCheckoutEnv,
+    fetchFn: mockLiveCheckoutFetchInvalidCclw as any,
+  }, { action: 'test_live_checkout_connection' });
+
+  const liveCheckoutBodyInvalidCclw = liveCheckoutInvalidCclw.body?.liveCheckoutTest;
+
+  assert(
+    'Test 90: Live Checkout Connection Test correctly detects invalid or rejected production CCLW (category invalid_cclw)',
+    Boolean(
+      liveCheckoutInvalidCclw.statusCode === 200 &&
+        liveCheckoutInvalidCclw.body.success === false &&
+        liveCheckoutBodyInvalidCclw?.credentialAccepted === false &&
+        liveCheckoutBodyInvalidCclw?.checkoutUrlGenerated === false &&
+        liveCheckoutBodyInvalidCclw?.category === 'invalid_cclw' &&
+        liveCheckoutBodyInvalidCclw?.validatedHost === null
+    ),
+    'success=false, credentialAccepted=false, category=invalid_cclw',
+    `success=${liveCheckoutInvalidCclw.body.success}, cat=${liveCheckoutBodyInvalidCclw?.category}, accepted=${liveCheckoutBodyInvalidCclw?.credentialAccepted}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 91: LIVE CHECKOUT CONNECTION TEST — MALFORMED RESPONSE (NON-JSON BODY)
+  // -------------------------------------------------------------
+  const mockLiveCheckoutFetchMalformed = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => {
+      throw new Error('Unexpected token < in JSON at position 0');
+    },
+  } as any);
+
+  const liveCheckoutMalformed = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveCheckoutEnv,
+    fetchFn: mockLiveCheckoutFetchMalformed as any,
+  }, { action: 'test_live_checkout_connection' });
+
+  const liveCheckoutBodyMalformed = liveCheckoutMalformed.body?.liveCheckoutTest;
+
+  assert(
+    'Test 91: Live Checkout Connection Test handles non-JSON malformed gateway response safely with category malformed_response',
+    Boolean(
+      liveCheckoutMalformed.statusCode === 200 &&
+        liveCheckoutMalformed.body.success === false &&
+        liveCheckoutBodyMalformed?.checkoutUrlGenerated === false &&
+        liveCheckoutBodyMalformed?.category === 'malformed_response'
+    ),
+    'success=false, checkoutUrlGenerated=false, category=malformed_response',
+    `success=${liveCheckoutMalformed.body.success}, cat=${liveCheckoutBodyMalformed?.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 92: LIVE CHECKOUT CONNECTION TEST — UNTRUSTED CHECKOUT HOSTNAME REJECTED
+  // -------------------------------------------------------------
+  const mockLiveCheckoutFetchUntrustedHost = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => ({
+      headerStatus: { code: 200, status: 'SUCCESS' },
+      data: {
+        url: 'https://attacker-domain-spoofed.com/checkout?code=LK-MALICIOUS-001',
+        code: 'LK-MALICIOUS-001',
+      },
+    }),
+  } as any);
+
+  const liveCheckoutUntrustedHost = await executeAdminSandboxTest('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveCheckoutEnv,
+    fetchFn: mockLiveCheckoutFetchUntrustedHost as any,
+  }, { action: 'test_live_checkout_connection' });
+
+  const liveCheckoutBodyUntrustedHost = liveCheckoutUntrustedHost.body?.liveCheckoutTest;
+
+  assert(
+    'Test 92: Live Checkout Connection Test rejects untrusted hostname with category untrusted_hostname and suppresses full untrusted URL',
+    Boolean(
+      liveCheckoutUntrustedHost.statusCode === 200 &&
+        liveCheckoutUntrustedHost.body.success === false &&
+        liveCheckoutBodyUntrustedHost?.checkoutUrlGenerated === false &&
+        liveCheckoutBodyUntrustedHost?.category === 'untrusted_hostname' &&
+        !JSON.stringify(liveCheckoutUntrustedHost.body).includes('attacker-domain-spoofed.com')
+    ),
+    'success=false, category=untrusted_hostname, untrusted url suppressed',
+    `success=${liveCheckoutUntrustedHost.body.success}, cat=${liveCheckoutBodyUntrustedHost?.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 93: LIVE CHECKOUT CONNECTION TEST — AUTH ENFORCEMENT & MISSING CCLW CONFIGURATION
+  // -------------------------------------------------------------
+  const unauthCheckoutTest = await executeTestLiveCheckoutConnection(null, {
+    supabaseClient: mockAdminClient as any,
+    envOverride: liveCheckoutEnv,
+  });
+
+  const nonAdminCheckoutTest = await executeTestLiveCheckoutConnection('Bearer regular_user_token', {
+    supabaseClient: nonAdminSupabase as any,
+    envOverride: liveCheckoutEnv,
+  });
+
+  const missingCclwEnv = {
+    PAGUELOFACIL_CCLW: '', // Empty
+    PAGUELOFACIL_SANDBOX_CCLW: 'SANDBOX_CCLW_CANNOT_BE_USED_FOR_LIVE',
+    PAGUELOFACIL_ENV: 'sandbox',
+    ENABLE_LIVE_PAYMENTS: 'false',
+  };
+
+  const missingCclwTest = await executeTestLiveCheckoutConnection('Bearer admin_token', {
+    supabaseClient: mockAdminClient as any,
+    envOverride: missingCclwEnv,
+  });
+
+  assert(
+    'Test 93: Live Checkout Connection Test enforces admin auth (HTTP 401/403) and detects missing PAGUELOFACIL_CCLW without sandbox fallback',
+    Boolean(
+      unauthCheckoutTest.statusCode === 401 &&
+        nonAdminCheckoutTest.statusCode === 403 &&
+        missingCclwTest.statusCode === 200 &&
+        missingCclwTest.body.success === false &&
+        missingCclwTest.body.liveCheckoutTest?.category === 'missing_configuration' &&
+        !JSON.stringify(missingCclwTest.body).includes('SANDBOX_CCLW_CANNOT_BE_USED_FOR_LIVE')
+    ),
+    'unauth=401, nonAdmin=403, missing_configuration with no sandbox fallback',
+    `unauth=${unauthCheckoutTest.statusCode}, nonAdmin=${nonAdminCheckoutTest.statusCode}, cat=${missingCclwTest.body.liveCheckoutTest?.category}`
   );
 
   // -------------------------------------------------------------

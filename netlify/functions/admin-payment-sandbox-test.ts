@@ -741,6 +741,277 @@ export async function executeTestLiveApiConnection(
 }
 
 /**
+ * Admin-Only Action: Secure Read-Only PagueloFacil LIVE CCLW Checkout-Link Creation Test (No Charge)
+ * Generates an isolated $1.00 USD probe checkout link to verify production CCLW.
+ * Never opens, shares, captures, or pays the link; validates the returned HTTPS host against trusted production hosts.
+ */
+export async function executeTestLiveCheckoutConnection(
+  authToken: string | null,
+  dependencies: AdminSandboxTestDependencies = {}
+): Promise<{ statusCode: number; body: any }> {
+  const env = dependencies.envOverride || process.env;
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const fetchFn = dependencies.fetchFn || global.fetch;
+
+  // 1. Authenticate administrator server-side using quotation_admins authorization table
+  if (!authToken || !authToken.trim()) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Administrator Bearer token is required.',
+      },
+    };
+  }
+
+  const cleanToken = authToken.replace(/^Bearer\s+/i, '').trim();
+  const supabase = dependencies.supabaseClient || createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(cleanToken);
+  if (authError || !authData?.user?.id) {
+    return {
+      statusCode: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized: Invalid or expired administrator credentials.',
+      },
+    };
+  }
+
+  const adminUserId = authData.user.id;
+  const { data: adminRecord, error: adminError } = await supabase
+    .from('quotation_admins')
+    .select('user_id')
+    .eq('user_id', adminUserId)
+    .maybeSingle();
+
+  if (adminError || !adminRecord?.user_id) {
+    return {
+      statusCode: 403,
+      body: {
+        success: false,
+        error: 'Forbidden: Access restricted to authorized quotation administrators.',
+      },
+    };
+  }
+
+  // 2. Read PAGUELOFACIL_CCLW only from server-side environment variables
+  // Never read sandbox CCLW or require PAGUELOFACIL_ENV to be changed.
+  // Never expose CCLW or generated checkout URL to browser or logs.
+  const liveCclw = (env.PAGUELOFACIL_CCLW || '').trim();
+  const endpoint = 'https://secure.paguelofacil.com/LinkDeamon.cfm';
+  const timestamp = new Date().toISOString();
+
+  if (!liveCclw) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        action: 'test_live_checkout_connection',
+        liveCheckoutTest: {
+          reachable: false,
+          httpStatus: null,
+          category: 'missing_configuration',
+          credentialAccepted: false,
+          checkoutUrlGenerated: false,
+          validatedHost: null,
+          sanitizedErrorReason: 'PAGUELOFACIL_CCLW is not configured in server environment variables.',
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  }
+
+  if (!validateCclw(liveCclw)) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        action: 'test_live_checkout_connection',
+        liveCheckoutTest: {
+          reachable: false,
+          httpStatus: null,
+          category: 'invalid_cclw',
+          credentialAccepted: false,
+          checkoutUrlGenerated: false,
+          validatedHost: null,
+          sanitizedErrorReason: 'PAGUELOFACIL_CCLW contains invalid characters or format.',
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  }
+
+  // 3. Construct Documented LinkDeamon Request Payload
+  const probeReference = `LIVE-CONNECTION-PROBE-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const probeAttemptKey = `idem_live_probe_${Date.now()}`;
+
+  const formParams = new URLSearchParams();
+  formParams.append('CCLW', liveCclw);
+  formParams.append('CMTN', '1.00'); // $1.00 USD
+  formParams.append('CDSC', 'Connection test - do not pay');
+  formParams.append('RETURN_URL', 'https://gunayalapanama.com/admin?live-probe=complete');
+  formParams.append('PARM_1', probeReference);
+  formParams.append('PARM_2', probeAttemptKey);
+  formParams.append('EXPIRES_IN', '900'); // 15-minute short probe expiry
+
+  try {
+    const response = await fetchFn(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formParams.toString(),
+    });
+
+    const httpStatus = response.status;
+
+    if (!response.ok) {
+      const isAuthStatus = httpStatus === 401 || httpStatus === 403 || httpStatus === 422;
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_checkout_connection',
+          liveCheckoutTest: {
+            reachable: true,
+            httpStatus,
+            category: isAuthStatus ? 'invalid_cclw' : 'gateway_error',
+            credentialAccepted: isAuthStatus ? false : 'unknown',
+            checkoutUrlGenerated: false,
+            validatedHost: null,
+            sanitizedErrorReason: `Production LinkDeamon returned HTTP ${httpStatus}.`,
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    let responseData: any;
+    try {
+      responseData = await response.json();
+    } catch {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_checkout_connection',
+          liveCheckoutTest: {
+            reachable: true,
+            httpStatus,
+            category: 'malformed_response',
+            credentialAccepted: 'unknown',
+            checkoutUrlGenerated: false,
+            validatedHost: null,
+            sanitizedErrorReason: 'Production endpoint returned HTTP 200 but response body was not valid JSON.',
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    // Inspect API-level response code & presence of checkout URL
+    if (responseData.headerStatus?.code !== 200 || !responseData.data?.url) {
+      const errorMsg =
+        responseData.headerStatus?.description ||
+        responseData.message ||
+        'PagueloFacil rejected hosted checkout link generation.';
+      const isCclwError = /cclw|merchant|credencial|invalido|unauthorized|no.*autorizado/i.test(errorMsg);
+
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_checkout_connection',
+          liveCheckoutTest: {
+            reachable: true,
+            httpStatus,
+            category: isCclwError ? 'invalid_cclw' : 'gateway_error',
+            credentialAccepted: isCclwError ? false : 'unknown',
+            checkoutUrlGenerated: false,
+            validatedHost: null,
+            sanitizedErrorReason: errorMsg,
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    // Validate the generated checkout URL strictly against trusted PagueloFacil production hostnames
+    const rawUrl = String(responseData.data.url);
+    const urlValidation = validatePagueloFacilCheckoutUrl(rawUrl, 'production');
+
+    if (!urlValidation.valid || !urlValidation.url) {
+      return {
+        statusCode: 200,
+        body: {
+          success: false,
+          action: 'test_live_checkout_connection',
+          liveCheckoutTest: {
+            reachable: true,
+            httpStatus,
+            category: 'untrusted_hostname',
+            credentialAccepted: true,
+            checkoutUrlGenerated: false,
+            validatedHost: null,
+            sanitizedErrorReason: 'Checkout URL does not match trusted PagueloFacil production hostnames.',
+            endpoint,
+            timestamp,
+          },
+        },
+      };
+    }
+
+    const validatedHost = new URL(urlValidation.url).hostname.toLowerCase();
+
+    // SUCCESS: Credential accepted, checkout URL generated, host validated
+    // Crucial: The full checkout URL and CCLW are NEVER logged or returned to the client
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        action: 'test_live_checkout_connection',
+        liveCheckoutTest: {
+          reachable: true,
+          httpStatus: 200,
+          category: 'checkout_link_created',
+          credentialAccepted: true,
+          checkoutUrlGenerated: true,
+          validatedHost,
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  } catch (err: any) {
+    return {
+      statusCode: 200,
+      body: {
+        success: false,
+        action: 'test_live_checkout_connection',
+        liveCheckoutTest: {
+          reachable: false,
+          httpStatus: null,
+          category: 'gateway_error',
+          credentialAccepted: 'unknown',
+          checkoutUrlGenerated: false,
+          validatedHost: null,
+          sanitizedErrorReason: `Network error connecting to production LinkDeamon: ${err.message}`,
+          endpoint,
+          timestamp,
+        },
+      },
+    };
+  }
+}
+
+/**
  * Core test execution logic, separated for isolated unit testing with mocks.
  */
 export async function executeAdminSandboxTest(
@@ -756,6 +1027,9 @@ export async function executeAdminSandboxTest(
   }
   if (requestBody?.action === 'test_live_api_connection') {
     return await executeTestLiveApiConnection(authToken, dependencies);
+  }
+  if (requestBody?.action === 'test_live_checkout_connection') {
+    return await executeTestLiveCheckoutConnection(authToken, dependencies);
   }
 
   const env = dependencies.envOverride || process.env;

@@ -18,7 +18,7 @@ import {
   ShieldCheck,
   Terminal,
 } from 'lucide-react';
-import { PaymentLifecycleStatus, AdminSandboxTestResponse, LiveApiConnectionTestResult } from '../../types/payment';
+import { PaymentLifecycleStatus, AdminSandboxTestResponse, LiveApiConnectionTestResult, LiveCheckoutConnectionTestResult } from '../../types/payment';
 import { supabase } from '../../lib/supabase';
 import { parseSandboxReturnParams, ParsedSandboxReturn } from '../../utils/sandboxReturnParser';
 
@@ -269,6 +269,50 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
       setLiveApiTestError(err.message || 'An unexpected error occurred during live API connection test.');
     } finally {
       setIsTestingLiveApi(false);
+    }
+  };
+
+  const [isTestingLiveCheckout, setIsTestingLiveCheckout] = useState<boolean>(false);
+  const [liveCheckoutTestResult, setLiveCheckoutTestResult] = useState<LiveCheckoutConnectionTestResult | null>(null);
+  const [liveCheckoutTestError, setLiveCheckoutTestError] = useState<string | null>(null);
+
+  const handleTestLiveCheckoutConnection = async () => {
+    setIsTestingLiveCheckout(true);
+    setLiveCheckoutTestError(null);
+    setLiveCheckoutTestResult(null);
+
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client is not available.');
+      }
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('You must be logged in as an authorized quotation administrator.');
+      }
+
+      const response = await fetch('/api/admin/payment-sandbox-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'test_live_checkout_connection',
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setLiveCheckoutTestError(data.error || data.message || `HTTP ${response.status}: Live checkout test failed.`);
+      } else if (data.liveCheckoutTest) {
+        setLiveCheckoutTestResult(data.liveCheckoutTest);
+      } else {
+        setLiveCheckoutTestError('Unexpected response format from live checkout test endpoint.');
+      }
+    } catch (err: any) {
+      setLiveCheckoutTestError(err.message || 'An unexpected error occurred during live checkout connection test.');
+    } finally {
+      setIsTestingLiveCheckout(false);
     }
   };
 
@@ -768,6 +812,24 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
                 </>
               )}
             </button>
+
+            <button
+              onClick={handleTestLiveCheckoutConnection}
+              disabled={isTestingLiveCheckout}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isTestingLiveCheckout ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Testing LIVE Checkout...</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard className="w-4 h-4 text-[#D6BA80]" />
+                  <span>Test LIVE Checkout Connection (No Charge)</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -860,6 +922,57 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
             <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-200">
               <div><strong>Endpoint:</strong> {liveApiTestResult.endpoint}</div>
               <div><strong>Timestamp:</strong> {liveApiTestResult.timestamp}</div>
+            </div>
+          </div>
+        )}
+
+        {liveCheckoutTestError && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-300 text-xs text-red-900 font-mono">
+            <strong>Live Checkout Test Error:</strong> {liveCheckoutTestError}
+          </div>
+        )}
+
+        {liveCheckoutTestResult && (
+          <div className={`p-4 rounded-xl border text-xs font-mono space-y-2 ${
+            liveCheckoutTestResult.credentialAccepted === true && liveCheckoutTestResult.checkoutUrlGenerated === true
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : liveCheckoutTestResult.credentialAccepted === false
+              ? 'bg-red-50 border-red-300 text-red-950'
+              : 'bg-amber-50 border-amber-300 text-amber-950'
+          }`}>
+            <div className="flex items-center gap-2 font-bold text-sm">
+              {liveCheckoutTestResult.credentialAccepted === true && liveCheckoutTestResult.checkoutUrlGenerated === true ? (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span className="text-emerald-900">Live Checkout Connection Verified (No Charge)</span>
+                </>
+              ) : liveCheckoutTestResult.credentialAccepted === false ? (
+                <>
+                  <XCircle className="w-5 h-5 text-red-600" />
+                  <span className="text-red-900">Live Checkout Connection Failed</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  <span className="text-amber-900">Live Checkout Connection Inconclusive</span>
+                </>
+              )}
+            </div>
+            <div><strong>Reachable:</strong> {liveCheckoutTestResult.reachable ? 'Yes' : 'No'}</div>
+            <div><strong>HTTP Status:</strong> {liveCheckoutTestResult.httpStatus ?? 'N/A'}</div>
+            <div><strong>API Category:</strong> <span className="underline">{liveCheckoutTestResult.category}</span></div>
+            <div><strong>CCLW Credential Accepted:</strong> {String(liveCheckoutTestResult.credentialAccepted)}</div>
+            <div><strong>Checkout URL Generated:</strong> {liveCheckoutTestResult.checkoutUrlGenerated ? 'Yes' : 'No'}</div>
+            <div><strong>Validated Gateway Host:</strong> {liveCheckoutTestResult.validatedHost ?? 'None'}</div>
+            {liveCheckoutTestResult.sanitizedErrorReason && (
+              <div className="text-amber-900"><strong>Notice / Error:</strong> {liveCheckoutTestResult.sanitizedErrorReason}</div>
+            )}
+            <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-200">
+              <div><strong>Target Endpoint:</strong> {liveCheckoutTestResult.endpoint}</div>
+              <div><strong>Timestamp:</strong> {liveCheckoutTestResult.timestamp}</div>
+              <div className="text-emerald-800 font-sans font-semibold mt-1">
+                Security Guarantee: Full checkout URL, credentials, and CCLW are suppressed for safety. No charge was created or paid.
+              </div>
             </div>
           </div>
         )}
