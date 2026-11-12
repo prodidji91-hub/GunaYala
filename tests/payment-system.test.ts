@@ -2512,6 +2512,759 @@ async function runPaymentSecurityTests() {
   );
 
   // -------------------------------------------------------------
+  // TEST 73: AUTOMATIC WEBHOOK CORRECTION RECOVERY (PARM_1 length 15, DB operation initially NULL)
+  // -------------------------------------------------------------
+  let autoReconBookingStatus = 'pending_payment';
+  let autoReconUpdatedRows = 0;
+  const mockAutoReconSupabase = {
+    from: (table: string) => {
+      if (table === 'payment_transactions') {
+        return {
+          select: () => ({
+            eq: (col: string, val: any) => {
+              if (col === 'booking_reference' && val === 'SHORT-PARM-15-ID') {
+                return { data: [], error: null };
+              }
+              if (col === 'booking_reference' && val === 'TEST-DAYTOUR-GNY-643300') {
+                return {
+                  data: [
+                    {
+                      id: 'tx-auto-123',
+                      booking_reference: 'TEST-DAYTOUR-GNY-643300',
+                      status: 'pending',
+                      environment: 'sandbox',
+                      expected_amount: 69.00,
+                      amount_in_cents: 6900,
+                      currency: 'USD',
+                      gateway_operation_id: null,
+                    },
+                  ],
+                  error: null,
+                };
+              }
+              return { data: [], error: null };
+            },
+          }),
+          update: () => ({
+            eq: () => ({
+              select: () => {
+                autoReconUpdatedRows++;
+                return { data: [{ id: 'tx-auto-123' }], error: null };
+              },
+            }),
+          }),
+        };
+      }
+      if (table === 'booking_requests') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => ({ data: { special_notes: '' }, error: null }),
+            }),
+          }),
+          update: (updateData: any) => ({
+            eq: () => ({
+              select: () => {
+                autoReconBookingStatus = updateData.status;
+                return { data: [{ booking_reference: 'TEST-DAYTOUR-GNY-643300' }], error: null };
+              },
+            }),
+          }),
+        };
+      }
+      return {} as any;
+    },
+  };
+
+  const origFetchAuto = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: {
+        codOper: 'LK-BMMRPXP4MZDB',
+        status: 1,
+        txType: 'AUTH_CAPTURE',
+        authCurrency: 840,
+        authAmount: 69.00,
+        idMerchant: 'SANDBOX_MERCHANT',
+        urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300',
+      },
+    }),
+  } as any);
+
+  const autoReconResult = await reconcilePaymentTransaction({
+    bookingReference: 'SHORT-PARM-15-ID',
+    operationCode: 'LK-BMMRPXP4MZDB',
+    environment: 'sandbox',
+    supabaseClient: mockAutoReconSupabase as any,
+    env: { PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'token' },
+  });
+  global.fetch = origFetchAuto;
+
+  assert(
+    'Test 73: Automatic webhook recovery successfully correlates untrusted PARM_1 via operationCode and urlString bookingReference, confirming booking',
+    autoReconResult.success === true &&
+      autoReconResult.category === 'approved' &&
+      autoReconUpdatedRows === 1 &&
+      autoReconBookingStatus === 'fully_confirmed',
+    'success=true, category=approved, bookingStatus=fully_confirmed',
+    `success=${autoReconResult.success}, status=${autoReconBookingStatus}`
+  );
+
+  // -------------------------------------------------------------
+  // HELPER: Flexible in-memory Supabase mock state for Webhook & Reconciliation tests
+  // -------------------------------------------------------------
+  function createMockSupabaseState(initialPayments: any[], initialBookings: any[]) {
+    let payments = initialPayments.map((p) => ({ ...p }));
+    let bookings = initialBookings.map((b) => ({ ...b }));
+    const paymentUpdates: any[] = [];
+    const bookingUpdates: any[] = [];
+
+    const mockClient = {
+      getPayments: () => payments,
+      getBookings: () => bookings,
+      getPaymentByRef: (ref: string) => payments.find((p) => p.booking_reference === ref),
+      getBookingByRef: (ref: string) => bookings.find((b) => b.booking_reference === ref),
+      getPaymentUpdates: () => paymentUpdates,
+      getBookingUpdates: () => bookingUpdates,
+      from: (table: string) => {
+        if (table === 'payment_transactions') {
+          return {
+            select: (_fields?: string) => ({
+              eq: (col: string, val: any) => {
+                const matches = payments.filter((p) => p[col] === val);
+                const res = { data: matches, error: null };
+                return {
+                  ...res,
+                  maybeSingle: async () => ({ data: matches.length > 0 ? matches[0] : null, error: null }),
+                  then: (resolve: any) => resolve(res),
+                };
+              },
+            }),
+            update: (fields: any) => ({
+              eq: (col: string, val: any) => {
+                const updated: any[] = [];
+                payments = payments.map((p) => {
+                  if (p[col] === val) {
+                    const u = { ...p, ...fields };
+                    updated.push(u);
+                    paymentUpdates.push({ ...fields, targetCol: col, targetVal: val });
+                    return u;
+                  }
+                  return p;
+                });
+                const ret = { data: updated, error: null };
+                return {
+                  ...ret,
+                  select: () => ret,
+                  then: (resolve: any) => resolve(ret),
+                };
+              },
+            }),
+          };
+        }
+        if (table === 'booking_requests') {
+          return {
+            select: (_fields?: string) => ({
+              eq: (col: string, val: any) => {
+                const match = bookings.find((b) => b[col] === val);
+                const res = { data: match || null, error: null };
+                return {
+                  ...res,
+                  maybeSingle: async () => res,
+                  then: (resolve: any) => resolve(res),
+                };
+              },
+            }),
+            update: (fields: any) => ({
+              eq: (col: string, val: any) => {
+                const updated: any[] = [];
+                bookings = bookings.map((b) => {
+                  if (b[col] === val) {
+                    const u = { ...b, ...fields };
+                    updated.push(u);
+                    bookingUpdates.push({ ...fields, targetCol: col, targetVal: val });
+                    return u;
+                  }
+                  return b;
+                });
+                const ret = { data: updated, error: null };
+                return {
+                  ...ret,
+                  select: () => ret,
+                  then: (resolve: any) => resolve(ret),
+                };
+              },
+            }),
+          };
+        }
+        return {} as any;
+      },
+    };
+    return mockClient;
+  }
+
+  const standardGwRecord = {
+    codOper: 'LK-BMMRPXP4MZDB',
+    status: 1,
+    txType: 'AUTH_CAPTURE',
+    authCurrency: 840,
+    authAmount: 69.00,
+    idMerchant: 'SANDBOX_MERCHANT',
+    urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300',
+  };
+
+  const standardEnv = {
+    PAGUELOFACIL_SANDBOX_ACCESS_TOKEN: 'mock_sandbox_access_token_12345',
+    PAGUELOFACIL_RETURN_URL: 'https://gunayalapanama.com/checkout/complete',
+  };
+
+  // -------------------------------------------------------------
+  // TEST 74: REGRESSION SCENARIO A - PARM_1 length 15, valid Oper, verified urlString, DB operation initially NULL
+  // -------------------------------------------------------------
+  const stateA = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-a',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending_payment',
+        special_notes: '',
+      },
+    ]
+  );
+
+  const fetchA = async () => ({
+    ok: true,
+    json: async () => ({ data: [standardGwRecord] }),
+  } as any);
+
+  const webhookReqA = {
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      PARM_1: 'SHORT15CHARSREF', // 15 characters, untrusted hint
+      Oper: 'LK-BMMRPXP4MZDB',
+      TotalPagado: '69.00',
+      Estado: 'Aprobada',
+    }),
+  };
+
+  const resA = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateA as any,
+    env: standardEnv,
+    fetchFn: fetchA,
+  });
+  const bodyA = JSON.parse(resA.body);
+
+  assert(
+    'Test 74 (Scenario A): Webhook with 15-char PARM_1, valid Oper, and initially NULL gateway_operation_id correlates via urlString and confirms booking',
+    resA.statusCode === 200 &&
+      bodyA.success === true &&
+      bodyA.verified === true &&
+      stateA.getPaymentByRef('TEST-DAYTOUR-GNY-643300')?.status === 'approved' &&
+      stateA.getPaymentByRef('TEST-DAYTOUR-GNY-643300')?.gateway_operation_id === 'LK-BMMRPXP4MZDB' &&
+      stateA.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'fully_confirmed',
+    'HTTP 200, success=true, payment=approved, oper=LK-BMMRPXP4MZDB, booking=fully_confirmed',
+    `status=${resA.statusCode}, success=${bodyA.success}, payStatus=${stateA.getPaymentByRef('TEST-DAYTOUR-GNY-643300')?.status}, bookStatus=${stateA.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 75: REGRESSION SCENARIO B - Gateway status declined (status 0) -> rejects, booking remains pending
+  // -------------------------------------------------------------
+  const stateB = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-b',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending_payment',
+        special_notes: '',
+      },
+    ]
+  );
+
+  const fetchB = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, status: 0, txType: 'AUTH_CAPTURE' }],
+    }),
+  } as any);
+
+  const webhookReqB = {
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      PARM_1: 'SHORT15CHARSREF',
+      Oper: 'LK-BMMRPXP4MZDB',
+      TotalPagado: '69.00',
+      Estado: 'Rechazada',
+    }),
+  };
+
+  const resB = await webhookHandler(webhookReqB as any, {} as any, {
+    supabaseClient: stateB as any,
+    env: standardEnv,
+    fetchFn: fetchB,
+  });
+  const bodyB = JSON.parse(resB.body);
+
+  assert(
+    'Test 75 (Scenario B): Gateway status declined (status 0) rejects webhook and preserves pending_payment booking status',
+    resB.statusCode === 422 &&
+      bodyB.success === false &&
+      bodyB.category === 'declined' &&
+      stateB.getPaymentByRef('TEST-DAYTOUR-GNY-643300')?.status === 'pending' &&
+      stateB.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'pending_payment',
+    'HTTP 422, category=declined, booking status remains pending_payment',
+    `status=${resB.statusCode}, category=${bodyB.category}, bookStatus=${stateB.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 76: REGRESSION SCENARIO C - Gateway record absent (0 records) or multiple (>1 records)
+  // -------------------------------------------------------------
+  const stateC = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-c',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [{ booking_reference: 'TEST-DAYTOUR-GNY-643300', status: 'pending_payment' }]
+  );
+
+  const fetchCZero = async () => ({
+    ok: true,
+    json: async () => ({ data: [] }),
+  } as any);
+
+  const fetchCMultiple = async () => ({
+    ok: true,
+    json: async () => ({ data: [standardGwRecord, { ...standardGwRecord, codOper: 'LK-BMMRPXP4MZDB' }] }),
+  } as any);
+
+  const resCZero = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateC as any,
+    env: standardEnv,
+    fetchFn: fetchCZero,
+  });
+  const bodyCZero = JSON.parse(resCZero.body);
+
+  const resCMultiple = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateC as any,
+    env: standardEnv,
+    fetchFn: fetchCMultiple,
+  });
+  const bodyCMultiple = JSON.parse(resCMultiple.body);
+
+  assert(
+    'Test 76 (Scenario C): Gateway records absent (0 records) or ambiguous (>1 records) safely reject webhook',
+    resCZero.statusCode === 422 &&
+      bodyCZero.category === 'absent_records' &&
+      resCMultiple.statusCode === 422 &&
+      bodyCMultiple.category === 'ambiguous_records',
+    'Zero -> absent_records; Multiple -> ambiguous_records',
+    `zeroCategory=${bodyCZero.category}, multiCategory=${bodyCMultiple.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 77: REGRESSION SCENARIO D - Wrong URL host or path in urlString rejects safely
+  // -------------------------------------------------------------
+  const stateD = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-d',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [{ booking_reference: 'TEST-DAYTOUR-GNY-643300', status: 'pending_payment' }]
+  );
+
+  const fetchDHost = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, urlString: 'https://evil-phishing.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300' }],
+    }),
+  } as any);
+
+  const fetchDPath = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, urlString: 'https://gunayalapanama.com/untrusted/path?bookingReference=TEST-DAYTOUR-GNY-643300' }],
+    }),
+  } as any);
+
+  const resDHost = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateD as any,
+    env: standardEnv,
+    fetchFn: fetchDHost,
+  });
+  const bodyDHost = JSON.parse(resDHost.body);
+
+  const resDPath = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateD as any,
+    env: standardEnv,
+    fetchFn: fetchDPath,
+  });
+  const bodyDPath = JSON.parse(resDPath.body);
+
+  assert(
+    'Test 77 (Scenario D): Untrusted host or untrusted pathname in gateway urlString safely rejects webhook',
+    resDHost.statusCode === 422 &&
+      bodyDHost.category === 'needs_manual_review' &&
+      resDPath.statusCode === 422 &&
+      bodyDPath.category === 'needs_manual_review' &&
+      stateD.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'pending_payment',
+    'HTTP 422, category=needs_manual_review for both untrusted host and path',
+    `hostCat=${bodyDHost.category}, pathCat=${bodyDPath.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 78: REGRESSION SCENARIO E - Duplicate or conflicting bookingReference query parameters in urlString
+  // -------------------------------------------------------------
+  const stateE = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-e',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [{ booking_reference: 'TEST-DAYTOUR-GNY-643300', status: 'pending_payment' }]
+  );
+
+  const fetchEDup = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=REF-A&bookingReference=REF-B' }],
+    }),
+  } as any);
+
+  const fetchEConflict = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, urlString: 'https://gunayalapanama.com/checkout/complete?bookingReference=TEST-DAYTOUR-GNY-643300&PARM_1=CONFLICT-REF' }],
+    }),
+  } as any);
+
+  const resEDup = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateE as any,
+    env: standardEnv,
+    fetchFn: fetchEDup,
+  });
+  const bodyEDup = JSON.parse(resEDup.body);
+
+  const resEConflict = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateE as any,
+    env: standardEnv,
+    fetchFn: fetchEConflict,
+  });
+  const bodyEConflict = JSON.parse(resEConflict.body);
+
+  assert(
+    'Test 78 (Scenario E): Duplicate or conflicting reference parameters in gateway urlString safely reject webhook',
+    resEDup.statusCode === 422 &&
+      bodyEDup.category === 'needs_manual_review' &&
+      resEConflict.statusCode === 422 &&
+      bodyEConflict.category === 'needs_manual_review',
+    'HTTP 422, category=needs_manual_review for duplicate and conflicting parameters',
+    `dupCat=${bodyEDup.category}, conflictCat=${bodyEConflict.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 79: REGRESSION SCENARIO F - Gateway amount mismatch or currency mismatch rejects safely
+  // -------------------------------------------------------------
+  const stateF = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-f',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [{ booking_reference: 'TEST-DAYTOUR-GNY-643300', status: 'pending_payment' }]
+  );
+
+  const fetchFAmount = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, authAmount: 50.00 }],
+    }),
+  } as any);
+
+  const fetchFCurrency = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{ ...standardGwRecord, authCurrency: 978 }], // EUR
+    }),
+  } as any);
+
+  const resFAmount = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateF as any,
+    env: standardEnv,
+    fetchFn: fetchFAmount,
+  });
+  const bodyFAmount = JSON.parse(resFAmount.body);
+
+  const resFCurrency = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateF as any,
+    env: standardEnv,
+    fetchFn: fetchFCurrency,
+  });
+  const bodyFCurrency = JSON.parse(resFCurrency.body);
+
+  assert(
+    'Test 79 (Scenario F): Gateway amount mismatch ($50 vs $69) or currency mismatch (EUR vs USD) safely reject webhook',
+    resFAmount.statusCode === 422 &&
+      bodyFAmount.category === 'validation_rejection' &&
+      resFCurrency.statusCode === 422 &&
+      bodyFCurrency.category === 'validation_rejection',
+    'HTTP 422, category=validation_rejection for both amount and currency mismatch',
+    `amountCat=${bodyFAmount.category}, currCat=${bodyFCurrency.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 80: REGRESSION SCENARIO G - Second callback for already approved transaction returns duplicate:true
+  // -------------------------------------------------------------
+  const stateG = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-g',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'approved',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        amount_paid: 69.00,
+        currency: 'USD',
+        gateway_operation_id: 'LK-BMMRPXP4MZDB',
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'fully_confirmed',
+        special_notes: '[TEST / RECONCILED]',
+      },
+    ]
+  );
+
+  const fetchG = async () => ({
+    ok: true,
+    json: async () => ({ data: [standardGwRecord] }),
+  } as any);
+
+  const resG = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateG as any,
+    env: standardEnv,
+    fetchFn: fetchG,
+  });
+  const bodyG = JSON.parse(resG.body);
+
+  assert(
+    'Test 80 (Scenario G): Second callback for an already-approved and confirmed transaction returns HTTP 200 with duplicate=true',
+    resG.statusCode === 200 &&
+      bodyG.success === true &&
+      bodyG.duplicate === true &&
+      stateG.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'fully_confirmed',
+    'HTTP 200, success=true, duplicate=true, booking=fully_confirmed',
+    `status=${resG.statusCode}, duplicate=${bodyG.duplicate}, bookingStatus=${stateG.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 81: REGRESSION SCENARIO H - Mismatched stored operation ID rejects safely
+  // -------------------------------------------------------------
+  const stateH = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-h',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: 'LK-OLD-DIFFERENT-OPER', // Mismatched stored oper
+      },
+    ],
+    [{ booking_reference: 'TEST-DAYTOUR-GNY-643300', status: 'pending_payment' }]
+  );
+
+  const resH = await webhookHandler(webhookReqA as any, {} as any, {
+    supabaseClient: stateH as any,
+    env: standardEnv,
+    fetchFn: fetchA,
+  });
+  const bodyH = JSON.parse(resH.body);
+
+  assert(
+    'Test 81 (Scenario H): Mismatched stored gateway operation ID rejects webhook with category mismatched_identifiers',
+    resH.statusCode === 422 &&
+      bodyH.category === 'mismatched_identifiers' &&
+      bodyH.error?.includes('Mismatched stored operation ID') === true &&
+      stateH.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'pending_payment',
+    'HTTP 422, category=mismatched_identifiers, booking remains pending_payment',
+    `status=${resH.statusCode}, category=${bodyH.category}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 82: REGRESSION SCENARIO I - Manual reconciliation for previously successful $69 transaction works
+  // -------------------------------------------------------------
+  const stateI = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-i',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending_payment',
+        special_notes: '',
+      },
+    ]
+  );
+
+  const resI = await reconcilePaymentTransaction({
+    bookingReference: 'TEST-DAYTOUR-GNY-643300',
+    operationCode: 'LK-BMMRPXP4MZDB',
+    environment: 'sandbox',
+    supabaseClient: stateI as any,
+    env: standardEnv,
+    fetchFn: fetchA,
+  });
+
+  assert(
+    'Test 82 (Scenario I): Manual reconciliation for the $69 transaction succeeds, marking payment approved and booking fully_confirmed',
+    resI.success === true &&
+      resI.category === 'approved' &&
+      resI.amountPaid === 69 &&
+      stateI.getPaymentByRef('TEST-DAYTOUR-GNY-643300')?.status === 'approved' &&
+      stateI.getPaymentByRef('TEST-DAYTOUR-GNY-643300')?.gateway_operation_id === 'LK-BMMRPXP4MZDB' &&
+      stateI.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'fully_confirmed',
+    'success=true, category=approved, amountPaid=69, booking=fully_confirmed',
+    `success=${resI.success}, category=${resI.category}, amount=${resI.amountPaid}, bookStatus=${stateI.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 83: REGRESSION SCENARIO J - Untrusted webhook-supplied identifiers cannot spoof booking selection
+  // -------------------------------------------------------------
+  const stateJ = createMockSupabaseState(
+    [
+      {
+        id: 'tx-scenario-j-target',
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+      {
+        id: 'tx-scenario-j-attacker',
+        booking_reference: 'ATTACKER-EVIL-REF',
+        status: 'pending',
+        environment: 'sandbox',
+        expected_amount: 69.00,
+        amount_in_cents: 6900,
+        currency: 'USD',
+        gateway_operation_id: null,
+      },
+    ],
+    [
+      {
+        booking_reference: 'TEST-DAYTOUR-GNY-643300',
+        status: 'pending_payment',
+        special_notes: '',
+      },
+      {
+        booking_reference: 'ATTACKER-EVIL-REF',
+        status: 'pending_payment',
+        special_notes: '',
+      },
+    ]
+  );
+
+  const webhookReqJ = {
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      PARM_1: 'ATTACKER-EVIL-REF', // Attacker attempts to hijack payment for their booking
+      Oper: 'LK-BMMRPXP4MZDB',
+      TotalPagado: '69.00',
+      Estado: 'Aprobada',
+    }),
+  };
+
+  const resJ = await webhookHandler(webhookReqJ as any, {} as any, {
+    supabaseClient: stateJ as any,
+    env: standardEnv,
+    fetchFn: fetchA,
+  });
+  const bodyJ = JSON.parse(resJ.body);
+
+  assert(
+    'Test 83 (Scenario J): Untrusted callback PARM_1 cannot divert credit; authenticated urlString reference TEST-DAYTOUR-GNY-643300 is confirmed while attacker booking remains pending',
+    resJ.statusCode === 200 &&
+      bodyJ.success === true &&
+      bodyJ.bookingReference === 'TEST-DAYTOUR-GNY-643300' &&
+      stateJ.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status === 'fully_confirmed' &&
+      stateJ.getBookingByRef('ATTACKER-EVIL-REF')?.status === 'pending_payment',
+    'HTTP 200, target booking fully_confirmed, attacker booking remains pending_payment',
+    `status=${resJ.statusCode}, ref=${bodyJ.bookingReference}, targetStatus=${stateJ.getBookingByRef('TEST-DAYTOUR-GNY-643300')?.status}, attackerStatus=${stateJ.getBookingByRef('ATTACKER-EVIL-REF')?.status}`
+  );
+
+  // -------------------------------------------------------------
   // PRINT TEST MATRIX
   // -------------------------------------------------------------
   console.log('----------------------------------------------------');

@@ -9,6 +9,7 @@ export interface ReconciliationParams {
   environment?: 'sandbox' | 'production';
   supabaseClient: SupabaseClient;
   env?: Record<string, string | undefined>;
+  fetchFn?: typeof fetch;
 }
 
 export interface ReconciliationResult {
@@ -376,6 +377,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     environment = 'sandbox',
     supabaseClient,
     env = process.env,
+    fetchFn = params.fetchFn || global.fetch,
   } = params;
 
   if (!bookingReference && !operationCode && !linkCode) {
@@ -423,11 +425,12 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
 
     // 2. Try by operationCode (gateway_operation_id)
     if (!existingTx && operationCode) {
-      const { data } = await supabaseClient
+      const opQuery: any = supabaseClient
         .from('payment_transactions')
         .select('*')
-        .eq('gateway_operation_id', operationCode)
-        .maybeSingle();
+        .eq('gateway_operation_id', operationCode);
+      const res = typeof opQuery?.maybeSingle === 'function' ? await opQuery.maybeSingle() : await opQuery;
+      const data = Array.isArray(res?.data) ? (res.data.length === 1 ? res.data[0] : null) : res?.data;
       if (data) {
         existingTx = data;
       }
@@ -435,17 +438,91 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
 
     // 3. Try by linkCode (gateway_link_code)
     if (!existingTx && linkCode) {
-      const { data } = await supabaseClient
+      const linkQuery: any = supabaseClient
         .from('payment_transactions')
         .select('*')
-        .eq('gateway_link_code', linkCode)
-        .maybeSingle();
+        .eq('gateway_link_code', linkCode);
+      const res = typeof linkQuery?.maybeSingle === 'function' ? await linkQuery.maybeSingle() : await linkQuery;
+      const data = Array.isArray(res?.data) ? (res.data.length === 1 ? res.data[0] : null) : res?.data;
       if (data) {
         existingTx = data;
       }
     }
 
     // 4. Try by idempotencyKey
+    if (!existingTx && idempotencyKey) {
+      const idemQuery: any = supabaseClient
+        .from('payment_transactions')
+        .select('*')
+        .eq('idempotency_key', idempotencyKey);
+      const res = typeof idemQuery?.maybeSingle === 'function' ? await idemQuery.maybeSingle() : await idemQuery;
+      const data = Array.isArray(res?.data) ? (res.data.length === 1 ? res.data[0] : null) : res?.data;
+      if (data) {
+        existingTx = data;
+      }
+    }
+
+    // 5. Webhook Automatic Correlation Recovery Path:
+    // If transaction not found by local keys, but operationCode is provided by webhook,
+    // query MerchantTransactions API authoritatively using operationCode, parse urlString as merchant return URL,
+    // extract verified bookingReference, and query Supabase by that verified booking reference.
+    if (!existingTx && operationCode) {
+      const isSandboxEnv = environment === 'sandbox';
+      const activeToken = isSandboxEnv
+        ? (env.PAGUELOFACIL_SANDBOX_ACCESS_TOKEN || env.PAGUELOFACIL_DEMO_ACCESS_TOKEN || '').trim()
+        : (env.PAGUELOFACIL_ACCESS_TOKEN || '').trim();
+
+      if (activeToken) {
+        const verifyUrl = isSandboxEnv
+          ? 'https://sandbox.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions'
+          : 'https://admin.paguelofacil.com/PFManagementServices/api/v1/MerchantTransactions';
+        const filterParam = `codOper::${operationCode}`;
+
+        try {
+          const gwRes = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+            method: 'GET',
+            headers: {
+              Authorization: activeToken,
+              Accept: 'application/json',
+            },
+          });
+
+          if (gwRes.ok) {
+            const gwJson = await gwRes.json();
+            const records = Array.isArray(gwJson?.data) ? gwJson.data : (gwJson?.data ? [gwJson.data] : (Array.isArray(gwJson) ? gwJson : []));
+            const matching = records.filter((r: any) => String(r.codOper || r.oper || r.id || '').trim() === String(operationCode).trim());
+
+            if (matching.length === 1) {
+              const matchedGw = matching[0];
+              const urlStr = matchedGw.urlString || matchedGw.url || matchedGw.returnUrl || matchedGw.callbackUrl;
+              if (urlStr && typeof urlStr === 'string') {
+                try {
+                  const parsedUrl = new URL(urlStr);
+                  const verifiedRef = parsedUrl.searchParams.get('bookingReference') || parsedUrl.searchParams.get('PARM_1') || parsedUrl.searchParams.get('booking_reference');
+                  if (verifiedRef && verifiedRef.trim() !== '') {
+                    const trimmedRef = verifiedRef.trim();
+                    const { data: foundByUrlRef, error: urlRefErr } = await supabaseClient
+                      .from('payment_transactions')
+                      .select('*')
+                      .eq('booking_reference', trimmedRef);
+
+                    if (!urlRefErr && foundByUrlRef && foundByUrlRef.length === 1) {
+                      existingTx = foundByUrlRef[0];
+                    }
+                  }
+                } catch {
+                  // Ignore URL parsing error
+                }
+              }
+            }
+          }
+        } catch (gwErr) {
+          console.error('[PaymentReconciliation] Webhook gateway recovery lookup exception:', gwErr);
+        }
+      }
+    }
+
+    // 5. Try by idempotencyKey
     if (!existingTx && idempotencyKey) {
       const { data } = await supabaseClient
         .from('payment_transactions')
@@ -590,7 +667,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     const filterParam = `codOper::${opToQuery}`;
 
     try {
-      const response = await fetch(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+      const response = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
         method: 'GET',
         headers: {
           Authorization: activeToken,
@@ -774,7 +851,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
   const filterParam = `codOper::${opToQuery}`;
 
   try {
-    const response = await fetch(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
+    const response = await fetchFn(`${verifyUrl}?filter=${encodeURIComponent(filterParam)}`, {
       method: 'GET',
       headers: {
         Authorization: activeToken, // Direct access token without Bearer prefix
