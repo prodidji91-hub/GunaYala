@@ -1462,7 +1462,9 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-slate-800">
                   <div><strong>Exact Operation Found:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.operationFound ? 'Yes' : 'No'}</div>
-                  <div><strong>Gateway idMerchant:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.idMerchantExists ? `${liveTestStatusResult.merchantIdentityDiagnostic.maskedIdMerchant} (${liveTestStatusResult.merchantIdentityDiagnostic.idMerchantDataType})` : 'Absent'}</div>
+                  <div><strong>Gateway Transaction ID (field "id"):</strong> {liveTestStatusResult.merchantIdentityDiagnostic.gatewayTransactionId || 'Absent / Not Reported'}</div>
+                  <div><strong>Gateway Merchant Account ID (field "idMerchant"):</strong> {liveTestStatusResult.merchantIdentityDiagnostic.idMerchantExists ? <span className="font-bold text-amber-950 bg-amber-200/80 px-1 rounded">{liveTestStatusResult.merchantIdentityDiagnostic.rawIdMerchantValue}</span> : 'Absent'}</div>
+                  <div><strong>Gateway idMerchant Data Type:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.idMerchantDataType || 'N/A'}</div>
                   <div><strong>Gateway CCLW in Record:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.cclwExistsInRecord ? 'Present' : 'Absent (Standard REST behavior)'}</div>
                   <div><strong>Server MERCHANT_ID Configured:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.paguelofacilMerchantIdConfigured ? liveTestStatusResult.merchantIdentityDiagnostic.maskedConfiguredMerchantId : 'Unconfigured'}</div>
                   <div><strong>Server CCLW Configured:</strong> {liveTestStatusResult.merchantIdentityDiagnostic.paguelofacilCclwConfigured ? 'Configured' : 'Unconfigured'}</div>

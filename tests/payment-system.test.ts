@@ -5175,7 +5175,7 @@ async function runPaymentSecurityTests() {
   const rawOutputString = JSON.stringify(diagBody117);
 
   assert(
-    'Test 117: executeDiagnoseMerchantIdentity evaluates exact codOper, sanitizes masked credentials, identifies failing rule without exposing secrets or approving payment',
+    'Test 117: executeDiagnoseMerchantIdentity evaluates exact codOper, provides rawIdMerchantValue for admin config, identifies failing rule without exposing secrets or approving payment',
     Boolean(
       diagRes117.statusCode === 200 &&
         diagBody117.success === true &&
@@ -5183,6 +5183,7 @@ async function runPaymentSecurityTests() {
         diag117?.idMerchantExists === true &&
         diag117?.idMerchantDataType === 'number' &&
         diag117?.maskedIdMerchant === '***3372' &&
+        diag117?.rawIdMerchantValue === '14233372' &&
         diag117?.cclwExistsInRecord === false &&
         diag117?.paguelofacilMerchantIdConfigured === false &&
         diag117?.merchantVerified === false &&
@@ -5190,8 +5191,8 @@ async function runPaymentSecurityTests() {
         !rawOutputString.includes('LIVE_PROD_TOKEN_VALID_123456789') &&
         !rawOutputString.includes('LIVE_PROD_CCLW_VALID_987654321')
     ),
-    'HTTP 200, operationFound=true, idMerchant=***3372 (number), cclwExists=false, merchantVerified=false, failingRule=missing_configured_merchant_id_and_record_lacks_cclw, secrets suppressed',
-    `status=${diagRes117.statusCode}, found=${diag117?.operationFound}, idMerchant=${diag117?.maskedIdMerchant}, rule=${diag117?.failingValidationRule}`
+    'HTTP 200, operationFound=true, idMerchant=14233372 (number), cclwExists=false, merchantVerified=false, failingRule=missing_configured_merchant_id_and_record_lacks_cclw, secrets suppressed',
+    `status=${diagRes117.statusCode}, found=${diag117?.operationFound}, rawIdMerchantValue=${diag117?.rawIdMerchantValue}, rule=${diag117?.failingValidationRule}`
   );
 
   // -------------------------------------------------------------

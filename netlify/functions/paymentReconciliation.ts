@@ -7,6 +7,8 @@ export interface MerchantIdentityDiagnostic {
   idMerchantExists: boolean;
   idMerchantDataType?: string;
   maskedIdMerchant?: string;
+  rawIdMerchantValue?: string;
+  gatewayTransactionId?: string;
   cclwExistsInRecord: boolean;
   paguelofacilMerchantIdConfigured: boolean;
   maskedConfiguredMerchantId?: string;
@@ -539,10 +541,12 @@ export async function diagnoseMerchantIdentity(
     const gwCclw = String(matched.cclw || matched.CCLW || '').trim();
     const rawIdMerchant = matched.idMerchant ?? matched.id_merchant ?? matched.merchant;
     const gwMerchantId = String(rawIdMerchant ?? '').trim();
+    const gwTxId = matched.id !== undefined && matched.id !== null ? String(matched.id).trim() : undefined;
 
     const idMerchantExists = Boolean(gwMerchantId);
     const idMerchantDataType = rawIdMerchant !== undefined && rawIdMerchant !== null ? typeof rawIdMerchant : undefined;
     const maskedIdMerchant = idMerchantExists ? maskCredential(gwMerchantId) : '[ABSENT]';
+    const rawIdMerchantValue = idMerchantExists ? gwMerchantId : '[ABSENT]';
 
     const cclwExistsInRecord = Boolean(gwCclw);
 
@@ -587,7 +591,7 @@ export async function diagnoseMerchantIdentity(
       if (!paguelofacilMerchantIdConfigured && !cclwExistsInRecord) {
         failingRule = 'missing_configured_merchant_id_and_record_lacks_cclw';
         details = `Gateway record provides idMerchant (${maskedIdMerchant}, data type: ${idMerchantDataType}), but PAGUELOFACIL_MERCHANT_ID is not configured in server environment variables, and gateway REST API response omits CCLW key.`;
-        guidance = `Configure PAGUELOFACIL_MERCHANT_ID in server environment variables with the production merchant account ID matching ${maskedIdMerchant} after independent portal confirmation.`;
+        guidance = `Configure PAGUELOFACIL_MERCHANT_ID in server environment variables with the production merchant account ID matching ${rawIdMerchantValue} after independent portal confirmation.`;
       } else if (!paguelofacilCclwConfigured && !paguelofacilMerchantIdConfigured) {
         failingRule = 'no_server_merchant_credentials_configured';
         details = 'Neither PAGUELOFACIL_CCLW nor PAGUELOFACIL_MERCHANT_ID is configured in server environment variables.';
@@ -605,6 +609,8 @@ export async function diagnoseMerchantIdentity(
       idMerchantExists,
       idMerchantDataType,
       maskedIdMerchant,
+      rawIdMerchantValue,
+      gatewayTransactionId: gwTxId,
       cclwExistsInRecord,
       paguelofacilMerchantIdConfigured,
       maskedConfiguredMerchantId: paguelofacilMerchantIdConfigured ? maskCredential(configuredMerchantId) : '[UNCONFIGURED]',

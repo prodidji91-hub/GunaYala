@@ -273,6 +273,8 @@ export interface MerchantIdentityDiagnostic {
   idMerchantExists: boolean;
   idMerchantDataType?: string;
   maskedIdMerchant?: string;
+  rawIdMerchantValue?: string;
+  gatewayTransactionId?: string;
   cclwExistsInRecord: boolean;
   paguelofacilMerchantIdConfigured: boolean;
   maskedConfiguredMerchantId?: string;
