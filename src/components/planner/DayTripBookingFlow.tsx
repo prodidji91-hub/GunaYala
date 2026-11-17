@@ -67,6 +67,15 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   const [pickupLocation, setPickupLocation] = useState<string>(
     selectedPackageId === 'day-tour-port' ? 'Cartí Port (Puerto Cartí) - Self Transport' : ''
   );
+
+  React.useEffect(() => {
+    if (initialPackageId && DAY_TOUR_PACKAGES_CLIENT[initialPackageId]) {
+      setSelectedPackageId(initialPackageId);
+      setPickupLocation(
+        initialPackageId === 'day-tour-port' ? 'Cartí Port (Puerto Cartí) - Self Transport' : ''
+      );
+    }
+  }, [initialPackageId]);
   const [specialNotes, setSpecialNotes] = useState<string>('');
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 

@@ -25,6 +25,7 @@ interface ExperienceBookingModalProps {
   onLanguageChange: (lang: Language) => void;
   initialPath?: PlannerFlowPath;
   initialCategory?: ExperienceCategory;
+  initialDayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port';
   onOpenExperienceDetails?: (exp: Experience) => void;
 }
 
@@ -35,6 +36,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
   onLanguageChange,
   initialPath = 'selector',
   initialCategory,
+  initialDayTourPackageId,
   onOpenExperienceDetails,
 }) => {
   const isEs = currentLang === 'es';
@@ -159,6 +161,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
           <DayTripBookingFlow
             currentLang={currentLang}
             onBackToSelector={() => setActivePath('selector')}
+            initialPackageId={initialDayTourPackageId}
           />
         )}
 

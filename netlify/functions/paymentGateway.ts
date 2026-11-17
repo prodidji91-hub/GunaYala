@@ -34,7 +34,7 @@ export interface DayTripPackageDefinition {
 
 /**
  * Official Day Tour Packages confirmed from website data (TheIslands.tsx & TermsAndConditionsPage.tsx)
- * - Panama City Day Tour: $145.00 USD (14,500 integer cents) per person with round-trip 4x4 overland transfer.
+ * - Panama City Day Tour: $142.00 USD (14,200 integer cents) per person with round-trip 4x4 overland transfer.
  * - Port Cartí Day Tour: $69.00 USD (6,900 integer cents) per person for maritime boat tour from Cartí port.
  * Never invent prices or alter official rates without approval.
  */

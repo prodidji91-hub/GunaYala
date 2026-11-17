@@ -24,7 +24,7 @@ import {
 
 interface TheIslandsProps {
   currentLang: Language;
-  onOpenPlanner?: (category?: string, islandName?: string) => void;
+  onOpenPlanner?: (category?: string, islandName?: string, dayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port') => void;
 }
 
 export interface IslandPackageDetail {
@@ -1014,10 +1014,6 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
                 {isEs ? '¿Prefieres Visitar San Blas en Pasadía de Un Día?' : 'Prefer a Single Day Caribbean Excursion?'}
               </h3>
             </div>
-
-            <span className="text-[11px] font-mono text-[#53645E] italic">
-              {isEs ? 'Precios sujeto a confirmación final de Petra' : 'Provisional rates subject to Petra’s approval'}
-            </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1045,7 +1041,7 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
               </p>
 
               <button
-                onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Panama City')}
+                onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Panama City', 'day-tour-panama-city')}
                 className="w-full py-2.5 rounded-xl bg-[#173D36] hover:bg-[#1f5047] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all cursor-pointer shadow-xs"
               >
                 {isEs ? 'SOLICITAR PASADÍA COMPLETO' : 'REQUEST FULL DAY TOUR'}
@@ -1076,7 +1072,7 @@ export const TheIslands: React.FC<TheIslandsProps> = ({ currentLang, onOpenPlann
               </p>
 
               <button
-                onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Guna Yala Port')}
+                onClick={() => onOpenPlanner?.('day-trip', 'Day Tour Guna Yala Port', 'day-tour-port')}
                 className="w-full py-2.5 rounded-xl bg-[#173D36] hover:bg-[#1f5047] text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all cursor-pointer shadow-xs"
               >
                 {isEs ? 'SOLICITAR PASADÍA DESDE PUERTO' : 'REQUEST PORT DAY TOUR'}

@@ -76,7 +76,9 @@ export default function App() {
   // Dedicated Experience Booking Modal State
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState<boolean>(false);
   const [plannerModalCategory, setPlannerModalCategory] = useState<ExperienceCategory | undefined>(undefined);
+  const [plannerModalDayTourPackageId, setPlannerModalDayTourPackageId] = useState<'day-tour-panama-city' | 'day-tour-port' | undefined>(undefined);
   const [plannerPreSelectedCategory, setPlannerPreSelectedCategory] = useState<ExperienceCategory | ''>('');
+  const [plannerPreSelectedDayTourPackageId, setPlannerPreSelectedDayTourPackageId] = useState<'day-tour-panama-city' | 'day-tour-port' | undefined>(undefined);
 
   // Routing State for /admin route, including Supabase auth callback detection from root URL
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
@@ -264,12 +266,19 @@ export default function App() {
     }
   };
 
-  const handleOpenPlanner = (category?: ExperienceCategory) => {
+  const handleOpenPlanner = (
+    category?: ExperienceCategory,
+    dayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port'
+  ) => {
     if (category) {
       setPlannerModalCategory(category);
       setPlannerPreSelectedCategory(category);
     } else {
       setPlannerModalCategory(undefined);
+    }
+    setPlannerModalDayTourPackageId(dayTourPackageId);
+    if (dayTourPackageId) {
+      setPlannerPreSelectedDayTourPackageId(dayTourPackageId);
     }
     setIsPlannerModalOpen(true);
   };
@@ -351,6 +360,7 @@ export default function App() {
           currentLang={currentLang}
           onLanguageChange={handleLanguageChange}
           initialCategory={plannerModalCategory}
+          initialDayTourPackageId={plannerModalDayTourPackageId}
           onOpenExperienceDetails={(exp) => {
             setIsPlannerModalOpen(false);
             handleSetExperienceModal(exp);
@@ -391,7 +401,7 @@ export default function App() {
         {/* 4. Interactive Island Discovery Section (The Islands of Guna Yala - 7 Islands) */}
         <TheIslands
           currentLang={currentLang}
-          onOpenPlanner={(cat, island) => handleOpenPlanner(cat as any)}
+          onOpenPlanner={(cat, _island, pkgId) => handleOpenPlanner(cat as any, pkgId)}
         />
 
         {/* Interactive Editorial Archipelago Travel Map Section */}
@@ -419,6 +429,7 @@ export default function App() {
         <TripPlannerSection
           currentLang={currentLang}
           preSelectedCategory={plannerPreSelectedCategory}
+          preSelectedDayTourPackageId={plannerPreSelectedDayTourPackageId}
           onOpenExperienceDetails={(exp) => handleSetExperienceModal(exp)}
         />
 
@@ -443,6 +454,7 @@ export default function App() {
         currentLang={currentLang}
         onLanguageChange={handleLanguageChange}
         initialCategory={plannerModalCategory}
+        initialDayTourPackageId={plannerModalDayTourPackageId}
         onOpenExperienceDetails={(exp) => {
           setIsPlannerModalOpen(false);
           handleSetExperienceModal(exp);

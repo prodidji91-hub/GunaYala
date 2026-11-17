@@ -6777,6 +6777,102 @@ async function runPaymentSecurityTests() {
     'Referrer-Policy headers verified in netlify.toml and index.html'
   );
 
+  // -------------------------------------------------------------
+  // TEST 149: DAY TOUR AUTHORITATIVE CHECKOUT TOTALS & UI PRESELECTION
+  // -------------------------------------------------------------
+  const pty1 = calculateAuthoritativeDayTripAmount(1, 0, 'day-tour-panama-city');
+  const pty2 = calculateAuthoritativeDayTripAmount(2, 0, 'day-tour-panama-city');
+  const pty4 = calculateAuthoritativeDayTripAmount(4, 0, 'day-tour-panama-city');
+  const port1 = calculateAuthoritativeDayTripAmount(1, 0, 'day-tour-port');
+  const port2 = calculateAuthoritativeDayTripAmount(2, 0, 'day-tour-port');
+  const port4 = calculateAuthoritativeDayTripAmount(4, 0, 'day-tour-port');
+
+  const capturedCmtns: string[] = [];
+  const origFetch149 = global.fetch;
+  global.fetch = (async (url: any, opts: any) => {
+    if (String(url).includes('LinkDeamon.cfm')) {
+      const params = new URLSearchParams(opts?.body || '');
+      capturedCmtns.push(params.get('CMTN') || '');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          headerStatus: { code: 200, status: 'SUCCESS' },
+          data: { url: 'https://secure.paguelofacil.com/checkout?code=LK-DAYTOUR-149', code: 'LK-DAYTOUR-149' },
+        }),
+        text: async () => '',
+      } as any;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+      text: async () => '',
+    } as any;
+  }) as any;
+
+  const oldEnv149 = { ...process.env };
+  Object.assign(process.env, checkoutEnv);
+
+  const ptyTamperedRes = await checkoutHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bookingType: 'day-trip',
+      dayTourPackageId: 'day-tour-panama-city',
+      customerName: 'Tamper Check',
+      customerEmail: 'tamper@example.com',
+      adults: 2,
+      children: 0,
+      depositAmount: 1.0,
+      amount: 1.0,
+      idempotencyKey: 'idem_tamper_pty_149',
+    }),
+  });
+
+  const portTamperedRes = await checkoutHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bookingType: 'day-trip',
+      dayTourPackageId: 'day-tour-port',
+      customerName: 'Tamper Check Port',
+      customerEmail: 'tamper-port@example.com',
+      adults: 2,
+      children: 0,
+      depositAmount: 5.0,
+      amount: 5.0,
+      idempotencyKey: 'idem_tamper_port_149',
+    }),
+  });
+
+  global.fetch = origFetch149;
+  process.env = oldEnv149;
+
+  const ptyTamperedBody = JSON.parse(ptyTamperedRes.body);
+  const portTamperedBody = JSON.parse(portTamperedRes.body);
+
+  const islandsContent149 = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TheIslands.tsx'), 'utf8');
+  const gatewayContent149 = fs.readFileSync(path.resolve(process.cwd(), 'netlify/functions/paymentGateway.ts'), 'utf8');
+
+  assert(
+    'Test 149: Authoritative day tour totals (1/2/4 adults), server ignores tampered client prices, provisional notice removed, and preselection wired',
+    Boolean(
+      pty1.amount === 142 && pty2.amount === 284 && pty4.amount === 568 &&
+      port1.amount === 69 && port2.amount === 138 && port4.amount === 276 &&
+      ptyTamperedBody.amount === 284 && ptyTamperedBody.amountInCents === 28400 &&
+      portTamperedBody.amount === 138 && portTamperedBody.amountInCents === 13800 &&
+      capturedCmtns[0] === '284.00' && capturedCmtns[1] === '138.00' &&
+      !islandsContent149.includes('Provisional rates subject to Petra') &&
+      !islandsContent149.includes('Precios sujeto a confirmación final de Petra') &&
+      islandsContent149.includes("'day-tour-panama-city'") &&
+      islandsContent149.includes("'day-tour-port'") &&
+      !gatewayContent149.includes('$145')
+    ),
+    'PTY 1/2/4=$142/$284/$568, Port 1/2/4=$69/$138/$276, CMTN=[284.00,138.00], UI preselection wired',
+    `pty=[${pty1.amount},${pty2.amount},${pty4.amount}], port=[${port1.amount},${port2.amount},${port4.amount}], CMTN=${JSON.stringify(capturedCmtns)}`
+  );
+
 
 
 

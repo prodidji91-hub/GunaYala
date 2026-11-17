@@ -10,12 +10,14 @@ import { PlannerFlowPath } from './planner/ExperienceBookingModal';
 interface TripPlannerProps {
   currentLang: Language;
   preSelectedCategory?: ExperienceCategory | '';
+  preSelectedDayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port';
   onOpenExperienceDetails?: (exp: Experience) => void;
 }
 
 export const TripPlannerSection: React.FC<TripPlannerProps> = ({
   currentLang,
   preSelectedCategory = '',
+  preSelectedDayTourPackageId,
   onOpenExperienceDetails,
 }) => {
   const [activePath, setActivePath] = useState<PlannerFlowPath>('selector');
@@ -49,6 +51,7 @@ export const TripPlannerSection: React.FC<TripPlannerProps> = ({
           <DayTripBookingFlow
             currentLang={currentLang}
             onBackToSelector={() => setActivePath('selector')}
+            initialPackageId={preSelectedDayTourPackageId}
           />
         )}
 
