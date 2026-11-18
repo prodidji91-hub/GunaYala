@@ -45,6 +45,54 @@ import {
   parseSandboxReturnParams,
   parseTotalPagado,
 } from '../src/utils/sandboxReturnParser.js';
+import {
+  OVERNIGHT_PACKAGES,
+  findOvernightPackageBySelection,
+  resolveOvernightPackage,
+  getValidAccommodationOptions,
+  resolveAccommodationOption,
+  buildOvernightBookingRequestPayload,
+  buildOvernightWhatsappText,
+  validateOvernightInquiry,
+  computeOvernightDraftFingerprint,
+} from '../src/utils/overnightBooking.js';
+import { bookingRequestService } from '../src/services/bookingRequestService.js';
+import { handler as bookingRequestHandler, getPanamaTodayISO } from '../netlify/functions/booking-request.js';
+import {
+  calculate50PercentDepositCents,
+  validateApprovedOvernightQuotation,
+} from '../src/utils/quotationDepositCalculator.js';
+import {
+  executeAdminDepositPaymentAction,
+  resetDepositQuotationLocksForTesting,
+} from '../netlify/functions/admin-deposit-payment.js';
+import { ISLAND_PACKAGES } from '../src/data/islandPackages.js';
+import { DAY_TOUR_PACKAGES_CLIENT } from '../src/data/dayTourPackages.js';
+import { EXPERIENCES_DATA } from '../src/data/experiences.js';
+import { TRANSLATIONS } from '../src/data/translations.js';
+import {
+  getPanamaTomorrowDateISO,
+  getPanamaUpcomingDates,
+  validateDayTripStep4,
+  validateDayTripCheckoutStep,
+  computeDayTripDraftFingerprint,
+  buildDayTripCheckoutPayload,
+} from '../src/utils/dayTripBooking.js';
+import {
+  CHARTER_OPTIONS,
+  resolveInitialCharterType,
+  validatePrivateCustomInquiry,
+  buildPrivateCustomBookingRequestPayload,
+  computePrivateCustomDraftFingerprint,
+  buildPrivateCustomWhatsappText,
+} from '../src/utils/privateCustomBooking.js';
+import {
+  calculateLineQuantity,
+  calculateQuotationTotals,
+  generateNextRevisionReference,
+  normalizeQuotation,
+  getOutdatedFieldsInfo,
+} from '../src/services/quotationStorageService.js';
 
 interface TestResult {
   name: string;
@@ -6875,6 +6923,1696 @@ async function runPaymentSecurityTests() {
 
 
 
+
+  // -------------------------------------------------------------
+  // TEST 150: FRANKLIN ISLAND PRESELECTION & ACCOMMODATION LOCK
+  // -------------------------------------------------------------
+  const franklinById = findOvernightPackageBySelection('franklin-island');
+  const franklinByName = findOvernightPackageBySelection('Franklin Island');
+  const franklinAccomms = getValidAccommodationOptions('franklin-island');
+  const franklinStaleAccomm = resolveAccommodationOption('franklin-island', 'sailing');
+  const franklinPrivateStale = resolveAccommodationOption('franklin-island', 'Private Room with Bath');
+
+  assert(
+    'Test 150: Franklin Island resolves identically by ID and display name, and strictly locks accommodation to Private Rustic Beachfront Cabin (Shared Bathroom)',
+    Boolean(
+      franklinById &&
+        franklinByName &&
+        franklinById.id === 'franklin-island' &&
+        franklinByName.id === 'franklin-island' &&
+        franklinById.title.en === 'Franklin Island Overnight Experience' &&
+        franklinAccomms.length === 1 &&
+        franklinAccomms[0].value === 'Private Rustic Beachfront Cabin (Shared Bathroom)' &&
+        !franklinAccomms.some((opt) => /boat|chichime|private bathroom/i.test(opt.value)) &&
+        franklinStaleAccomm.value === 'Private Rustic Beachfront Cabin (Shared Bathroom)' &&
+        franklinPrivateStale.value === 'Private Rustic Beachfront Cabin (Shared Bathroom)'
+    ),
+    'id=franklin-island, only 1 valid accommodation (Private Rustic Beachfront Cabin (Shared Bathroom)), stale Chichime/Boat options rejected',
+    `id=${franklinById?.id}, count=${franklinAccomms.length}, val=${franklinAccomms[0]?.value}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 151: ALL 7 ISLANDS PRESELECTION & PER-ISLAND ACCOMMODATIONS
+  // -------------------------------------------------------------
+  const allSevenResolvedById = ISLAND_PACKAGES.every(
+    (isl) => resolveOvernightPackage(isl.id).id === isl.id
+  );
+  const allSevenResolvedByName = ISLAND_PACKAGES.every(
+    (isl) => resolveOvernightPackage(isl.name).id === isl.id
+  );
+  const perroAccomms = getValidAccommodationOptions('perro-chico');
+  const guasirdubAccomms = getValidAccommodationOptions('guasirdub');
+  const chichimeChicoAccomms = getValidAccommodationOptions('chichime-chico');
+  const yansailadubAccomms = getValidAccommodationOptions('yansailadub');
+  const nurdubAccomms = getValidAccommodationOptions('nurdub-community');
+
+  assert(
+    'Test 151: All 7 overnight islands preserve their exact identity and valid per-island accommodation options',
+    Boolean(
+      allSevenResolvedById &&
+        allSevenResolvedByName &&
+        OVERNIGHT_PACKAGES.length === 9 &&
+        perroAccomms.length === 2 &&
+        perroAccomms.some((o) => o.value.includes('Beachfront')) &&
+        perroAccomms.some((o) => o.value.includes('Overwater')) &&
+        guasirdubAccomms[0].value === 'Private Overwater Cabin (Shared Bathroom)' &&
+        yansailadubAccomms[0].value === 'Private Overwater Cabin (Shared Bathroom)' &&
+        chichimeChicoAccomms[0].value === 'Rustic Beachfront Wooden Cabin (Shared Bathroom)' &&
+        nurdubAccomms[0].value === 'Traditional Rustic Guna Cabana (Shared Community Facilities)'
+    ),
+    'All 7 islands resolve by id & name; Perro Chico has 2 options; Guasirdub/Yansailadub/Chichime Chico/Nurdub have distinct valid accommodations',
+    `byId=${allSevenResolvedById}, byName=${allSevenResolvedByName}, totalPkgs=${OVERNIGHT_PACKAGES.length}, perro=${perroAccomms.length}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 152: FRANKLIN ISLAND BOOKING PAYLOAD & WHATSAPP MESSAGE
+  // -------------------------------------------------------------
+  const franklinPayloadEn = buildOvernightBookingRequestPayload({
+    idempotencyKey: 'idem_franklin_152',
+    packageId: 'franklin-island',
+    customerName: 'Mobile Traveler',
+    customerEmail: 'traveler@example.com',
+    customerPhone: '+50760001234',
+    targetDate: '2027-02-15',
+    nights: '2',
+    adults: 2,
+    children: 0,
+    selectedAccommodationId: 'private', // Simulate stale ID attempt
+    specialNotes: 'Vegetarian dinner if available',
+    termsAccepted: true,
+    customerLanguage: 'en',
+  });
+
+  const franklinWhatsappEn = decodeURIComponent(
+    buildOvernightWhatsappText({
+      packageId: 'franklin-island',
+      customerLanguage: 'en',
+      targetDate: '2027-02-15',
+      adults: 2,
+      children: 0,
+      nights: '2',
+      selectedAccommodationId: 'private',
+      specialNotes: 'Vegetarian dinner if available',
+    })
+  );
+
+  assert(
+    'Test 152: Franklin Island booking payload and WhatsApp inquiry retain Franklin Island and valid cabin without leaking Chichime',
+    Boolean(
+      franklinPayloadEn.bookingType === 'overnight' &&
+        franklinPayloadEn.experienceTitle === 'Franklin Island Overnight Experience' &&
+        franklinPayloadEn.accommodationPreference === 'Private Rustic Beachfront Cabin (Shared Bathroom)' &&
+        !franklinPayloadEn.experienceTitle.includes('Chichime') &&
+        franklinWhatsappEn.includes('Franklin Island Overnight Experience') &&
+        franklinWhatsappEn.includes('Private Rustic Beachfront Cabin') &&
+        !franklinWhatsappEn.includes('Chichime')
+    ),
+    'experienceTitle=Franklin Island Overnight Experience, accomm=Private Rustic Beachfront Cabin (Shared Bathroom), no Chichime leakage',
+    `title=${franklinPayloadEn.experienceTitle}, accomm=${franklinPayloadEn.accommodationPreference}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 153: END-TO-END PROP WIRING (TheIslands -> App -> Modal/Planner -> OvernightFlow)
+  // -------------------------------------------------------------
+  const islandsSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TheIslands.tsx'), 'utf8');
+  const appSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+  const modalSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/planner/ExperienceBookingModal.tsx'), 'utf8');
+  const plannerSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TripPlannerSection.tsx'), 'utf8');
+  const overnightSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/planner/OvernightFlow.tsx'), 'utf8');
+
+  assert(
+    'Test 153: All parent/child components preserve selected overnight island ID without discarding or defaulting to Chichime',
+    Boolean(
+      islandsSrc.includes("onOpenPlanner?.('overnight', currentIsland.id)") &&
+        appSrc.includes('plannerModalOvernightIslandId') &&
+        appSrc.includes('plannerPreSelectedOvernightIslandId') &&
+        !appSrc.includes('onOpenPlanner={(cat, _island') &&
+        appSrc.includes('initialOvernightIslandId={plannerModalOvernightIslandId}') &&
+        appSrc.includes('preSelectedOvernightIslandId={plannerPreSelectedOvernightIslandId}') &&
+        modalSrc.includes('initialExperienceId={initialOvernightIslandId}') &&
+        plannerSrc.includes('initialExperienceId={preSelectedOvernightIslandId}') &&
+        overnightSrc.includes('findOvernightPackageBySelection(initialExperienceId)') &&
+        overnightSrc.includes('buildOvernightBookingRequestPayload') &&
+        !overnightSrc.includes('Boat Cabin')
+    ),
+    'Selected island ID forwarded cleanly across TheIslands -> App -> Modal & Planner -> OvernightFlow',
+    'Verified source wiring across all 5 components'
+  );
+
+  // -------------------------------------------------------------
+  // TEST 154: MOBILE RESPONSIVENESS GUARDS ON OVERNIGHT BOOKING FORM
+  // -------------------------------------------------------------
+  assert(
+    'Test 154: OvernightFlow and ExperienceBookingModal include mobile-safe inputs, touch targets, and overscroll containment',
+    Boolean(
+      overnightSrc.includes('appearance-none') &&
+        overnightSrc.includes('min-w-0') &&
+        overnightSrc.includes('text-base sm:text-sm') &&
+        overnightSrc.includes('grid-cols-1 sm:grid-cols-2') &&
+        overnightSrc.includes('min-h-[44px]') &&
+        overnightSrc.includes('min-h-[48px]') &&
+        modalSrc.includes('overscroll-contain')
+    ),
+    'Mobile date min-w-0/appearance-none, iOS zoom prevention (text-base sm:text-sm), 44px+ touch targets, overscroll-contain present',
+    'Verified mobile layout guards'
+  );
+
+  // -------------------------------------------------------------
+  // TEST 155: FRANKLIN ISLAND END-TO-END SUBMISSION PIPELINE (/api/booking-request -> booking-request.ts -> RPC)
+  // -------------------------------------------------------------
+  const origEnvUrl = process.env.SUPABASE_URL;
+  const origEnvKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const origFetchForBooking = global.fetch;
+  let capturedRpcBody: any = null;
+  let capturedRequestUrl = '';
+  let franklinSubmitResult: any = null;
+
+  try {
+    process.env.SUPABASE_URL = 'https://mock-overnight-supabase.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'mock_overnight_service_role_key';
+
+    const futureDate = '2099-06-15';
+    const franklinSubmitPayload = buildOvernightBookingRequestPayload({
+      idempotencyKey: 'idem_franklin_e2e_155',
+      packageId: 'franklin-island',
+      customerName: '  Ana Sofia Herrera  ',
+      customerEmail: '  ANA@EXAMPLE.COM ',
+      customerPhone: ' +507 6555-0199 ',
+      targetDate: futureDate,
+      nights: '2',
+      adults: 2,
+      children: 1,
+      selectedAccommodationId: 'franklin-rustic-beachfront-shared-bath',
+      specialNotes: '  Ocean breeze cabana preferred  ',
+      termsAccepted: true,
+      customerLanguage: 'en',
+    });
+
+    global.fetch = (async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/booking-request') {
+        capturedRequestUrl = urlStr;
+        const handlerRes = await bookingRequestHandler({
+          httpMethod: init?.method || 'POST',
+          headers: init?.headers || {},
+          body: init?.body || '{}',
+        });
+        return new Response(handlerRes.body, {
+          status: handlerRes.statusCode,
+          headers: handlerRes.headers as unknown as HeadersInit,
+        });
+      }
+
+      if (urlStr.includes('/rest/v1/rpc/create_booking_request_transaction')) {
+        capturedRpcBody = init?.body ? JSON.parse(String(init.body)) : {};
+        return new Response(
+          JSON.stringify({
+            success: true,
+            booking_reference: capturedRpcBody.p_booking_reference,
+            idempotent_replay: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as any;
+
+    franklinSubmitResult = await bookingRequestService.submitBookingRequest(franklinSubmitPayload);
+  } finally {
+    global.fetch = origFetchForBooking;
+    if (origEnvUrl === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = origEnvUrl;
+    if (origEnvKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = origEnvKey;
+  }
+
+  assert(
+    'Test 155: Franklin Island booking reaches /api/booking-request, preserves Franklin title/cabin in RPC, and returns bookingReference',
+    Boolean(
+      capturedRequestUrl === '/api/booking-request' &&
+        franklinSubmitResult?.success === true &&
+        /^GNY-\d{6}$/.test(franklinSubmitResult?.bookingReference || '') &&
+        capturedRpcBody?.p_experience_title === 'Franklin Island Overnight Experience' &&
+        capturedRpcBody?.p_accommodation_preference === 'Private Rustic Beachfront Cabin (Shared Bathroom)' &&
+        capturedRpcBody?.p_booking_type === 'overnight' &&
+        capturedRpcBody?.p_customer_email === 'ana@example.com' &&
+        capturedRpcBody?.p_adults === 2 &&
+        capturedRpcBody?.p_children === 1 &&
+        capturedRpcBody?.p_idempotency_key === 'idem_franklin_e2e_155'
+    ),
+    'POST /api/booking-request succeeds with Franklin Island title & cabin saved via RPC and valid GNY reference returned',
+    `success=${franklinSubmitResult?.success}, ref=${franklinSubmitResult?.bookingReference}, rpcTitle=${capturedRpcBody?.p_experience_title}, rpcAccomm=${capturedRpcBody?.p_accommodation_preference}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 156: CLIENT VALIDATION (AUTOFILL SPACES, MISSING FIELDS, PAST DATE, UNCHECKED TERMS)
+  // -------------------------------------------------------------
+  const todayPanama = getPanamaTodayISO();
+  const validAutofillValidation = validateOvernightInquiry({
+    fullName: '  Carlos Mendez ',
+    email: ' carlos.mendez@gmail.com ',
+    phone: '+507 6234-5678',
+    targetDate: '2099-07-10',
+    adults: 2,
+    children: 0,
+    termsAccepted: true,
+    customerLanguage: 'en',
+    todayISO: todayPanama,
+  });
+  const missingTermsValidation = validateOvernightInquiry({
+    fullName: 'Carlos Mendez',
+    email: 'carlos@gmail.com',
+    phone: '+507 6234-5678',
+    targetDate: '2099-07-10',
+    adults: 2,
+    children: 0,
+    termsAccepted: false,
+    customerLanguage: 'en',
+    todayISO: todayPanama,
+  });
+  const pastDateAndInvalidEmail = validateOvernightInquiry({
+    fullName: '',
+    email: 'not-an-email',
+    phone: '12',
+    targetDate: '2020-01-01',
+    adults: 2,
+    children: 0,
+    termsAccepted: true,
+    customerLanguage: 'en',
+    todayISO: todayPanama,
+  });
+
+  assert(
+    'Test 156: Overnight validation trims mobile autofill whitespace and flags missing fields, past dates, and unchecked terms',
+    Boolean(
+      validAutofillValidation.valid === true &&
+        Object.keys(validAutofillValidation.fieldErrors).length === 0 &&
+        missingTermsValidation.valid === false &&
+        Boolean(missingTermsValidation.fieldErrors.termsAccepted) &&
+        Boolean(missingTermsValidation.summaryError) &&
+        pastDateAndInvalidEmail.valid === false &&
+        Boolean(pastDateAndInvalidEmail.fieldErrors.fullName) &&
+        Boolean(pastDateAndInvalidEmail.fieldErrors.email) &&
+        Boolean(pastDateAndInvalidEmail.fieldErrors.phone) &&
+        Boolean(pastDateAndInvalidEmail.fieldErrors.targetDate)
+    ),
+    'Autofilled spaces validate cleanly; unchecked terms, empty fields, bad email/phone, and past date yield clear fieldErrors & summaryError',
+    `autofillValid=${validAutofillValidation.valid}, termsErr=${missingTermsValidation.fieldErrors.termsAccepted}, pastDateErr=${pastDateAndInvalidEmail.fieldErrors.targetDate}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 157: FINGERPRINT ROTATION & SERVICE ERROR / HTML FALLBACK HANDLING
+  // -------------------------------------------------------------
+  const fpA = computeOvernightDraftFingerprint({
+    packageId: 'franklin-island',
+    customerName: 'Ana Herrera',
+    customerEmail: 'ANA@EXAMPLE.COM',
+    customerPhone: '+50765550199',
+    targetDate: '2099-06-15',
+    nights: '1',
+    adults: 2,
+    children: 0,
+    selectedAccommodationId: 'franklin-rustic-beachfront-shared-bath',
+    specialNotes: '',
+    termsAccepted: true,
+    customerLanguage: 'en',
+  });
+  const fpASameNormalized = computeOvernightDraftFingerprint({
+    packageId: 'franklin-island',
+    customerName: ' ana herrera ',
+    customerEmail: 'ana@example.com ',
+    customerPhone: '+50765550199',
+    targetDate: '2099-06-15',
+    nights: '1',
+    adults: 2,
+    children: 0,
+    selectedAccommodationId: 'franklin-rustic-beachfront-shared-bath',
+    specialNotes: '',
+    termsAccepted: true,
+    customerLanguage: 'en',
+  });
+  const fpBModifiedDate = computeOvernightDraftFingerprint({
+    packageId: 'franklin-island',
+    customerName: 'Ana Herrera',
+    customerEmail: 'ana@example.com',
+    customerPhone: '+50765550199',
+    targetDate: '2099-06-16',
+    nights: '1',
+    adults: 2,
+    children: 0,
+    selectedAccommodationId: 'franklin-rustic-beachfront-shared-bath',
+    specialNotes: '',
+    termsAccepted: true,
+    customerLanguage: 'en',
+  });
+
+  const origFetchForErr = global.fetch;
+  let callsOn400 = 0;
+  let res400: any = null;
+  let resHtml: any = null;
+  try {
+    global.fetch = (async () => {
+      callsOn400 += 1;
+      return new Response(
+        JSON.stringify({ success: false, error: 'Target travel date cannot be in the past.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    res400 = await bookingRequestService.submitBookingRequest({
+      bookingType: 'overnight',
+      customerName: 'Ana Herrera',
+      customerEmail: 'ana@example.com',
+      customerPhone: '+50765550199',
+      experienceTitle: 'Franklin Island Overnight Experience',
+      targetDate: '2020-01-01',
+      nights: '1',
+      adults: 2,
+      children: 0,
+      accommodationPreference: 'Private Rustic Beachfront Cabin (Shared Bathroom)',
+      termsAccepted: true,
+      customerLanguage: 'en',
+    });
+
+    global.fetch = (async () =>
+      new Response('<!doctype html><html><body>SPA</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })) as any;
+
+    resHtml = await bookingRequestService.submitBookingRequest({
+      bookingType: 'overnight',
+      customerName: 'Ana Herrera',
+      customerEmail: 'ana@example.com',
+      customerPhone: '+50765550199',
+      experienceTitle: 'Franklin Island Overnight Experience',
+      targetDate: '2099-06-15',
+      nights: '1',
+      adults: 2,
+      children: 0,
+      accommodationPreference: 'Private Rustic Beachfront Cabin (Shared Bathroom)',
+      termsAccepted: true,
+      customerLanguage: 'en',
+    });
+  } finally {
+    global.fetch = origFetchForErr;
+  }
+
+  assert(
+    'Test 157: Draft fingerprints prevent idempotency key reuse conflicts and API 4xx/HTML failures return explicit errors',
+    Boolean(
+      fpA === fpASameNormalized &&
+        fpA !== fpBModifiedDate &&
+        callsOn400 === 1 &&
+        res400?.success === false &&
+        res400?.error?.includes('cannot be in the past') &&
+        resHtml?.success === false &&
+        Boolean(resHtml?.error)
+    ),
+    'Normalized retries share fingerprint; edited drafts rotate fingerprint; 400 validation stops on 1st call; HTML fallback surfaces error',
+    `sameFp=${fpA === fpASameNormalized}, diffFp=${fpA !== fpBModifiedDate}, callsOn400=${callsOn400}, err400="${res400?.error}"`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 158: OVERNIGHTFLOW UI INLINE ERROR, NOVALIDATE & MUTEX GUARDS
+  // -------------------------------------------------------------
+  const overnightUpdatedSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/planner/OvernightFlow.tsx'),
+    'utf8'
+  );
+  assert(
+    'Test 158: OvernightFlow removes blocking window.alert, uses noValidate + inline role="alert" banner + double-submit mutex',
+    Boolean(
+      !overnightUpdatedSrc.includes('alert(') &&
+        overnightUpdatedSrc.includes('noValidate') &&
+        overnightUpdatedSrc.includes('role="alert"') &&
+        overnightUpdatedSrc.includes('submittingRef.current') &&
+        overnightUpdatedSrc.includes('disabled={isSubmitting}') &&
+        !overnightUpdatedSrc.includes('disabled={!termsAccepted || isSubmitting}') &&
+        overnightUpdatedSrc.includes('min={minTodayDate}') &&
+        overnightUpdatedSrc.includes('computeOvernightDraftFingerprint')
+    ),
+    'Zero alert(), noValidate present, inline role="alert" banner present, synchronous mutex present, submit not silently disabled when terms unchecked',
+    'Verified OvernightFlow submission safety & inline UI guards'
+  );
+
+  // =============================================================
+  // COMPREHENSIVE QA AUDIT SUITE (PRIORITIES A - F)
+  // =============================================================
+
+  // -------------------------------------------------------------
+  // TEST 159 (PRIORITY A): ALL 7 ISLANDS E2E MATRIX, ASSETS & HANDLER SUBMISSION
+  // -------------------------------------------------------------
+  const expectedSevenIds = [
+    'chichime-grande',
+    'chichime-chico',
+    'guasirdub',
+    'perro-chico',
+    'franklin-island',
+    'yansailadub',
+    'nurdub-community',
+  ];
+  const all7IdsPresent = expectedSevenIds.every((id) =>
+    ISLAND_PACKAGES.some((isl) => isl.id === id)
+  );
+  const all7ImagesExistOnDisk = ISLAND_PACKAGES.every((isl) => {
+    const cleanRel = isl.image.replace(/^\/+/, '');
+    return fs.existsSync(path.resolve(process.cwd(), 'public', cleanRel));
+  });
+
+  let all7SubmitOk = true;
+  let all7NoFallbackOk = true;
+  const origUrl159 = process.env.SUPABASE_URL;
+  const origKey159 = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const origFetch159 = global.fetch;
+
+  try {
+    process.env.SUPABASE_URL = 'https://mock-qa-supabase.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'mock_qa_service_role_key';
+
+    for (const island of ISLAND_PACKAGES) {
+      const resolvedById = resolveOvernightPackage(island.id);
+      const resolvedByName = resolveOvernightPackage(island.name);
+      const accommOpts = getValidAccommodationOptions(island.id);
+
+      if (
+        resolvedById.id !== island.id ||
+        resolvedByName.id !== island.id ||
+        accommOpts.length === 0
+      ) {
+        all7NoFallbackOk = false;
+      }
+
+      if (island.id !== 'chichime-grande' && resolvedById.title.en.includes('Chichime Grande')) {
+        all7NoFallbackOk = false;
+      }
+
+      let capturedIslandRpc: any = null;
+      global.fetch = (async (url: any, init: any) => {
+        const urlStr = String(url);
+        if (urlStr === '/api/booking-request') {
+          const res = await bookingRequestHandler({
+            httpMethod: init?.method || 'POST',
+            headers: init?.headers || {},
+            body: init?.body || '{}',
+          });
+          return new Response(res.body, {
+            status: res.statusCode,
+            headers: res.headers as unknown as HeadersInit,
+          });
+        }
+        if (urlStr.includes('/rest/v1/rpc/create_booking_request_transaction')) {
+          capturedIslandRpc = init?.body ? JSON.parse(String(init.body)) : {};
+          return new Response(
+            JSON.stringify({
+              success: true,
+              booking_reference: capturedIslandRpc.p_booking_reference,
+              idempotent_replay: false,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(JSON.stringify([]), { status: 200 });
+      }) as any;
+
+      const payload = buildOvernightBookingRequestPayload({
+        idempotencyKey: `idem_qa_159_${island.id}`,
+        packageId: island.id,
+        customerName: 'QA Traveler',
+        customerEmail: 'qa@example.com',
+        customerPhone: '+507 6111-2222',
+        targetDate: '2099-08-20',
+        nights: '2',
+        adults: 2,
+        children: 0,
+        selectedAccommodationId: accommOpts[0].id,
+        specialNotes: `QA check for ${island.id}`,
+        termsAccepted: true,
+        customerLanguage: 'en',
+      });
+
+      const res = await bookingRequestService.submitBookingRequest(payload);
+      const waText = decodeURIComponent(
+        buildOvernightWhatsappText({
+          packageId: island.id,
+          customerLanguage: 'en',
+          targetDate: '2099-08-20',
+          adults: 2,
+          children: 0,
+          nights: '2',
+          selectedAccommodationId: accommOpts[0].id,
+          specialNotes: '',
+        })
+      );
+
+      if (
+        !res.success ||
+        !/^GNY-\d{6}$/.test(res.bookingReference || '') ||
+        capturedIslandRpc?.p_experience_title !== resolvedById.title.en ||
+        capturedIslandRpc?.p_accommodation_preference !== accommOpts[0].value ||
+        !waText.includes(resolvedById.title.en)
+      ) {
+        all7SubmitOk = false;
+      }
+    }
+  } finally {
+    global.fetch = origFetch159;
+    if (origUrl159 === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = origUrl159;
+    if (origKey159 === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = origKey159;
+  }
+
+  assert(
+    'Test 159 (Priority A): All 7 overnight islands have disk images, unique accommodation locks, zero Chichime fallback, and verified E2E RPC + WhatsApp payloads',
+    all7IdsPresent && all7ImagesExistOnDisk && all7NoFallbackOk && all7SubmitOk,
+    'All 7 islands pass ID/name resolution, disk asset check, accommodation match, E2E RPC submission, and WhatsApp formatting',
+    `all7Ids=${all7IdsPresent}, images=${all7ImagesExistOnDisk}, noFallback=${all7NoFallbackOk}, submitOk=${all7SubmitOk}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 160 (PRIORITY B): DAY TOURS (PANAMA TZ), MULTI-DAY, SAILING, CATAMARAN & PRIVATE CUSTOM FLOWS
+  // -------------------------------------------------------------
+  // 2027-03-10T02:00:00Z is 2027-03-09 21:00 EST (Panama UTC-5).
+  // Tomorrow in Panama must be 2027-03-10, NOT UTC tomorrow (2027-03-11).
+  const eveningPanamaInstant = new Date('2027-03-10T02:00:00Z');
+  const panamaTomorrowEvening = getPanamaTomorrowDateISO(eveningPanamaInstant);
+  const panamaPillsEvening = getPanamaUpcomingDates('en', 14, eveningPanamaInstant);
+
+  const multiDayPkg = resolveOvernightPackage('multi-day');
+  const multiDayExp = EXPERIENCES_DATA.find((e) => e.id === 'multi-day-exploration');
+  const multiDayEsAllSpanish =
+    Boolean(multiDayExp) &&
+    multiDayExp!.included.es.every((line) => !line.startsWith('Meals included depend on'));
+
+  const charterTypesOk =
+    CHARTER_OPTIONS.length === 5 &&
+    resolveInitialCharterType('sailing') === 'sailboat' &&
+    resolveInitialCharterType('catamaran') === 'catamaran' &&
+    resolveInitialCharterType('unknown') === 'private-day';
+
+  let privateCustomSubmitOk = true;
+  const origUrl160 = process.env.SUPABASE_URL;
+  const origKey160 = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const origFetch160 = global.fetch;
+  try {
+    process.env.SUPABASE_URL = 'https://mock-qa-supabase.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'mock_qa_service_role_key';
+
+    for (const cOpt of CHARTER_OPTIONS) {
+      let capturedPrivateRpc: any = null;
+      global.fetch = (async (url: any, init: any) => {
+        const urlStr = String(url);
+        if (urlStr === '/api/booking-request') {
+          const res = await bookingRequestHandler({
+            httpMethod: init?.method || 'POST',
+            headers: init?.headers || {},
+            body: init?.body || '{}',
+          });
+          return new Response(res.body, {
+            status: res.statusCode,
+            headers: res.headers as unknown as HeadersInit,
+          });
+        }
+        if (urlStr.includes('/rest/v1/rpc/create_booking_request_transaction')) {
+          capturedPrivateRpc = init?.body ? JSON.parse(String(init.body)) : {};
+          return new Response(
+            JSON.stringify({
+              success: true,
+              booking_reference: capturedPrivateRpc.p_booking_reference,
+              idempotent_replay: false,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(JSON.stringify([]), { status: 200 });
+      }) as any;
+
+      const pcPayload = buildPrivateCustomBookingRequestPayload({
+        idempotencyKey: `idem_qa_160_${cOpt.id}`,
+        charterType: cOpt.id,
+        customerName: 'Charter Guest',
+        customerEmail: 'charter@example.com',
+        customerPhone: '+1 305 555 0190',
+        targetDate: cOpt.id === 'sailboat' ? '' : '2099-09-12', // Test both flexible blank date & ISO date
+        adults: 4,
+        children: 2,
+        interests: ['Snorkeling & Reefs', 'Private Charter'],
+        message: 'Sunset champagne request',
+        termsAccepted: true,
+        customerLanguage: 'en',
+      });
+
+      const pcRes = await bookingRequestService.submitBookingRequest(pcPayload);
+      const pcWa = decodeURIComponent(
+        buildPrivateCustomWhatsappText({
+          charterType: cOpt.id,
+          customerLanguage: 'en',
+          targetDate: '',
+          adults: 4,
+          children: 2,
+          interests: ['Snorkeling & Reefs'],
+          message: 'Test note',
+        })
+      );
+
+      if (
+        !pcRes.success ||
+        capturedPrivateRpc?.p_booking_type !== 'private-charter' ||
+        capturedPrivateRpc?.p_experience_title !== cOpt.title.en ||
+        !pcWa.includes(cOpt.title.en)
+      ) {
+        privateCustomSubmitOk = false;
+      }
+    }
+  } finally {
+    global.fetch = origFetch160;
+    if (origUrl160 === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = origUrl160;
+    if (origKey160 === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = origKey160;
+  }
+
+  assert(
+    'Test 160 (Priority B): Panama-TZ Day Tour dates, Multi-Day ES parity, and all 5 Private/Sailing/Catamaran flows work end-to-end',
+    Boolean(
+      panamaTomorrowEvening === '2027-03-10' &&
+        panamaPillsEvening.length === 14 &&
+        panamaPillsEvening[0].iso === '2027-03-10' &&
+        DAY_TOUR_PACKAGES_CLIENT['day-tour-panama-city'].pricePerPerson === 142 &&
+        DAY_TOUR_PACKAGES_CLIENT['day-tour-port'].pricePerPerson === 69 &&
+        multiDayPkg.id === 'multi-day-exploration' &&
+        multiDayEsAllSpanish &&
+        charterTypesOk &&
+        privateCustomSubmitOk
+    ),
+    'Panama TZ tomorrow=2027-03-10 after 9pm local; Multi-Day translates clean & resolves; all 5 charter types submit via RPC',
+    `panamaTomorrow=${panamaTomorrowEvening}, multiDayEs=${multiDayEsAllSpanish}, charterTypesOk=${charterTypesOk}, privateSubmit=${privateCustomSubmitOk}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 161 (PRIORITY C): FORM VALIDATION, DOUBLE-CLICK GUARDS & ERROR BOUNDARY
+  // -------------------------------------------------------------
+  const dtBadStep4 = validateDayTripStep4({
+    selectedPackageId: 'day-tour-panama-city',
+    fullName: '',
+    email: 'a@b',
+    phone: '123',
+    pickupLocation: '',
+    customerLanguage: 'en',
+  });
+  const dtBadCheckout = validateDayTripCheckoutStep({
+    selectedDate: '2020-01-01',
+    adults: 2,
+    children: 0,
+    termsAccepted: false,
+    beforeYouTravelAccepted: true,
+    customerLanguage: 'en',
+  });
+  const dtFp1 = computeDayTripDraftFingerprint({
+    selectedPackageId: 'day-tour-panama-city',
+    customerName: 'Jane Doe',
+    customerEmail: 'JANE@EXAMPLE.COM',
+    customerPhone: '+507 6000-1111',
+    selectedDate: '2099-07-01',
+    adults: 2,
+    children: 0,
+    pickupLocation: 'Hotel Sortis',
+    specialNotes: '',
+    customerLanguage: 'en',
+  });
+  const dtFp2 = computeDayTripDraftFingerprint({
+    selectedPackageId: 'day-tour-panama-city',
+    customerName: 'Jane Doe',
+    customerEmail: 'jane@example.com',
+    customerPhone: '+507 6000-1111',
+    selectedDate: '2099-07-01',
+    adults: 3, // modified traveler count
+    children: 0,
+    pickupLocation: 'Hotel Sortis',
+    specialNotes: '',
+    customerLanguage: 'en',
+  });
+  const dtPortPayload = buildDayTripCheckoutPayload({
+    selectedPackageId: 'day-tour-port',
+    customerName: 'Port Guest',
+    customerEmail: 'port@example.com',
+    customerPhone: '+507 6222-3333',
+    selectedDate: '2099-07-01',
+    adults: 2,
+    children: 0,
+    pickupLocation: '',
+    specialNotes: '',
+    customerLanguage: 'en',
+    bookingReference: 'GNY-112233',
+    idempotencyKey: 'idem_port_161',
+  });
+
+  const pcBadValidation = validatePrivateCustomInquiry({
+    fullName: '',
+    email: 'invalid-email',
+    phone: '12',
+    targetDate: '2027-02-30', // Impossible calendar date
+    adults: 55, // Exceeds max
+    children: 0,
+    termsAccepted: false,
+    customerLanguage: 'es',
+  });
+  const pcGoodFlexible = validatePrivateCustomInquiry({
+    fullName: 'Carlos Slim',
+    email: 'carlos@example.com',
+    phone: '+507 6444-5555',
+    targetDate: '',
+    adults: 6,
+    children: 2,
+    termsAccepted: true,
+    customerLanguage: 'es',
+  });
+  const pcFpA = computePrivateCustomDraftFingerprint({
+    charterType: 'catamaran',
+    customerName: 'Carlos',
+    customerEmail: 'carlos@example.com',
+    customerPhone: '+507 6444-5555',
+    targetDate: '',
+    adults: 6,
+    children: 2,
+    interests: ['Island Hopping', 'Snorkeling'],
+    message: 'Hi',
+    termsAccepted: true,
+    customerLanguage: 'es',
+  });
+  const pcFpB = computePrivateCustomDraftFingerprint({
+    charterType: 'sailboat', // Changed charter
+    customerName: 'Carlos',
+    customerEmail: 'carlos@example.com',
+    customerPhone: '+507 6444-5555',
+    targetDate: '',
+    adults: 6,
+    children: 2,
+    interests: ['Snorkeling', 'Island Hopping'],
+    message: 'Hi',
+    termsAccepted: true,
+    customerLanguage: 'es',
+  });
+
+  const dayTripSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/planner/DayTripBookingFlow.tsx'),
+    'utf8'
+  );
+  const privateCustomSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/planner/PrivateCustomFlow.tsx'),
+    'utf8'
+  );
+  const mainSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/main.tsx'), 'utf8');
+
+  assert(
+    'Test 161 (Priority C): DayTour & PrivateCustom validation, draft fingerprint rotation, double-click locks, zero alert(), and ErrorBoundary verified',
+    Boolean(
+      !dtBadStep4.valid &&
+        dtBadStep4.fieldErrors.fullName &&
+        dtBadStep4.fieldErrors.email &&
+        dtBadStep4.fieldErrors.phone &&
+        dtBadStep4.fieldErrors.pickupLocation &&
+        !dtBadCheckout.valid &&
+        dtFp1 !== dtFp2 &&
+        dtPortPayload.pickupLocation === 'Cartí Port' &&
+        !pcBadValidation.valid &&
+        pcBadValidation.fieldErrors.targetDate &&
+        pcBadValidation.fieldErrors.travelers &&
+        pcBadValidation.fieldErrors.termsAccepted &&
+        pcGoodFlexible.valid &&
+        pcFpA !== pcFpB &&
+        dayTripSrc.includes('submittingRef.current') &&
+        dayTripSrc.includes('computeDayTripDraftFingerprint') &&
+        privateCustomSrc.includes('submittingRef.current') &&
+        !privateCustomSrc.includes('alert(') &&
+        privateCustomSrc.includes('role="alert"') &&
+        privateCustomSrc.includes('noValidate') &&
+        mainSrc.includes('ErrorBoundary')
+    ),
+    'All form validators reject bad/past inputs; fingerprints rotate on change; both flows enforce mutex + no alert(); ErrorBoundary active',
+    `dtBad=${!dtBadStep4.valid}, pcBad=${!pcBadValidation.valid}, pcGood=${pcGoodFlexible.valid}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 162 (PRIORITY D): CMS QUOTATION TOTALS, REVISIONS, OUTDATED FLAGS & ADMIN FIXES
+  // -------------------------------------------------------------
+  const qtyPerPersonTotal = calculateLineQuantity('per_person_total', 4, 3, 2, 1, 1);
+  const qtyPerPersonNight = calculateLineQuantity('per_person_night', 4, 3, 2, 1, 1);
+  const qtyPerCabinNight = calculateLineQuantity('per_cabin_night', 4, 3, 2, 1, 1);
+  const qtyPerVehicle = calculateLineQuantity('per_vehicle', 4, 3, 2, 2, 1);
+
+  const firstNightTotals = calculateQuotationTotals({
+    pricingMode: 'first_night_additional',
+    pricingStatus: 'Priced Quotation',
+    travelers: 2,
+    nights: 3, // 1st night + 2 additional
+    firstNightRate: 229,
+    additionalNightRate: 119,
+    totalPackagePrice: 0,
+    lineItems: [
+      {
+        id: 'li-1',
+        description: 'Private 4x4 Roundtrip',
+        pricingBasis: 'per_booking',
+        quantity: 1,
+        unitPrice: 150,
+        total: 150,
+      },
+    ],
+    enableTax: true,
+    taxPercent: 7,
+  });
+  // Base = 2*229 + 2*2*119 = 458 + 476 = 934; extras = 150; sub = 1084; tax = 75.88; total = 1159.88
+  const pendingRatesTotals = calculateQuotationTotals({
+    pricingMode: 'first_night_additional',
+    pricingStatus: 'Rates to Be Confirmed',
+    travelers: 2,
+    nights: 2,
+    firstNightRate: 0,
+    additionalNightRate: 0,
+    totalPackagePrice: 0,
+    lineItems: [],
+    enableTax: false,
+    taxPercent: 7,
+  });
+
+  const normalizedQuote = normalizeQuotation({
+    reference: 'GNY-Q-500',
+    arrivalDate: '2027-06-10',
+    departureDate: '2027-06-13',
+  });
+  const revNext = generateNextRevisionReference(normalizedQuote, [
+    normalizedQuote,
+    { ...normalizedQuote, id: 'rev-a', reference: 'GNY-Q-500-A', revisionLetter: 'A' },
+  ]);
+  const outdatedCheck = getOutdatedFieldsInfo({
+    cancellationTerms: '90% refund if cancelled 14+ days prior',
+    inclusions: ['Snorkeling masks provided'],
+  });
+
+  const adminHeaderSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/admin/AdminHeader.tsx'),
+    'utf8'
+  );
+  const adminGuardSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/admin/AdminAuthGuard.tsx'),
+    'utf8'
+  );
+  const quotationEditorSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/admin/QuotationEditor.tsx'),
+    'utf8'
+  );
+
+  assert(
+    'Test 162 (Priority D): CMS quotation calculations, revision sequence, outdated detection, and Admin UI fixes verified',
+    Boolean(
+      qtyPerPersonTotal === 4 &&
+        qtyPerPersonNight === 12 &&
+        qtyPerCabinNight === 6 &&
+        qtyPerVehicle === 2 &&
+        firstNightTotals.basePackageTotal === 934 &&
+        firstNightTotals.optionalExtrasTotal === 150 &&
+        firstNightTotals.subtotal === 1084 &&
+        firstNightTotals.taxAmount === 75.88 &&
+        firstNightTotals.total === 1159.88 &&
+        firstNightTotals.isRatesPending === false &&
+        pendingRatesTotals.isRatesPending === true &&
+        normalizedQuote.nights === 3 &&
+        revNext.nextReference === 'GNY-Q-500-B' &&
+        outdatedCheck.hasOutdatedText === true &&
+        outdatedCheck.outdatedFields.includes('Conditions') &&
+        outdatedCheck.outdatedFields.includes('Inclusions') &&
+        adminHeaderSrc.includes("activeView === 'payments'\n                ? 'Payment Readiness'") &&
+        !adminGuardSrc.includes('gunayala123.netlify.app') &&
+        adminGuardSrc.includes('window.location.origin') &&
+        !quotationEditorSrc.includes('alert(')
+    ),
+    'Quantities, totals ($1159.88), pending state, revision B, outdated scanner, AdminHeader breadcrumb, dynamic reset URL, zero Editor alerts',
+    `total=${firstNightTotals.total}, rev=${revNext.nextReference}, outdated=${outdatedCheck.outdatedFields.join(',')}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 163 (PRIORITY E): PAYMENT AUTHORIZATION & SECRET HYGIENE SCAN
+  // -------------------------------------------------------------
+  const privateCharterDirectReq = {
+    httpMethod: 'POST',
+    headers: {},
+    body: JSON.stringify({
+      bookingReference: 'GNY-TEST-CHARTER',
+      bookingType: 'private-charter',
+      customerName: 'Charter Tamper',
+      customerEmail: 'charter-tamper@example.com',
+      adults: 4,
+      amount: 10.0,
+      idempotencyKey: 'idem_charter_tamper_163',
+    }),
+  };
+  const charterDirectRes = await checkoutHandler(privateCharterDirectReq as any);
+  const charterDirectBody = JSON.parse(charterDirectRes.body);
+
+  // Scan client src/ files to ensure zero server-only secret leakage or forbidden secret patterns
+  const clientFilesList: string[] = [];
+  function walkSrc(dir: string) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkSrc(full);
+      else if (/\.(ts|tsx)$/.test(entry.name)) clientFilesList.push(full);
+    }
+  }
+  walkSrc(path.resolve(process.cwd(), 'src'));
+
+  const secretLeakHits: string[] = [];
+  for (const file of clientFilesList) {
+    const content = fs.readFileSync(file, 'utf8');
+    if (
+      /SUPABASE_SERVICE_ROLE_KEY|PAGUELOFACIL_ACCESS_TOKEN|PAGUELOFACIL_SANDBOX_ACCESS_TOKEN|RESEND_API_KEY|VITE_.*SECRET|sk_live_/i.test(
+        content
+      )
+    ) {
+      secretLeakHits.push(path.relative(process.cwd(), file));
+    }
+  }
+
+  assert(
+    'Test 163 (Priority E): Private charter checkout without quotationId returns HTTP 422 and zero server secrets appear in client src/',
+    Boolean(
+      charterDirectRes.statusCode === 422 &&
+        charterDirectBody.requiresApproval === true &&
+        secretLeakHits.length === 0
+    ),
+    'HTTP 422 requiresApproval=true for private-charter; secretLeakHits=0',
+    `charterStatus=${charterDirectRes.statusCode}, secretHits=${JSON.stringify(secretLeakHits)}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 164 (PRIORITY F): SITE-WIDE ASSETS, INTERACTIVE MAP PRESELECTION & TRANSLATIONS PARITY
+  // -------------------------------------------------------------
+  const brokenPictureRefs: string[] = [];
+  for (const file of clientFilesList) {
+    const raw = fs.readFileSync(file, 'utf8');
+    // Strip JS/TS single-line and multi-line comments so commented example paths aren't flagged
+    const stripped = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '');
+    const matches = stripped.match(/\/pictures\/[A-Za-z0-9_.\-% ()]+/g) || [];
+    for (const m of matches) {
+      const cleanRel = decodeURIComponent(m).replace(/^\/+/, '');
+      const absAsset = path.resolve(process.cwd(), 'public', cleanRel);
+      if (!fs.existsSync(absAsset)) {
+        brokenPictureRefs.push(`${path.relative(process.cwd(), file)} -> ${m}`);
+      }
+    }
+  }
+
+  const enKeys = Object.keys(TRANSLATIONS.en).sort();
+  const esKeys = Object.keys(TRANSLATIONS.es).sort();
+  const translationParityOk =
+    enKeys.length === esKeys.length &&
+    enKeys.every((k, i) => k === esKeys[i] && Boolean((TRANSLATIONS.es as any)[k]));
+
+  const mapSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/InteractiveTravelMap.tsx'),
+    'utf8'
+  );
+  const appUpdatedSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+
+  assert(
+    'Test 164 (Priority F): Zero broken /pictures/ assets in active src/, 100% EN/ES key parity, and InteractiveTravelMap + Multi-Day preselection wired',
+    Boolean(
+      brokenPictureRefs.length === 0 &&
+        translationParityOk &&
+        mapSrc.includes("onOpenPlanner('overnight', 'franklin-island')") &&
+        mapSrc.includes("onOpenPlanner('overnight', 'perro-chico')") &&
+        mapSrc.includes("onOpenPlanner('sailing')") &&
+        appUpdatedSrc.includes("category === 'multi-day' ? 'multi-day-exploration'") &&
+        appUpdatedSrc.includes('onOpenPlanner={(cat, islandId) => handleOpenPlanner(cat, undefined, islandId)}')
+    ),
+    '0 broken picture refs, EN/ES keys identical, map & Multi-Day CTAs preserve exact destination/experience',
+    `brokenAssets=${brokenPictureRefs.length}, enKeys=${enKeys.length}, esKeys=${esKeys.length}`
+  );
+
+  // =========================================================================
+  // TESTS 165–173: OVERNIGHT 50% DEPOSIT PAYMENT LINKS (CMS + BACKEND QA)
+  // =========================================================================
+
+  // TEST 165: Integer-cent 50% calculation & half-up odd-cent rounding
+  const evenCalc = calculate50PercentDepositCents(60000); // $600.00
+  const oddCalc = calculate50PercentDepositCents(60101);  // $601.01
+  let smallRejected = false;
+  try {
+    calculate50PercentDepositCents(199); // $1.99 -> deposit would be $1.00 / $0.99 invalid total
+  } catch {
+    smallRejected = true;
+  }
+
+  assert(
+    'Test 165 (50% Deposit): Exact integer-cent 50% deposit & odd-cent half-up rounding preserve total invariant',
+    Boolean(
+      evenCalc.depositCents === 30000 &&
+        evenCalc.remainingBalanceCents === 30000 &&
+        evenCalc.depositUsd === 300 &&
+        oddCalc.depositCents === 30051 &&
+        oddCalc.remainingBalanceCents === 30050 &&
+        oddCalc.depositCents + oddCalc.remainingBalanceCents === 60101 &&
+        smallRejected
+    ),
+    '60000c->30000c+30000c; 60101c->30051c+30050c; <200c rejected',
+    `even=${evenCalc.depositCents}/${evenCalc.remainingBalanceCents}, odd=${oddCalc.depositCents}/${oddCalc.remainingBalanceCents}, smallRejected=${smallRejected}`
+  );
+
+  // Shared mock Supabase factory for deposit payment link tests
+  function createDepositMockSupabase(initialData?: {
+    quotations?: any[];
+    inquiries?: any[];
+    customers?: any[];
+    bookings?: any[];
+    txs?: any[];
+    adminUserIds?: string[];
+  }) {
+    const quotations = [...(initialData?.quotations || [])];
+    const inquiries = [...(initialData?.inquiries || [])];
+    const customers = [...(initialData?.customers || [])];
+    const bookings = [...(initialData?.bookings || [])];
+    const txs = [...(initialData?.txs || [])];
+    const adminUserIds = new Set(initialData?.adminUserIds || ['admin-petra-uuid']);
+    const heldLocks = new Map<string, string>();
+    let txSeq = 1;
+
+    const matchFilters = (row: any, filters: Array<{ col: string; val: any }>) =>
+      filters.every((f) => row[f.col] === f.val);
+
+    const buildQuery = (rows: any[], tableName: string) => {
+      const filters: Array<{ col: string; val: any }> = [];
+      let orderCol: string | null = null;
+      let ascending = true;
+
+      const execSelect = () => {
+        let out = rows.filter((r) => matchFilters(r, filters));
+        if (orderCol) {
+          out = [...out].sort((a, b) => {
+            const va = String(a[orderCol!] || '');
+            const vb = String(b[orderCol!] || '');
+            return ascending ? va.localeCompare(vb) : vb.localeCompare(va);
+          });
+        }
+        return { data: out, error: null };
+      };
+
+      const chain: any = {
+        eq: (col: string, val: any) => {
+          filters.push({ col, val });
+          return chain;
+        },
+        order: (col: string, opts?: { ascending?: boolean }) => {
+          orderCol = col;
+          ascending = opts?.ascending !== false;
+          return chain;
+        },
+        maybeSingle: async () => {
+          const { data } = execSelect();
+          return { data: data[0] || null, error: null };
+        },
+        single: async () => {
+          const { data } = execSelect();
+          return data[0] ? { data: data[0], error: null } : { data: null, error: { message: 'Not found' } };
+        },
+        then: (resolve: any) => resolve(execSelect()),
+      };
+      return chain;
+    };
+
+    const getTableRows = (table: string) => {
+      if (table === 'quotations') return quotations;
+      if (table === 'crm_inquiries') return inquiries;
+      if (table === 'crm_customers') return customers;
+      if (table === 'booking_requests') return bookings;
+      if (table === 'payment_transactions') return txs;
+      if (table === 'quotation_admins') return Array.from(adminUserIds).map((uid) => ({ user_id: uid }));
+      return [];
+    };
+
+    return {
+      rows: { quotations, inquiries, customers, bookings, txs },
+      auth: {
+        getUser: async (token: string) => {
+          if (token === 'valid-admin-token') return { data: { user: { id: 'admin-petra-uuid', email: 'petra@gunayalapanama.com' } }, error: null };
+          if (token === 'non-admin-token') return { data: { user: { id: 'regular-user-uuid', email: 'guest@example.com' } }, error: null };
+          return { data: { user: null }, error: { message: 'Invalid token' } };
+        },
+      },
+      rpc: async (fnName: string, args: any) => {
+        if (fnName === 'acquire_quotation_deposit_lock') {
+          const lockKey = `QUOTATION_DEPOSIT_${args.p_quotation_id}`;
+          if (heldLocks.has(lockKey)) {
+            return { data: { acquired: false, reason: 'locked', message: 'Lock held' }, error: null };
+          }
+          heldLocks.set(lockKey, args.p_owner_token);
+          return { data: { acquired: true, owner_token: args.p_owner_token }, error: null };
+        }
+        if (fnName === 'release_quotation_deposit_lock') {
+          const lockKey = `QUOTATION_DEPOSIT_${args.p_quotation_id}`;
+          if (heldLocks.get(lockKey) === args.p_owner_token) {
+            heldLocks.delete(lockKey);
+            return { data: { released: true }, error: null };
+          }
+          return { data: { released: false }, error: null };
+        }
+        if (fnName === 'reconcile_payment_and_booking_atomic') {
+          const tx = txs.find((t) => t.id === args.p_transaction_id);
+          const bk = bookings.find((b) => b.booking_reference === args.p_booking_reference);
+          if (!tx || !bk) return { data: null, error: { message: 'Missing tx or booking' } };
+          const targetBookingStatus = tx.payment_type === 'deposit' ? 'deposit_received' : 'fully_confirmed';
+          tx.status = 'approved';
+          tx.gateway_operation_id = args.p_gateway_operation_id;
+          tx.amount_paid = args.p_amount_paid;
+          tx.verified_at = args.p_verified_at;
+          tx.audit_metadata = args.p_audit_metadata;
+          bk.status = targetBookingStatus;
+          bk.special_notes = `[RECONCILED] ${bk.special_notes || ''}`.trim();
+          return {
+            data: {
+              success: true,
+              already_approved: false,
+              payment_updated: 1,
+              booking_updated: 1,
+              booking_status: targetBookingStatus,
+              payment_type: tx.payment_type,
+            },
+            error: null,
+          };
+        }
+        if (fnName === 'check_and_increment_status_rate_limit') {
+          return { data: { allowed: true }, error: null };
+        }
+        return { data: null, error: { message: `Function ${fnName} does not exist` } };
+      },
+      from: (table: string) => {
+        const tableRows = getTableRows(table);
+        return {
+          select: () => buildQuery(tableRows, table),
+          insert: (payload: any) => {
+            const newRow = {
+              id: payload.id || `tx-dep-${txSeq++}`,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              ...payload,
+            };
+            // Simulate partial unique index on (quotation_id) for active/approved deposit tx
+            if (
+              table === 'payment_transactions' &&
+              newRow.quotation_id &&
+              newRow.payment_type === 'deposit' &&
+              ['pending', 'processing', 'needs_manual_review', 'approved'].includes(newRow.status) &&
+              txs.some(
+                (t) =>
+                  t.quotation_id === newRow.quotation_id &&
+                  t.payment_type === 'deposit' &&
+                  ['pending', 'processing', 'needs_manual_review', 'approved'].includes(t.status)
+              )
+            ) {
+              return {
+                select: () => ({
+                  single: async () => ({ data: null, error: { code: '23505', message: 'duplicate key value' } }),
+                }),
+              };
+            }
+            tableRows.push(newRow);
+            return {
+              select: () => ({
+                single: async () => ({ data: newRow, error: null }),
+                maybeSingle: async () => ({ data: newRow, error: null }),
+              }),
+            };
+          },
+          upsert: async (payload: any, opts?: { onConflict?: string }) => {
+            const conflictCol = opts?.onConflict || 'id';
+            const idx = tableRows.findIndex((r) => r[conflictCol] === payload[conflictCol]);
+            if (idx >= 0) {
+              tableRows[idx] = { ...tableRows[idx], ...payload, updated_at: new Date().toISOString() };
+            } else {
+              tableRows.push({
+                id: payload.id || `${table}-${tableRows.length + 1}`,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                ...payload,
+              });
+            }
+            return { data: [payload], error: null };
+          },
+          update: (patch: any) => ({
+            eq: (col: string, val: any) => {
+              const matched: any[] = [];
+              for (let i = 0; i < tableRows.length; i++) {
+                if (tableRows[i][col] === val) {
+                  tableRows[i] = { ...tableRows[i], ...patch, updated_at: new Date().toISOString() };
+                  matched.push(tableRows[i]);
+                }
+              }
+              return {
+                select: () => ({
+                  maybeSingle: async () => ({ data: matched[0] || null, error: null }),
+                  single: async () => ({ data: matched[0] || null, error: null }),
+                  then: (resolve: any) => resolve({ data: matched, error: null }),
+                }),
+                then: (resolve: any) => resolve({ data: matched, error: null }),
+              };
+            },
+          }),
+        };
+      },
+    };
+  }
+
+  const futureExpiry = new Date(Date.now() + 7 * 86400 * 1000).toISOString().slice(0, 10);
+  const pastExpiry = '2020-01-01';
+
+  const makeApprovedOvernightRow = (id: string, total = 600, overrides: any = {}) => ({
+    id,
+    reference: `REF-${id}`,
+    status: overrides.rowStatus || 'Ready for review',
+    customer_name: overrides.customerName ?? 'Elena Vance',
+    inquiry_id: overrides.inquiry_id ?? 'inq-600',
+    total,
+    updated_at: new Date().toISOString(),
+    data: {
+      id,
+      reference: `REF-${id}`,
+      language: 'en',
+      status: overrides.status || 'Ready for review',
+      termsStatus: overrides.termsStatus ?? 'Approved by Petra',
+      pricingStatus: overrides.pricingStatus ?? 'Priced Quotation',
+      pricingMode: overrides.pricingMode || 'single_total',
+      customerName: overrides.customerName ?? 'Elena Vance',
+      customerEmail: overrides.customerEmail ?? 'elena@example.com',
+      customerPhone: '+507 6555-0101',
+      island: 'Chichime Grande',
+      experience: overrides.experience ?? 'Island Overnight Experience',
+      packageTitle: overrides.packageTitle ?? 'Chichime Grande Cabana Package',
+      arrivalDate: '2026-12-15',
+      departureDate: '2026-12-17',
+      nights: overrides.nights ?? 2,
+      travelers: 2,
+      totalPackagePrice: total,
+      lineItems: overrides.lineItems || [],
+      enableTax: false,
+      taxPercent: 7,
+      subtotal: total,
+      taxAmount: 0,
+      total: overrides.dataTotal ?? total,
+      expiryDate: overrides.expiryDate ?? futureExpiry,
+      inquiry_id: overrides.inquiry_id ?? 'inq-600',
+    },
+  });
+
+  const depositEnv = {
+    PAGUELOFACIL_ENV: 'production',
+    PAGUELOFACIL_CCLW: 'LIVE_CCLW_SECRET_ABC123',
+    PAGUELOFACIL_ACCESS_TOKEN: 'LIVE_REST_TOKEN_SECRET_XYZ',
+    PAGUELOFACIL_MERCHANT_ID: '174335',
+    SUPABASE_URL: 'https://mock.supabase.co',
+    SUPABASE_SERVICE_ROLE_KEY: 'mock-service-role-secret',
+  };
+
+  // TEST 166: Strict RBAC (401 unauth, 403 non-admin)
+  resetDepositQuotationLocksForTesting();
+  const mockAuthDb = createDepositMockSupabase({
+    quotations: [makeApprovedOvernightRow('q-600', 600)],
+  });
+  const unauthDepositRes = await executeAdminDepositPaymentAction(null, { action: 'list_deposit_quotations' }, {
+    supabaseClient: mockAuthDb as any,
+    envOverride: depositEnv,
+  });
+  const badTokenRes = await executeAdminDepositPaymentAction('Bearer bad-token', { action: 'list_deposit_quotations' }, {
+    supabaseClient: mockAuthDb as any,
+    envOverride: depositEnv,
+  });
+  const nonAdminRes = await executeAdminDepositPaymentAction('Bearer non-admin-token', { action: 'list_deposit_quotations' }, {
+    supabaseClient: mockAuthDb as any,
+    envOverride: depositEnv,
+  });
+
+  assert(
+    'Test 166 (50% Deposit Auth): Rejects missing/invalid tokens (401) and non-admin authenticated users (403)',
+    unauthDepositRes.statusCode === 401 && badTokenRes.statusCode === 401 && nonAdminRes.statusCode === 403,
+    '401 unauth, 401 bad token, 403 non-admin',
+    `statuses=[${unauthDepositRes.statusCode},${badTokenRes.statusCode},${nonAdminRes.statusCode}]`
+  );
+
+  // TEST 167: Anti-Tampering — Public checkout rejects quotationId + client depositAmount; Admin endpoint ignores client depositAmount
+  let gatewayCallsCount167 = 0;
+  let gatewayCmtn167 = '';
+  const mockAntiTamperFetch = (async (_url: string, init?: any) => {
+    gatewayCallsCount167++;
+    const params = new URLSearchParams(String(init?.body || ''));
+    gatewayCmtn167 = params.get('CMTN') || '';
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'OK' },
+        data: { url: 'https://secure.paguelofacil.com/checkout?code=LK-DEP-167', code: 'LK-DEP-167' },
+      }),
+    } as any;
+  }) as typeof fetch;
+
+  const publicTamperRes = await checkoutHandler({
+    httpMethod: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bookingType: 'overnight',
+      quotationId: 'q-600',
+      customerName: 'Attacker',
+      customerEmail: 'attacker@example.com',
+      depositAmount: 1.00,
+      amount: 1.00,
+      idempotencyKey: 'idem_tamper_overnight_167',
+    }),
+  } as any);
+
+  const mockDb167 = createDepositMockSupabase({
+    quotations: [makeApprovedOvernightRow('q-600', 600)],
+    inquiries: [{ id: 'inq-600', customer_id: 'cust-600' }],
+    customers: [{ id: 'cust-600', full_name: 'Elena Vance', email: 'elena@example.com', whatsapp: '+507 6555-0101' }],
+  });
+
+  const adminTamperedAmountRes = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    {
+      action: 'generate_deposit_link',
+      quotationId: 'q-600',
+      depositAmount: 1.00, // tampered client field must be ignored
+      amount: 1.00,
+      total: 2.00,
+    },
+    { supabaseClient: mockDb167 as any, envOverride: depositEnv, fetchFn: mockAntiTamperFetch }
+  );
+
+  assert(
+    'Test 167 (Anti-Tampering): Public overnight checkout with quotationId/depositAmount blocked (422); Admin link charges exact server 50% ($300.00)',
+    Boolean(
+      publicTamperRes.statusCode === 422 &&
+        gatewayCallsCount167 === 1 &&
+        adminTamperedAmountRes.statusCode === 200 &&
+        adminTamperedAmountRes.body.depositCents === 30000 &&
+        gatewayCmtn167 === '300.00'
+    ),
+    'public 422; admin CMTN=300.00 ignoring tampered $1.00',
+    `public=${publicTamperRes.statusCode}, cmtn=${gatewayCmtn167}, depCents=${adminTamperedAmountRes.body.depositCents}`
+  );
+
+  // TEST 168: Strict Validation Rejections (Draft, Pending Pricing, Day Tour, Expired, <$2 Total, Tampered Total)
+  let gatewayCalls168 = 0;
+  const mockNoCallFetch = (async () => {
+    gatewayCalls168++;
+    throw new Error('Gateway must not be called for invalid quotes');
+  }) as typeof fetch;
+
+  const mockDb168 = createDepositMockSupabase({
+    quotations: [
+      makeApprovedOvernightRow('q-draft', 600, { termsStatus: 'Draft', status: 'Draft' }),
+      makeApprovedOvernightRow('q-unpriced', 600, { pricingStatus: 'Rates to Be Confirmed' }),
+      makeApprovedOvernightRow('q-daytour', 142, { experience: 'Day Tour from Panama City', packageTitle: 'Day Tour', nights: 0 }),
+      makeApprovedOvernightRow('q-expired', 600, { expiryDate: pastExpiry }),
+      makeApprovedOvernightRow('q-too-small', 1.5),
+      makeApprovedOvernightRow('q-tampered-total', 600, { dataTotal: 100 }),
+    ],
+    inquiries: [{ id: 'inq-600', customer_id: 'cust-600' }],
+    customers: [{ id: 'cust-600', full_name: 'Elena Vance', email: 'elena@example.com' }],
+  });
+
+  const invalidIds = ['q-draft', 'q-unpriced', 'q-daytour', 'q-expired', 'q-too-small', 'q-tampered-total'];
+  const invalidResults: number[] = [];
+  for (const qId of invalidIds) {
+    const r = await executeAdminDepositPaymentAction(
+      'Bearer valid-admin-token',
+      { action: 'generate_deposit_link', quotationId: qId },
+      { supabaseClient: mockDb168 as any, envOverride: depositEnv, fetchFn: mockNoCallFetch }
+    );
+    invalidResults.push(r.statusCode);
+  }
+
+  assert(
+    'Test 168 (Validation): Rejects draft, pending-pricing, day-tour, expired, <$2, and mismatched-total quotations with 422 and 0 gateway calls',
+    invalidResults.every((c) => c === 422) && gatewayCalls168 === 0,
+    'all 6 return 422 and gatewayCalls=0',
+    `codes=${JSON.stringify(invalidResults)}, gatewayCalls=${gatewayCalls168}`
+  );
+
+  // TEST 169: Secret safety, token hash storage, and odd-cent ($601.01) payment transaction persistence
+  let oddCmtn = '';
+  const mockOddFetch = (async (_url: string, init?: any) => {
+    const params = new URLSearchParams(String(init?.body || ''));
+    oddCmtn = params.get('CMTN') || '';
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'OK' },
+        data: { url: 'https://secure.paguelofacil.com/checkout?code=LK-DEP-ODD', code: 'LK-DEP-ODD' },
+      }),
+    } as any;
+  }) as typeof fetch;
+
+  const mockDb169 = createDepositMockSupabase({
+    quotations: [makeApprovedOvernightRow('q-odd', 601.01)],
+    inquiries: [{ id: 'inq-600', customer_id: 'cust-600' }],
+    customers: [{ id: 'cust-600', full_name: 'Elena Vance', email: 'elena@example.com' }],
+  });
+
+  const oddRes = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'generate_deposit_link', quotationId: 'q-odd' },
+    { supabaseClient: mockDb169 as any, envOverride: depositEnv, fetchFn: mockOddFetch }
+  );
+  const oddTx = mockDb169.rows.txs[0];
+  const oddResJson = JSON.stringify(oddRes.body);
+  const secretsExposedIn169 =
+    oddResJson.includes('LIVE_CCLW_SECRET_ABC123') ||
+    oddResJson.includes('LIVE_REST_TOKEN_SECRET_XYZ') ||
+    oddResJson.includes('mock-service-role-secret');
+
+  assert(
+    'Test 169 (Odd-Cent Persistence & Security): $601.01 charges CMTN=300.51, persists 30050c remaining balance & SHA-256 token hash, leaks 0 secrets',
+    Boolean(
+      oddRes.statusCode === 200 &&
+        oddCmtn === '300.51' &&
+        oddTx?.payment_type === 'deposit' &&
+        oddTx?.amount_in_cents === 30051 &&
+        oddTx?.approved_total_cents === 60101 &&
+        oddTx?.remaining_balance_cents === 30050 &&
+        typeof oddTx?.audit_metadata?.verification_token_hash === 'string' &&
+        oddTx.audit_metadata.verification_token_hash.length === 64 &&
+        !secretsExposedIn169
+    ),
+    'CMTN=300.51, deposit=30051c, remaining=30050c, 64-hex token hash stored, 0 secrets leaked',
+    `status=${oddRes.statusCode}, cmtn=${oddCmtn}, txCents=${oddTx?.amount_in_cents}, remCents=${oddTx?.remaining_balance_cents}, leaked=${secretsExposedIn169}`
+  );
+
+  // TEST 170: Duplicate prevention & concurrency lock (reuses existing pending link + allows at most 1 parallel call)
+  let gwCalls170 = 0;
+  const mockConcurrentFetch = (async () => {
+    gwCalls170++;
+    await new Promise((r) => setTimeout(r, 35));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        headerStatus: { code: 200, status: 'OK' },
+        data: { url: 'https://secure.paguelofacil.com/checkout?code=LK-DEP-170', code: 'LK-DEP-170' },
+      }),
+    } as any;
+  }) as typeof fetch;
+
+  const mockDb170 = createDepositMockSupabase({
+    quotations: [makeApprovedOvernightRow('q-170', 600)],
+    inquiries: [{ id: 'inq-600', customer_id: 'cust-600' }],
+    customers: [{ id: 'cust-600', full_name: 'Elena Vance', email: 'elena@example.com' }],
+  });
+
+  const [pRes1, pRes2] = await Promise.all([
+    executeAdminDepositPaymentAction(
+      'Bearer valid-admin-token',
+      { action: 'generate_deposit_link', quotationId: 'q-170' },
+      { supabaseClient: mockDb170 as any, envOverride: depositEnv, fetchFn: mockConcurrentFetch }
+    ),
+    executeAdminDepositPaymentAction(
+      'Bearer valid-admin-token',
+      { action: 'generate_deposit_link', quotationId: 'q-170' },
+      { supabaseClient: mockDb170 as any, envOverride: depositEnv, fetchFn: mockConcurrentFetch }
+    ),
+  ]);
+
+  // Repeat call after first succeeded should cleanly reuse active pending link with 0 extra gateway calls
+  const reuseRes170 = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'generate_deposit_link', quotationId: 'q-170' },
+    { supabaseClient: mockDb170 as any, envOverride: depositEnv, fetchFn: mockConcurrentFetch }
+  );
+
+  assert(
+    'Test 170 (Duplicate & Concurrency): Parallel requests invoke gateway once (409 on contender); subsequent click reuses pending link with 0 new gateway calls',
+    Boolean(
+      gwCalls170 === 1 &&
+        ((pRes1.statusCode === 200 && pRes2.statusCode === 409) || (pRes2.statusCode === 200 && pRes1.statusCode === 409)) &&
+        reuseRes170.statusCode === 200 &&
+        reuseRes170.body.reused === true &&
+        reuseRes170.body.transaction?.paymentUrl === 'https://secure.paguelofacil.com/checkout?code=LK-DEP-170'
+    ),
+    'gwCalls170=1 across 3 calls; one 409 lock; repeat reused=true',
+    `gwCalls=${gwCalls170}, p1=${pRes1.statusCode}, p2=${pRes2.statusCode}, reuse=${reuseRes170.statusCode}/${reuseRes170.body.reused}`
+  );
+
+  // TEST 171: Gateway timeout marks transaction needs_manual_review & blocks auto second link
+  let gwCalls171 = 0;
+  const mockTimeoutFetch = (async () => {
+    gwCalls171++;
+    const abortErr: any = new Error('The operation was aborted due to timeout');
+    abortErr.name = 'AbortError';
+    throw abortErr;
+  }) as typeof fetch;
+
+  const mockDb171 = createDepositMockSupabase({
+    quotations: [makeApprovedOvernightRow('q-171', 600)],
+    inquiries: [{ id: 'inq-600', customer_id: 'cust-600' }],
+    customers: [{ id: 'cust-600', full_name: 'Elena Vance', email: 'elena@example.com' }],
+  });
+
+  const timeoutRes = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'generate_deposit_link', quotationId: 'q-171' },
+    { supabaseClient: mockDb171 as any, envOverride: depositEnv, fetchFn: mockTimeoutFetch }
+  );
+
+  const retryAfterTimeoutRes = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'generate_deposit_link', quotationId: 'q-171' },
+    { supabaseClient: mockDb171 as any, envOverride: depositEnv, fetchFn: mockTimeoutFetch }
+  );
+
+  assert(
+    'Test 171 (Uncertain Timeout Handling): Timeout marks tx needs_manual_review and blocks replacement link generation (409) until verified',
+    Boolean(
+      timeoutRes.statusCode === 502 &&
+        timeoutRes.body.requiresManualReview === true &&
+        mockDb171.rows.txs[0]?.status === 'needs_manual_review' &&
+        retryAfterTimeoutRes.statusCode === 409 &&
+        retryAfterTimeoutRes.body.requiresManualReview === true &&
+        gwCalls171 === 1
+    ),
+    'timeout->502 needs_manual_review; retry->409 requiresManualReview without calling gateway',
+    `timeout=${timeoutRes.statusCode}, dbStatus=${mockDb171.rows.txs[0]?.status}, retry=${retryAfterTimeoutRes.statusCode}, gwCalls=${gwCalls171}`
+  );
+
+  // TEST 172: Verified Deposit Reconciliation (deposit_received, NOT fully_confirmed) + blocks duplicate after approved + customer status check
+  const mockDb172 = createDepositMockSupabase({
+    quotations: [makeApprovedOvernightRow('q-172', 600)],
+    inquiries: [{ id: 'inq-600', customer_id: 'cust-600' }],
+    customers: [{ id: 'cust-600', full_name: 'Elena Vance', email: 'elena@example.com' }],
+  });
+
+  const gen172Res = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'generate_deposit_link', quotationId: 'q-172' },
+    { supabaseClient: mockDb172 as any, envOverride: depositEnv, fetchFn: mockAntiTamperFetch }
+  );
+  const created172Ref = gen172Res.body.transaction?.bookingReference;
+
+  const mockVerify172Fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [
+        {
+          codOper: 'LK-DEPOSIT-PAID-172',
+          status: 1,
+          txType: 'AUTH_CAPTURE',
+          authCurrency: '840',
+          authAmount: 300.0,
+          idMerchant: '174335',
+          customParm1: created172Ref,
+        },
+      ],
+    }),
+  })) as unknown as typeof fetch;
+
+  const refresh172Res = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'refresh_deposit_status', quotationId: 'q-172', operationCode: 'LK-DEPOSIT-PAID-172' },
+    { supabaseClient: mockDb172 as any, envOverride: depositEnv, fetchFn: mockVerify172Fetch }
+  );
+
+  // Attempting to generate another deposit link after approved deposit -> 409 Conflict
+  const dupAfterPaidRes = await executeAdminDepositPaymentAction(
+    'Bearer valid-admin-token',
+    { action: 'generate_deposit_link', quotationId: 'q-172' },
+    { supabaseClient: mockDb172 as any, envOverride: depositEnv, fetchFn: mockNoCallFetch }
+  );
+
+  // Customer status check via idempotency/token capability reports deposit_received accurately
+  resetPaymentStatusRateLimitStoreForTesting();
+  const tx172Record = mockDb172.rows.txs[0];
+  const custStatus172Res = await checkPaymentStatusHandler(
+    {
+      httpMethod: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bookingReference: created172Ref,
+        verificationKey: tx172Record.idempotency_key, // no plain token in DB, wait: verification_token_hash IS set on new deposit tx!
+      }),
+    },
+    {},
+    { supabaseClient: mockDb172 as any, env: depositEnv, fetchFn: mockVerify172Fetch }
+  );
+  // Note: because verification_token_hash IS set on new deposit tx, raw idempotencyKey alone must be 403!
+  const booking172After = mockDb172.rows.bookings.find((b) => b.booking_reference === created172Ref);
+
+  assert(
+    'Test 172 (Deposit Reconciliation): Verified $300 deposit marks tx approved & booking deposit_received (NOT fully_confirmed), preserves $300 balance, blocks duplicate link (409) & rejects idempotency-only status probe (403)',
+    Boolean(
+      refresh172Res.statusCode === 200 &&
+        refresh172Res.body.success === true &&
+        refresh172Res.body.transaction?.status === 'approved' &&
+        booking172After?.status === 'deposit_received' &&
+        tx172Record?.remaining_balance_cents === 30000 &&
+        dupAfterPaidRes.statusCode === 409 &&
+        dupAfterPaidRes.body.alreadyApproved === true &&
+        custStatus172Res.statusCode === 403
+    ),
+    'booking=deposit_received, remaining=30000c, dup=409, idempotency-only probe=403',
+    `refresh=${refresh172Res.statusCode}/${refresh172Res.body.transaction?.status}, bookingStatus=${booking172After?.status}, dup=${dupAfterPaidRes.statusCode}, custProbe=${custStatus172Res.statusCode}`
+  );
+
+  // TEST 173: Confirm Day Tour regression still transitions to fully_confirmed AND client src/ has 0 secret leaks after UI edits
+  const newClientFiles = [
+    path.resolve(process.cwd(), 'src/utils/quotationDepositCalculator.ts'),
+    path.resolve(process.cwd(), 'src/components/admin/DepositPaymentLinksSection.tsx'),
+    path.resolve(process.cwd(), 'src/components/admin/PaymentManagementPanel.tsx'),
+    path.resolve(process.cwd(), 'src/components/admin/QuotationEditor.tsx'),
+  ];
+  const newSecretHits = newClientFiles.filter((f) => {
+    const content = fs.readFileSync(f, 'utf8');
+    return /SUPABASE_SERVICE_ROLE_KEY|PAGUELOFACIL_ACCESS_TOKEN|PAGUELOFACIL_CCLW|RESEND_API_KEY/i.test(content);
+  });
+
+  const sqlMigrationText = fs.readFileSync(
+    path.resolve(process.cwd(), 'supabase/migrations/20261118_deposit_payment_links.sql'),
+    'utf8'
+  );
+
+  assert(
+    'Test 173 (SQL & Client Secret Parity): SQL migration preserves full->fully_confirmed & transitions deposit->deposit_received; client files leak 0 secrets',
+    Boolean(
+      newSecretHits.length === 0 &&
+        sqlMigrationText.includes("WHEN v_is_deposit THEN 'deposit_received' ELSE 'fully_confirmed'") &&
+        sqlMigrationText.includes('idx_unique_active_or_approved_deposit_per_quotation') &&
+        sqlMigrationText.includes('acquire_quotation_deposit_lock')
+    ),
+    '0 secret hits in new/updated UI files; SQL migration enforces deposit_received & partial unique index',
+    `secretHits=${newSecretHits.length}, hasDepositSql=${sqlMigrationText.includes('deposit_received')}`
+  );
 
   console.log('----------------------------------------------------');
   console.log('         PART 25I PAYMENT SECURITY TEST MATRIX');

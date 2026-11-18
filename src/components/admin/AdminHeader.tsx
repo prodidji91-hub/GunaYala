@@ -104,6 +104,8 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
                 ? `Customer Preview ${quotationRef || ''}`
                 : activeView === 'crm'
                 ? 'Customer Management'
+                : activeView === 'payments'
+                ? 'Payment Readiness'
                 : 'Manage Package Descriptions'}
             </span>
           </div>

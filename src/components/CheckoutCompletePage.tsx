@@ -12,6 +12,7 @@ export const CheckoutCompletePage: React.FC<CheckoutCompletePageProps> = ({ onBa
   const [status, setStatus] = useState<VerificationStatus>('verifying');
   const [message, setMessage] = useState<string>('');
   const [bookingRef, setBookingRef] = useState<string>('');
+  const [paymentType, setPaymentType] = useState<string>('full');
   const [pollingCount, setPollingCount] = useState<number>(0);
 
   // Retain credentials in memory across polls after scrubbing the browser address bar
@@ -33,7 +34,9 @@ export const CheckoutCompletePage: React.FC<CheckoutCompletePageProps> = ({ onBa
       ? 'Estamos confirmando los detalles de su transacción con el proveedor bancario.' 
       : 'We are securely confirming your transaction details with the payment gateway.',
     verifying: lang === 'es' ? 'Verificando con PagueloFacil...' : 'Verifying with PagueloFacil...',
-    confirmed: lang === 'es' ? '¡Pago Confirmado y Reserva Finalizada!' : 'Payment Confirmed & Booking Finalized!',
+    confirmed: paymentType === 'deposit'
+      ? (lang === 'es' ? '¡Depósito del 50% Recibido!' : '50% Deposit Received!')
+      : (lang === 'es' ? '¡Pago Confirmado y Reserva Finalizada!' : 'Payment Confirmed & Booking Finalized!'),
     pending: lang === 'es' 
       ? 'Pago en proceso de confirmación' 
       : 'Payment verification in progress',
@@ -115,6 +118,9 @@ export const CheckoutCompletePage: React.FC<CheckoutCompletePageProps> = ({ onBa
       if (res.ok && data.state) {
         setStatus(data.state);
         setMessage(data.message || '');
+        if (data.paymentType) {
+          setPaymentType(data.paymentType);
+        }
       } else {
         setStatus('contact_support');
         setMessage(data.message || 'Unable to verify payment status at this time.');

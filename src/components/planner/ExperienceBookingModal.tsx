@@ -26,6 +26,7 @@ interface ExperienceBookingModalProps {
   initialPath?: PlannerFlowPath;
   initialCategory?: ExperienceCategory;
   initialDayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port';
+  initialOvernightIslandId?: string;
   onOpenExperienceDetails?: (exp: Experience) => void;
 }
 
@@ -37,6 +38,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
   initialPath = 'selector',
   initialCategory,
   initialDayTourPackageId,
+  initialOvernightIslandId,
   onOpenExperienceDetails,
 }) => {
   const isEs = currentLang === 'es';
@@ -64,7 +66,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, initialPath, initialCategory]);
+  }, [isOpen, initialPath, initialCategory, initialDayTourPackageId, initialOvernightIslandId]);
 
   // Handle escape key
   useEffect(() => {
@@ -83,7 +85,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#06121e]/85 backdrop-blur-md flex flex-col justify-start animate-fadeIn"
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-[#06121e]/85 backdrop-blur-md flex flex-col justify-start animate-fadeIn"
     >
       {/* Top Floating App Bar */}
       <header className="sticky top-0 z-20 w-full bg-[#faf7f2]/95 backdrop-blur-md border-b border-[#e5dccb] px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-xs">
@@ -170,6 +172,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
             currentLang={currentLang}
             onBackToSelector={() => setActivePath('selector')}
             onOpenDetailsModal={onOpenExperienceDetails}
+            initialExperienceId={initialOvernightIslandId}
           />
         )}
 
@@ -177,6 +180,7 @@ export const ExperienceBookingModal: React.FC<ExperienceBookingModalProps> = ({
           <PrivateCustomFlow
             currentLang={currentLang}
             onBackToSelector={() => setActivePath('selector')}
+            initialCharterType={activePath === 'sailing' ? 'sailboat' : activePath === 'catamaran' ? 'catamaran' : 'private-day'}
           />
         )}
 

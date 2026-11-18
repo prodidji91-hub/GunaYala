@@ -1,8 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { Language } from '../../types';
 import { VisualAsset } from '../../pictures';
 import { DAY_TOUR_PACKAGES_CLIENT, DayTourPackageInfo } from '../../data/dayTourPackages';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import {
+  DayTourPackageId,
+  getPanamaTomorrowDateISO,
+  getPanamaUpcomingDates,
+  getDayTripPickupDefault,
+  validateDayTripStep4,
+  validateDayTripCheckoutStep,
+  computeDayTripDraftFingerprint,
+  buildDayTripCheckoutPayload,
+} from '../../utils/dayTripBooking';
 import {
   Calendar,
   Users,
@@ -25,7 +35,7 @@ import {
 interface DayTripBookingFlowProps {
   currentLang: Language;
   onBackToSelector: () => void;
-  initialPackageId?: 'day-tour-panama-city' | 'day-tour-port';
+  initialPackageId?: DayTourPackageId;
 }
 
 export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
@@ -36,8 +46,10 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   const isEs = currentLang === 'es';
 
   // Selected Day Tour Package State
-  const [selectedPackageId, setSelectedPackageId] = useState<'day-tour-panama-city' | 'day-tour-port'>(
-    initialPackageId && DAY_TOUR_PACKAGES_CLIENT[initialPackageId] ? initialPackageId : 'day-tour-panama-city'
+  const [selectedPackageId, setSelectedPackageId] = useState<DayTourPackageId>(
+    initialPackageId && DAY_TOUR_PACKAGES_CLIENT[initialPackageId]
+      ? initialPackageId
+      : 'day-tour-panama-city'
   );
 
   const currentPkg: DayTourPackageInfo =
@@ -46,14 +58,8 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   // Progressive Steps: 1: Experience | 2: Date | 3: Travelers | 4: Trip Info | 5: Review | 6: Secure Checkout
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
 
-  // Date State: helper for upcoming dates
-  const today = new Date();
-  const formatDateISO = (d: Date) => d.toISOString().split('T')[0];
-
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
-  const defaultDateStr = formatDateISO(tomorrow);
-
+  // Panama-timezone calendar dates (never shifted by UTC evening rollover)
+  const defaultDateStr = useMemo(() => getPanamaTomorrowDateISO(), []);
   const [selectedDate, setSelectedDate] = useState<string>(defaultDateStr);
 
   // Travelers State
@@ -65,17 +71,20 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
   const [pickupLocation, setPickupLocation] = useState<string>(
-    selectedPackageId === 'day-tour-port' ? 'Cartí Port (Puerto Cartí) - Self Transport' : ''
+    getDayTripPickupDefault(
+      initialPackageId && DAY_TOUR_PACKAGES_CLIENT[initialPackageId]
+        ? initialPackageId
+        : 'day-tour-panama-city'
+    )
   );
 
   React.useEffect(() => {
     if (initialPackageId && DAY_TOUR_PACKAGES_CLIENT[initialPackageId]) {
       setSelectedPackageId(initialPackageId);
-      setPickupLocation(
-        initialPackageId === 'day-tour-port' ? 'Cartí Port (Puerto Cartí) - Self Transport' : ''
-      );
+      setPickupLocation(getDayTripPickupDefault(initialPackageId));
     }
   }, [initialPackageId]);
+
   const [specialNotes, setSpecialNotes] = useState<string>('');
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 
@@ -84,86 +93,113 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
   const [beforeYouTravelAccepted, setBeforeYouTravelAccepted] = useState<boolean>(true);
   const [isProcessingCheckout, setIsProcessingCheckout] = useState<boolean>(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [idempotencyKey] = useState<string>(() => {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-      return crypto.randomUUID();
+  const submittingRef = useRef<boolean>(false);
+  const idempotencyByFingerprintRef = useRef<Record<string, string>>({});
+  const bookingRefByFingerprintRef = useRef<Record<string, string>>({});
+
+  const getOrCreateAttemptKeys = (fingerprint: string) => {
+    if (!idempotencyByFingerprintRef.current[fingerprint]) {
+      idempotencyByFingerprintRef.current[fingerprint] =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `daytour_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
     }
-    return `daytour_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  });
+    if (!bookingRefByFingerprintRef.current[fingerprint]) {
+      bookingRefByFingerprintRef.current[fingerprint] = `GNY-${Math.floor(
+        100000 + Math.random() * 900000
+      )}`;
+    }
+    return {
+      idempotencyKey: idempotencyByFingerprintRef.current[fingerprint],
+      bookingReference: bookingRefByFingerprintRef.current[fingerprint],
+    };
+  };
 
   // Calculate pricing
   const pricePerPerson = currentPkg.pricePerPerson;
   const onlineTotal = (adults + children) * pricePerPerson;
 
-  // Generate clean date pills for the next 14 days
-  const upcomingDates = Array.from({ length: 14 }).map((_, index) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + 1 + index);
-    return {
-      iso: formatDateISO(d),
-      dayName: d.toLocaleDateString(isEs ? 'es-PA' : 'en-US', { weekday: 'short' }),
-      dayNumber: d.getDate(),
-      monthName: d.toLocaleDateString(isEs ? 'es-PA' : 'en-US', { month: 'short' }),
-    };
-  });
+  // Generate clean date pills for the next 14 days in Panama calendar dates
+  const upcomingDates = useMemo(
+    () => getPanamaUpcomingDates(currentLang, 14),
+    [currentLang]
+  );
 
   const validateStep4 = () => {
-    const errors: { [key: string]: string } = {};
-    if (!fullName.trim()) {
-      errors.fullName = isEs ? 'Por favor ingrese su nombre completo' : 'Please enter your full name';
-    }
-    if (!email.trim() || !email.includes('@')) {
-      errors.email = isEs ? 'Por favor ingrese un correo electrónico válido' : 'Please enter a valid email address';
-    }
-    if (!phone.trim()) {
-      errors.phone = isEs ? 'Por favor ingrese su teléfono o WhatsApp' : 'Please enter your WhatsApp or phone';
-    }
-    if (selectedPackageId === 'day-tour-panama-city' && !pickupLocation.trim()) {
-      errors.pickupLocation = isEs
-        ? 'Por favor ingrese su hotel o dirección en Ciudad de Panamá'
-        : 'Please enter your hotel or pickup address in Panama City';
-    }
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    const result = validateDayTripStep4({
+      selectedPackageId,
+      fullName,
+      email,
+      phone,
+      pickupLocation,
+      customerLanguage: currentLang,
+    });
+    setFormErrors(result.fieldErrors);
+    return result.valid;
   };
 
   const handleBookAndPayNow = async () => {
-    if (!termsAccepted || !beforeYouTravelAccepted) {
-      setCheckoutError(
-        isEs
-          ? 'Debe aceptar los Términos y Condiciones y los Requisitos de Antes de Viajar para continuar.'
-          : 'Please acknowledge both the Terms & Conditions and Before You Travel requirements to proceed.'
-      );
+    if (submittingRef.current || isProcessingCheckout) return;
+
+    const checkoutCheck = validateDayTripCheckoutStep({
+      selectedDate,
+      adults,
+      children,
+      termsAccepted,
+      beforeYouTravelAccepted,
+      customerLanguage: currentLang,
+    });
+    if (!checkoutCheck.valid) {
+      setCheckoutError(checkoutCheck.error);
       return;
     }
 
+    const step4Check = validateDayTripStep4({
+      selectedPackageId,
+      fullName,
+      email,
+      phone,
+      pickupLocation,
+      customerLanguage: currentLang,
+    });
+    if (!step4Check.valid) {
+      setFormErrors(step4Check.fieldErrors);
+      setCurrentStep(4);
+      return;
+    }
+
+    submittingRef.current = true;
     setIsProcessingCheckout(true);
     setCheckoutError(null);
 
-    const bookingReference = `GNY-${Math.floor(100000 + Math.random() * 900000)}`;
+    const draftInput = {
+      selectedPackageId,
+      customerName: fullName,
+      customerEmail: email,
+      customerPhone: phone,
+      selectedDate,
+      adults,
+      children,
+      pickupLocation,
+      specialNotes,
+      customerLanguage: currentLang,
+    };
+    const fingerprint = computeDayTripDraftFingerprint(draftInput);
+    const { idempotencyKey, bookingReference } = getOrCreateAttemptKeys(fingerprint);
 
     try {
-      const payload = {
+      const payload = buildDayTripCheckoutPayload({
+        ...draftInput,
         bookingReference,
-        bookingType: 'day-trip',
-        dayTourPackageId: selectedPackageId,
-        customerName: fullName.trim(),
-        customerEmail: email.trim().toLowerCase(),
-        customerPhone: phone.trim(),
-        targetDate: selectedDate,
-        adults,
-        children,
-        pickupLocation: selectedPackageId === 'day-tour-port' ? 'Cartí Port' : pickupLocation.trim(),
-        specialNotes: specialNotes.trim(),
-        termsAccepted: true,
-        customerLanguage: currentLang,
         idempotencyKey,
-      };
+      });
 
       let adminToken = '';
       if (isSupabaseConfigured && supabase) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
           if (session?.access_token) {
             adminToken = session.access_token;
           }
@@ -208,16 +244,17 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
       if (response.ok && data.success && data.paymentUrl) {
         // Redirect browser to validated HTTPS PagueloFacil checkout URL
         window.location.href = data.paymentUrl;
-      } else {
-        setCheckoutError(
-          data.error ||
-            data.message ||
-            (isEs
-              ? 'El sistema de pago no está disponible temporalmente o la pasarela requiere configuración. Por favor verifique sus datos o intente más tarde.'
-              : 'Payment gateway session could not be established. Please verify your connection or try again.')
-        );
-        setIsProcessingCheckout(false);
+        return;
       }
+
+      setCheckoutError(
+        data.error ||
+          data.message ||
+          (isEs
+            ? 'El sistema de pago no está disponible temporalmente o la pasarela requiere configuración. Por favor verifique sus datos o intente más tarde.'
+            : 'Payment gateway session could not be established. Please verify your connection or try again.')
+      );
+      setIsProcessingCheckout(false);
     } catch (err: any) {
       console.error('[DayTripBookingFlow] Checkout error:', err);
       setCheckoutError(
@@ -227,6 +264,8 @@ export const DayTripBookingFlow: React.FC<DayTripBookingFlowProps> = ({
             : 'Network error connecting to secure payment gateway.')
       );
       setIsProcessingCheckout(false);
+    } finally {
+      submittingRef.current = false;
     }
   };
 

@@ -61,18 +61,18 @@ export class BookingRequestService {
     const payload = {
       idempotencyKey,
       bookingType: input.bookingType,
-      customerName: input.customerName.trim(),
-      customerEmail: input.customerEmail.trim().toLowerCase(),
-      customerPhone: input.customerPhone.trim(),
-      experienceTitle: input.experienceTitle,
-      targetDate: input.targetDate || '',
-      departureDate: input.departureDate || '',
-      nights: input.nights || '',
-      adults: input.adults || 1,
-      children: input.children || 0,
-      accommodationPreference: input.accommodationPreference || '',
-      pickupLocation: input.pickupLocation || '',
-      specialNotes: input.specialNotes || '',
+      customerName: (input.customerName || '').trim(),
+      customerEmail: (input.customerEmail || '').trim().toLowerCase(),
+      customerPhone: (input.customerPhone || '').trim(),
+      experienceTitle: (input.experienceTitle || '').trim(),
+      targetDate: (input.targetDate || '').trim(),
+      departureDate: (input.departureDate || '').trim(),
+      nights: (input.nights || '').trim(),
+      adults: Number.isFinite(Number(input.adults)) ? Math.max(1, Math.floor(Number(input.adults))) : 1,
+      children: Number.isFinite(Number(input.children)) ? Math.max(0, Math.floor(Number(input.children))) : 0,
+      accommodationPreference: (input.accommodationPreference || '').trim(),
+      pickupLocation: (input.pickupLocation || '').trim(),
+      specialNotes: (input.specialNotes || '').trim(),
       termsAccepted: true,
       termsVersion,
       customerLanguage,
@@ -98,21 +98,49 @@ export class BookingRequestService {
           body: JSON.stringify(payload),
         });
 
-        const contentType = response.headers.get('content-type') || '';
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
 
         // Guard against Netlify SPA fallback serving index.html
         if (contentType.includes('text/html')) {
           console.warn(`[BookingRequestService] Endpoint ${endpoint} returned HTML (SPA fallback). Retrying next endpoint...`);
-          lastError = 'API endpoint returned HTML page instead of JSON.';
+          lastError =
+            customerLanguage === 'es'
+              ? 'El servicio de solicitudes requiere el entorno de servidor activo. Intente nuevamente o contáctenos por WhatsApp.'
+              : 'Booking service endpoint is unavailable in this preview environment. Please try again or reach Petra directly on WhatsApp.';
           continue;
         }
 
-        if (!contentType.includes('application/json')) {
-          lastError = `Endpoint ${endpoint} returned invalid content type: ${contentType}`;
+        const rawText = await response.text();
+        let resData: any = null;
+        if (rawText) {
+          try {
+            resData = JSON.parse(rawText);
+          } catch {
+            resData = null;
+          }
+        }
+
+        if (!resData || typeof resData !== 'object') {
+          lastError = `Endpoint ${endpoint} returned non-JSON response (${response.status}).`;
           continue;
         }
 
-        const resData = await response.json();
+        // Deterministic client validation errors (4xx): surface immediately without blind retry
+        if (response.status >= 400 && response.status < 500) {
+          const clientErrorMsg =
+            resData.error ||
+            resData.message ||
+            (customerLanguage === 'es'
+              ? 'Por favor verifique los datos de su solicitud e intente nuevamente.'
+              : 'Please review your booking request details and try again.');
+          return {
+            success: false,
+            bookingReference: '',
+            status: 'rejected',
+            message: clientErrorMsg,
+            error: clientErrorMsg,
+          };
+        }
 
         if (!response.ok || !resData.success || !resData.dbSaved || !resData.bookingReference) {
           throw new Error(
@@ -140,7 +168,9 @@ export class BookingRequestService {
       success: false,
       bookingReference: '',
       status: 'error',
-      message: 'Unable to submit booking request. Our booking system is briefly verifying connection settings. Please try again.',
+      message:
+        lastError ||
+        'Unable to submit booking request. Our booking system is briefly verifying connection settings. Please try again.',
       error: lastError || 'Server error or endpoint offline',
     };
   }

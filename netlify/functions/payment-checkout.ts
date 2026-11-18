@@ -96,39 +96,35 @@ export const handler = async (event: NetlifyEvent) => {
   let paymentType: 'deposit' | 'full' | 'balance' = 'full';
 
   if (bookingType === 'overnight') {
-    // Overnight Stays REQUIRE quotation approval by Petra
-    if (!quotationId) {
-      return {
-        statusCode: 422,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          requiresApproval: true,
-          bookingType: 'overnight',
-          error: 'Overnight stays require Petra\'s prior accommodation and island availability confirmation before payment can be generated.',
-        }),
-      };
-    }
-    authoritativeAmount = body.depositAmount ?? 0;
-    authoritativeAmountInCents = Math.round(authoritativeAmount * 100);
-    paymentType = body.paymentType ?? 'deposit';
+    // Overnight Stays ALWAYS require Petra's quotation approval & admin-issued 50% deposit payment link
+    // NEVER accept client-supplied depositAmount on the public checkout endpoint.
+    return {
+      statusCode: 422,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: false,
+        requiresApproval: true,
+        bookingType: 'overnight',
+        error: quotationId
+          ? 'Overnight deposit payment links must be generated exclusively by Petra through the quotation administration system. Client-supplied deposit amounts are never accepted.'
+          : 'Overnight stays require Petra\'s prior accommodation and island availability confirmation before payment can be generated.',
+      }),
+    };
   } else if (bookingType === 'private-charter') {
-    // Private Charters REQUIRE custom quotation approval
-    if (!quotationId) {
-      return {
-        statusCode: 422,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          requiresApproval: true,
-          bookingType: 'private-charter',
-          error: 'Private charters require a custom itinerary quotation and approval before payment can be generated.',
-        }),
-      };
-    }
-    authoritativeAmount = body.depositAmount ?? 0;
-    authoritativeAmountInCents = Math.round(authoritativeAmount * 100);
-    paymentType = body.paymentType ?? 'deposit';
+    // Private Charters REQUIRE custom quotation approval & admin-issued payment link
+    // NEVER accept client-supplied depositAmount on the public checkout endpoint.
+    return {
+      statusCode: 422,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: false,
+        requiresApproval: true,
+        bookingType: 'private-charter',
+        error: quotationId
+          ? 'Private charter payment links must be generated exclusively by Petra through the quotation administration system. Client-supplied deposit amounts are never accepted.'
+          : 'Private charters require a custom itinerary quotation and approval before payment can be generated.',
+      }),
+    };
   } else if (bookingType === 'day-trip') {
     // Day tours calculate server-authoritative pricing in integer cents (never trust client amount)
     const requestedPkg = body.dayTourPackageId;

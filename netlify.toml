@@ -36,6 +36,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin/deposit-payment"
+  to = "/.netlify/functions/admin-deposit-payment"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200

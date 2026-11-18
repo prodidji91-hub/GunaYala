@@ -1,39 +1,55 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Language } from '../../types';
 import { bookingRequestService } from '../../services/bookingRequestService';
+import { getPanamaTodayDateISO } from '../../utils/overnightBooking';
+import {
+  CHARTER_OPTIONS,
+  CharterTypeId,
+  buildPrivateCustomBookingRequestPayload,
+  buildPrivateCustomWhatsappText,
+  computePrivateCustomDraftFingerprint,
+  getCharterTitle,
+  resolveInitialCharterType,
+  validatePrivateCustomInquiry,
+} from '../../utils/privateCustomBooking';
 import {
   Sparkles,
-  Ship,
-  Users,
-  Calendar,
   Send,
   MessageCircle,
   ArrowLeft,
   Check,
-  Compass,
-  Anchor,
   Loader2,
   Info,
+  AlertCircle,
 } from 'lucide-react';
 
 interface PrivateCustomFlowProps {
   currentLang: Language;
   onBackToSelector: () => void;
+  initialCharterType?: string | null;
 }
 
 export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
   currentLang,
   onBackToSelector,
+  initialCharterType,
 }) => {
   const isEs = currentLang === 'es';
+  const panamaToday = getPanamaTodayDateISO();
 
   const [step, setStep] = useState<'form' | 'submitted'>('form');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [assignedBookingRef, setAssignedBookingRef] = useState<string>('');
-  const [idempotencyKey] = useState<string>(() => bookingRequestService.generateIdempotencyKey());
+
+  const submittingRef = useRef<boolean>(false);
+  const idempotencyTrackerRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
 
   // Form State
-  const [charterType, setCharterType] = useState<string>('private-day');
+  const [charterType, setCharterType] = useState<CharterTypeId>(() =>
+    resolveInitialCharterType(initialCharterType)
+  );
   const [targetDates, setTargetDates] = useState<string>('');
   const [adults, setAdults] = useState<number>(2);
   const [children, setChildren] = useState<number>(0);
@@ -42,35 +58,14 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
   const [message, setMessage] = useState<string>('');
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 
-  const charterOptions = [
-    {
-      id: 'private-day',
-      title: isEs ? 'Pasadía Privado (4x4 y Bote Exclusivo)' : 'Private Day Trip (Exclusive 4x4 & Boat)',
-      desc: isEs ? 'Horarios a su medida, sin compartir con otros grupos' : 'Custom departure time, exclusive boat for your party',
-    },
-    {
-      id: 'private-overnight',
-      title: isEs ? 'Estadía Nocturna Privada en Isla' : 'Private Island Overnight Stay',
-      desc: isEs ? 'Cabaña privada en la playa con traslados dedicados' : 'Dedicated transfers and private beachfront cabana',
-    },
-    {
-      id: 'sailboat',
-      title: isEs ? 'Velero Monocasco Privado a Vela' : 'Private Monohull Sailboat Charter',
-      desc: isEs ? 'Navegación tradicional a vela entre arrecifes exteriores' : 'Wind sailing between secluded outer atolls',
-    },
-    {
-      id: 'catamaran',
-      title: isEs ? 'Catamarán de Lujo Exclusivo' : 'Private Luxury Catamaran Charter',
-      desc: isEs ? 'Máxima amplitud, cabinas en suite y confort de alta gama' : 'Wide sun decks, en-suite cabins, and maximum stability',
-    },
-    {
-      id: 'custom-event',
-      title: isEs ? 'Celebración Familiar / Viaje Especial' : 'Family Gathering / Special Event',
-      desc: isEs ? 'Cumpleaños, fotografía, luna de miel o evento privado' : 'Anniversaries, honeymoons, photography, or group travel',
-    },
-  ];
+  useEffect(() => {
+    if (initialCharterType) {
+      setCharterType(resolveInitialCharterType(initialCharterType));
+    }
+  }, [initialCharterType]);
 
   const interestOptions = [
     { id: 'relaxation', label: isEs ? 'Playas tranquilas & descanso' : 'Quiet beaches & relaxation' },
@@ -80,84 +75,133 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
     { id: 'seafood', label: isEs ? 'Almuerzo especial de langosta fresca' : 'Fresh lobster & seafood experience' },
   ];
 
+  const clearFieldError = (key: string) => {
+    setFormErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setSubmitError(null);
+  };
+
   const toggleInterest = (id: string) => {
     setInterests((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
   };
 
-  const validate = () => {
-    const errors: { [key: string]: string } = {};
-    if (!fullName.trim()) errors.fullName = isEs ? 'Nombre requerido' : 'Name required';
-    if (!email.trim() || !email.includes('@')) errors.email = isEs ? 'Correo inválido' : 'Valid email required';
-    if (!phone.trim()) errors.phone = isEs ? 'WhatsApp o teléfono requerido' : 'WhatsApp or phone required';
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+  const scrollErrorIntoView = () => {
+    setTimeout(() => {
+      errorBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 30);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validate()) {
-      setIsSubmitting(true);
-      try {
-        const result = await bookingRequestService.submitBookingRequest({
-          idempotencyKey,
-          bookingType: 'private-charter',
-          customerName: fullName,
-          customerEmail: email,
-          customerPhone: phone,
-          experienceTitle: selectedCharterTitle,
-          targetDate: targetDates,
-          adults,
-          children,
-          specialNotes: `Interests: ${interests.join(', ')}. Message: ${message}`,
-          termsAccepted: true,
-          termsVersion: '2026-10-18',
-          customerLanguage: currentLang,
-        });
+    if (submittingRef.current) return;
 
-        if (result.success && result.bookingReference) {
-          setAssignedBookingRef(result.bookingReference);
-          setStep('submitted');
-        } else {
-          alert(result.error || (isEs ? 'Error al enviar la solicitud. Intente de nuevo.' : 'Error submitting request. Please try again.'));
-        }
-      } catch (err: any) {
-        console.error('[PrivateCustomFlow Error] Submission failed:', err);
-        alert(err?.message || (isEs ? 'Error al enviar la solicitud. Intente de nuevo.' : 'Error submitting request. Please try again.'));
-      } finally {
-        setIsSubmitting(false);
+    const validation = validatePrivateCustomInquiry({
+      fullName,
+      email,
+      phone,
+      targetDate: targetDates,
+      adults,
+      children,
+      termsAccepted,
+      customerLanguage: currentLang,
+      todayISO: getPanamaTodayDateISO(),
+    });
+
+    setFormErrors(validation.fieldErrors);
+    if (!validation.valid) {
+      setSubmitError(validation.summaryError);
+      scrollErrorIntoView();
+      return;
+    }
+
+    const draftWithoutKey = {
+      charterType,
+      customerName: fullName,
+      customerEmail: email,
+      customerPhone: phone,
+      targetDate: targetDates,
+      adults,
+      children,
+      interests,
+      message,
+      termsAccepted,
+      customerLanguage: currentLang,
+    };
+
+    const fingerprint = computePrivateCustomDraftFingerprint(draftWithoutKey);
+    if (!idempotencyTrackerRef.current || idempotencyTrackerRef.current.fingerprint !== fingerprint) {
+      idempotencyTrackerRef.current = {
+        fingerprint,
+        key: bookingRequestService.generateIdempotencyKey(),
+      };
+    }
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const payload = buildPrivateCustomBookingRequestPayload({
+        ...draftWithoutKey,
+        idempotencyKey: idempotencyTrackerRef.current.key,
+      });
+
+      const result = await bookingRequestService.submitBookingRequest(payload);
+
+      if (result.success && result.bookingReference) {
+        setAssignedBookingRef(result.bookingReference);
+        setStep('submitted');
+      } else {
+        setSubmitError(
+          result.error ||
+            (isEs
+              ? 'No pudimos enviar la solicitud en este momento. Por favor intente de nuevo o contáctenos por WhatsApp.'
+              : 'Error submitting request. Please try again or reach us directly on WhatsApp.')
+        );
+        scrollErrorIntoView();
       }
-    }
-  };
-
-  const selectedCharterTitle =
-    charterOptions.find((c) => c.id === charterType)?.title || charterType;
-
-  const getWhatsappText = () => {
-    const charterTitle = selectedCharterTitle;
-    const dateStr = targetDates || (isEs ? 'Flexible' : 'Flexible');
-    const interestsStr = interests.length > 0 ? interests.join(', ') : (isEs ? 'General' : 'General');
-    const specialRequests = message.trim() || (isEs ? 'Ninguna' : 'None');
-
-    if (isEs) {
-      return encodeURIComponent(
-        `¡Hola Guna Yala Panama Travel!\n\nMe gustaría solicitar información sobre una experiencia de ${charterTitle}.\n\nFecha preferida: ${dateStr}\nAdultos: ${adults}\nNiños: ${children}\nIntereses: ${interestsStr}\nSolicitudes especiales: ${specialRequests}\n\n¿Podrían confirmar disponibilidad y enviarme una cotización?`
+    } catch (err: any) {
+      console.error('[PrivateCustomFlow Error] Submission failed:', err);
+      setSubmitError(
+        err?.message ||
+          (isEs
+            ? 'Error al enviar la solicitud. Intente de nuevo.'
+            : 'Error submitting request. Please try again.')
       );
+      scrollErrorIntoView();
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
-
-    return encodeURIComponent(
-      `Hello Guna Yala Panama Travel!\n\nI would like to inquire about a ${charterTitle} experience.\n\nPreferred date: ${dateStr}\nAdults: ${adults}\nChildren: ${children}\nInterests: ${interestsStr}\nSpecial requests: ${specialRequests}\n\nCould you please confirm availability and provide a quotation?`
-    );
   };
+
+  const selectedCharterTitle = getCharterTitle(charterType, currentLang);
+
+  const getWhatsappText = () =>
+    buildPrivateCustomWhatsappText({
+      charterType,
+      customerLanguage: currentLang,
+      targetDate: targetDates,
+      adults,
+      children,
+      interests,
+      message,
+    });
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       {/* Top Header & Breadcrumb */}
       <div className="flex items-center justify-between gap-4 mb-6 pb-4 border-b border-[#e5dccb]">
         <button
+          type="button"
           onClick={onBackToSelector}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-[#475569] hover:text-[#06121e] uppercase tracking-[0.14em] transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-[#475569] hover:text-[#06121e] uppercase tracking-[0.14em] transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>{isEs ? 'Volver a Opciones' : 'Back to Options'}</span>
@@ -190,32 +234,38 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="bg-white p-6 sm:p-8 rounded-3xl border border-[#e2d8c5] shadow-sm max-w-2xl mx-auto space-y-6">
+          <form
+            noValidate
+            onSubmit={handleSubmit}
+            className="bg-white p-6 sm:p-8 rounded-3xl border border-[#e2d8c5] shadow-sm max-w-2xl mx-auto space-y-6"
+          >
             {/* Step 1: What type of experience */}
             <div>
               <label className="block text-xs font-mono uppercase tracking-wider text-[#475569] mb-3">
                 {isEs ? '1. ¿Qué tipo de experiencia privada busca?' : '1. What type of private experience are you planning?'}
               </label>
               <div className="space-y-2.5">
-                {charterOptions.map((opt) => (
+                {CHARTER_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
                     onClick={() => setCharterType(opt.id)}
-                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 ${
+                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 cursor-pointer ${
                       charterType === opt.id
                         ? 'bg-[#f0fdfa] border-[#0f766e] ring-1 ring-[#0f766e]'
                         : 'bg-[#faf8f5] border-[#e2d8c5] hover:border-[#0f766e]'
                     }`}
                   >
-                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                      charterType === opt.id ? 'border-[#0f766e] bg-[#0f766e] text-white' : 'border-[#cbd5e1]'
-                    }`}>
+                    <div
+                      className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                        charterType === opt.id ? 'border-[#0f766e] bg-[#0f766e] text-white' : 'border-[#cbd5e1]'
+                      }`}
+                    >
                       {charterType === opt.id && <Check className="w-3 h-3" />}
                     </div>
                     <div>
-                      <div className="text-xs sm:text-sm font-semibold text-[#06121e]">{opt.title}</div>
-                      <div className="text-xs text-[#64748b] font-light">{opt.desc}</div>
+                      <div className="text-xs sm:text-sm font-semibold text-[#06121e]">{opt.title[currentLang]}</div>
+                      <div className="text-xs text-[#64748b] font-light">{opt.desc[currentLang]}</div>
                     </div>
                   </button>
                 ))}
@@ -226,15 +276,27 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[#f1f5f9]">
               <div>
                 <label className="block text-xs font-mono uppercase tracking-wider text-[#475569] mb-1.5">
-                  {isEs ? '2. Fechas Aproximadas o Exactas' : '2. Target Travel Dates'}
+                  {isEs ? '2. Fecha Preferida (Opcional)' : '2. Target Travel Date (Optional)'}
                 </label>
                 <input
-                  type="text"
-                  placeholder={isEs ? 'Ej. 15 de Noviembre o Flexible' : 'e.g., Mid-November or Exact Date'}
+                  type="date"
+                  min={panamaToday}
                   value={targetDates}
-                  onChange={(e) => setTargetDates(e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm rounded-xl border border-[#cbd5e1] bg-[#faf8f5] focus:outline-none focus:border-[#0f766e]"
+                  onChange={(e) => {
+                    setTargetDates(e.target.value);
+                    clearFieldError('targetDate');
+                  }}
+                  className={`w-full px-4 py-2.5 text-sm rounded-xl border ${
+                    formErrors.targetDate ? 'border-red-400 bg-red-50/30' : 'border-[#cbd5e1] bg-[#faf8f5]'
+                  } focus:outline-none focus:border-[#0f766e]`}
                 />
+                {formErrors.targetDate ? (
+                  <p className="text-xs text-red-600 mt-1">{formErrors.targetDate}</p>
+                ) : (
+                  <p className="text-[11px] text-[#64748b] mt-1">
+                    {isEs ? 'Déjelo vacío si su fecha es flexible.' : 'Leave blank if your travel dates are flexible.'}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -245,20 +307,61 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
                   <div className="flex-1 p-2 bg-[#faf8f5] rounded-xl border border-[#e2d8c5] flex items-center justify-between text-xs">
                     <span>{isEs ? 'Adultos:' : 'Adults:'}</span>
                     <div className="flex items-center gap-1.5">
-                      <button type="button" onClick={() => setAdults((p) => Math.max(1, p - 1))} className="w-6 h-6 rounded bg-white border border-[#cbd5e1]">-</button>
-                      <span className="w-5 text-center font-bold">{adults}</span>
-                      <button type="button" onClick={() => setAdults((p) => p + 1)} className="w-6 h-6 rounded bg-white border border-[#cbd5e1]">+</button>
+                      <button
+                        type="button"
+                        aria-label={isEs ? 'Disminuir adultos' : 'Decrease adults'}
+                        onClick={() => {
+                          setAdults((p) => Math.max(1, p - 1));
+                          clearFieldError('travelers');
+                        }}
+                        className="w-6 h-6 rounded bg-white border border-[#cbd5e1] cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <span className="w-6 text-center font-bold">{adults}</span>
+                      <button
+                        type="button"
+                        aria-label={isEs ? 'Aumentar adultos' : 'Increase adults'}
+                        onClick={() => {
+                          setAdults((p) => Math.min(50, p + 1));
+                          clearFieldError('travelers');
+                        }}
+                        className="w-6 h-6 rounded bg-white border border-[#cbd5e1] cursor-pointer"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                   <div className="flex-1 p-2 bg-[#faf8f5] rounded-xl border border-[#e2d8c5] flex items-center justify-between text-xs">
                     <span>{isEs ? 'Niños:' : 'Kids:'}</span>
                     <div className="flex items-center gap-1.5">
-                      <button type="button" onClick={() => setChildren((p) => Math.max(0, p - 1))} className="w-6 h-6 rounded bg-white border border-[#cbd5e1]">-</button>
-                      <span className="w-5 text-center font-bold">{children}</span>
-                      <button type="button" onClick={() => setChildren((p) => p + 1)} className="w-6 h-6 rounded bg-white border border-[#cbd5e1]">+</button>
+                      <button
+                        type="button"
+                        aria-label={isEs ? 'Disminuir niños' : 'Decrease children'}
+                        onClick={() => {
+                          setChildren((p) => Math.max(0, p - 1));
+                          clearFieldError('travelers');
+                        }}
+                        className="w-6 h-6 rounded bg-white border border-[#cbd5e1] cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <span className="w-6 text-center font-bold">{children}</span>
+                      <button
+                        type="button"
+                        aria-label={isEs ? 'Aumentar niños' : 'Increase children'}
+                        onClick={() => {
+                          setChildren((p) => Math.min(50, p + 1));
+                          clearFieldError('travelers');
+                        }}
+                        className="w-6 h-6 rounded bg-white border border-[#cbd5e1] cursor-pointer"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                 </div>
+                {formErrors.travelers && <p className="text-xs text-red-600 mt-1">{formErrors.travelers}</p>}
               </div>
             </div>
 
@@ -275,15 +378,17 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
                       key={item.id}
                       type="button"
                       onClick={() => toggleInterest(item.id)}
-                      className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-center gap-2 ${
+                      className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-center gap-2 cursor-pointer ${
                         isChecked
                           ? 'bg-[#f0fdfa] border-[#0f766e] text-[#0f766e] font-medium'
                           : 'bg-[#faf8f5] border-[#e2d8c5] text-[#475569]'
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                        isChecked ? 'bg-[#0f766e] border-[#0f766e] text-white' : 'border-[#cbd5e1]'
-                      }`}>
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          isChecked ? 'bg-[#0f766e] border-[#0f766e] text-white' : 'border-[#cbd5e1]'
+                        }`}
+                      >
                         {isChecked && <Check className="w-3 h-3" />}
                       </div>
                       <span>{item.label}</span>
@@ -305,12 +410,15 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
                     type="text"
                     placeholder={isEs ? 'Su Nombre Completo *' : 'Your Full Name *'}
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      clearFieldError('fullName');
+                    }}
                     className={`w-full px-4 py-2.5 text-sm rounded-xl border ${
                       formErrors.fullName ? 'border-red-400 bg-red-50/30' : 'border-[#cbd5e1] bg-[#faf8f5]'
                     } focus:outline-none focus:border-[#0f766e]`}
                   />
-                  {formErrors.fullName && <p className="text-xs text-red-500 mt-1">{formErrors.fullName}</p>}
+                  {formErrors.fullName && <p className="text-xs text-red-600 mt-1">{formErrors.fullName}</p>}
                 </div>
 
                 <div>
@@ -318,12 +426,15 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
                     type="email"
                     placeholder={isEs ? 'Correo Electrónico *' : 'Email Address *'}
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      clearFieldError('email');
+                    }}
                     className={`w-full px-4 py-2.5 text-sm rounded-xl border ${
                       formErrors.email ? 'border-red-400 bg-red-50/30' : 'border-[#cbd5e1] bg-[#faf8f5]'
                     } focus:outline-none focus:border-[#0f766e]`}
                   />
-                  {formErrors.email && <p className="text-xs text-red-500 mt-1">{formErrors.email}</p>}
+                  {formErrors.email && <p className="text-xs text-red-600 mt-1">{formErrors.email}</p>}
                 </div>
               </div>
 
@@ -332,23 +443,86 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
                   type="tel"
                   placeholder={isEs ? 'WhatsApp / Teléfono Móvil *' : 'WhatsApp / Mobile Phone *'}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    clearFieldError('phone');
+                  }}
                   className={`w-full px-4 py-2.5 text-sm rounded-xl border ${
                     formErrors.phone ? 'border-red-400 bg-red-50/30' : 'border-[#cbd5e1] bg-[#faf8f5]'
                   } focus:outline-none focus:border-[#0f766e]`}
                 />
-                {formErrors.phone && <p className="text-xs text-red-500 mt-1">{formErrors.phone}</p>}
+                {formErrors.phone && <p className="text-xs text-red-600 mt-1">{formErrors.phone}</p>}
               </div>
 
               <div>
                 <textarea
                   rows={3}
-                  placeholder={isEs ? 'Cuéntenos más sobre su viaje, horarios deseados o requisitos particulares...' : 'Tell us more about your ideal trip, timing, or special requests...'}
+                  placeholder={
+                    isEs
+                      ? 'Cuéntenos más sobre su viaje, fechas flexibles, horarios deseados o requisitos particulares...'
+                      : 'Tell us more about your ideal trip, flexible dates, timing, or special requests...'
+                  }
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   className="w-full px-4 py-2.5 text-sm rounded-xl border border-[#cbd5e1] bg-[#faf8f5] focus:outline-none focus:border-[#0f766e]"
                 />
               </div>
+            </div>
+
+            {/* Terms & Conditions Agreement */}
+            <div>
+              <div
+                className={`flex items-start gap-2.5 p-3.5 rounded-xl text-xs text-[#334155] border ${
+                  formErrors.termsAccepted ? 'bg-red-50/40 border-red-400' : 'bg-[#FAF8F5] border-[#E2D8C5]'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  id="private-charter-terms"
+                  checked={termsAccepted}
+                  onChange={(e) => {
+                    setTermsAccepted(e.target.checked);
+                    clearFieldError('termsAccepted');
+                  }}
+                  className="mt-0.5 rounded border-[#C8AC75] text-[#061815] focus:ring-[#061815] cursor-pointer"
+                />
+                <label htmlFor="private-charter-terms" className="cursor-pointer select-none leading-relaxed">
+                  {isEs ? (
+                    <>
+                      Entiendo que esto es una solicitud de cotización personalizada y acepto los{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.dispatchEvent(new CustomEvent('open-terms', { detail: 'overnight' }));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#0f766e]"
+                      >
+                        Términos y Condiciones
+                      </button>{' '}
+                      para reservas privadas. *
+                    </>
+                  ) : (
+                    <>
+                      I understand this is a custom quotation request and agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          window.dispatchEvent(new CustomEvent('open-terms', { detail: 'overnight' }));
+                        }}
+                        className="text-[#061815] font-semibold underline hover:text-[#0f766e]"
+                      >
+                        Terms &amp; Conditions
+                      </button>{' '}
+                      for private charters. *
+                    </>
+                  )}
+                </label>
+              </div>
+              {formErrors.termsAccepted && (
+                <p className="text-xs text-red-600 mt-1">{formErrors.termsAccepted}</p>
+              )}
             </div>
 
             {/* Explicit Pre-Submission Notice */}
@@ -361,12 +535,24 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
               </span>
             </div>
 
+            {/* Inline Validation & Server Error Banner */}
+            {submitError && (
+              <div
+                ref={errorBannerRef}
+                role="alert"
+                className="p-3.5 bg-red-50 border border-red-300 rounded-xl text-xs text-red-900 flex items-start gap-2.5"
+              >
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <span className="font-medium leading-relaxed">{submitError}</span>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
               <button
                 type="button"
                 onClick={onBackToSelector}
-                className="text-xs font-medium uppercase tracking-[0.14em] text-[#64748b] hover:text-[#06121e]"
+                className="text-xs font-medium uppercase tracking-[0.14em] text-[#64748b] hover:text-[#06121e] cursor-pointer"
               >
                 {isEs ? 'Cancelar' : 'Cancel'}
               </button>
@@ -423,9 +609,9 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
               {assignedBookingRef && <span className="font-mono text-[11px] text-[#0f766e]">{assignedBookingRef}</span>}
             </div>
             <div><span className="text-[#64748b]">{isEs ? 'Tipo:' : 'Type:'}</span> {selectedCharterTitle}</div>
-            <div><span className="text-[#64748b]">{isEs ? 'Fechas:' : 'Dates:'}</span> {targetDates || (isEs ? 'Flexible' : 'Flexible')}</div>
-            <div><span className="text-[#64748b]">{isEs ? 'Viajeros:' : 'Travelers:'}</span> {adults + children} ({adults} Adults, {children} Children)</div>
-            <div><span className="text-[#64748b]">{isEs ? 'Contacto:' : 'Contact:'}</span> {email} · {phone}</div>
+            <div><span className="text-[#64748b]">{isEs ? 'Fecha:' : 'Date:'}</span> {targetDates || 'Flexible'}</div>
+            <div><span className="text-[#64748b]">{isEs ? 'Viajeros:' : 'Travelers:'}</span> {adults + children} ({adults} {isEs ? 'Adultos' : 'Adults'}, {children} {isEs ? 'Niños' : 'Children'})</div>
+            <div><span className="text-[#64748b]">{isEs ? 'Contacto:' : 'Contact:'}</span> {email.trim().toLowerCase()} · {phone.trim()}</div>
           </div>
 
           {/* Direct WhatsApp Option */}
@@ -448,15 +634,15 @@ export const PrivateCustomFlow: React.FC<PrivateCustomFlowProps> = ({
 
           <div className="pt-4">
             <button
+              type="button"
               onClick={onBackToSelector}
-              className="py-2.5 px-6 text-xs uppercase tracking-wider text-[#64748b] hover:text-[#06121e]"
+              className="py-2.5 px-6 text-xs uppercase tracking-wider text-[#64748b] hover:text-[#06121e] cursor-pointer"
             >
               {isEs ? 'Volver al Inicio del Planificador' : 'Back to Experience Selection'}
             </button>
           </div>
         </div>
       )}
-
     </div>
   );
 };

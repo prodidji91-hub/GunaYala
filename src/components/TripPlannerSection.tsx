@@ -11,6 +11,7 @@ interface TripPlannerProps {
   currentLang: Language;
   preSelectedCategory?: ExperienceCategory | '';
   preSelectedDayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port';
+  preSelectedOvernightIslandId?: string;
   onOpenExperienceDetails?: (exp: Experience) => void;
 }
 
@@ -18,6 +19,7 @@ export const TripPlannerSection: React.FC<TripPlannerProps> = ({
   currentLang,
   preSelectedCategory = '',
   preSelectedDayTourPackageId,
+  preSelectedOvernightIslandId,
   onOpenExperienceDetails,
 }) => {
   const [activePath, setActivePath] = useState<PlannerFlowPath>('selector');
@@ -28,14 +30,14 @@ export const TripPlannerSection: React.FC<TripPlannerProps> = ({
       setActivePath('day-trip');
     } else if (preSelectedCategory === 'overnight' || preSelectedCategory === 'multi-day') {
       setActivePath('overnight');
-    } else if (
-      preSelectedCategory === 'private-custom' ||
-      preSelectedCategory === 'sailing' ||
-      preSelectedCategory === 'catamaran'
-    ) {
+    } else if (preSelectedCategory === 'sailing') {
+      setActivePath('sailing');
+    } else if (preSelectedCategory === 'catamaran') {
+      setActivePath('catamaran');
+    } else if (preSelectedCategory === 'private-custom') {
       setActivePath('private-custom');
     }
-  }, [preSelectedCategory]);
+  }, [preSelectedCategory, preSelectedDayTourPackageId, preSelectedOvernightIslandId]);
 
   return (
     <section id="planner" className="py-16 sm:py-24 bg-[#faf7f2] border-t border-[#ede4d5] scroll-mt-20">
@@ -60,6 +62,7 @@ export const TripPlannerSection: React.FC<TripPlannerProps> = ({
             currentLang={currentLang}
             onBackToSelector={() => setActivePath('selector')}
             onOpenDetailsModal={onOpenExperienceDetails}
+            initialExperienceId={preSelectedOvernightIslandId}
           />
         )}
 
@@ -67,6 +70,7 @@ export const TripPlannerSection: React.FC<TripPlannerProps> = ({
           <PrivateCustomFlow
             currentLang={currentLang}
             onBackToSelector={() => setActivePath('selector')}
+            initialCharterType={activePath === 'sailing' ? 'sailboat' : activePath === 'catamaran' ? 'catamaran' : 'private-day'}
           />
         )}
 

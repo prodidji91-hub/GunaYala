@@ -277,8 +277,12 @@ export const AdminAuthGuard: React.FC<AdminAuthGuardProps> = ({ onBackToWebsite 
     setForgotSuccess(false);
 
     try {
+      const resetRedirectUrl =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/admin`
+          : 'https://gunayalapanama.com/admin';
       const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
-        redirectTo: 'https://gunayala123.netlify.app/admin',
+        redirectTo: resetRedirectUrl,
       });
 
       if (error) {

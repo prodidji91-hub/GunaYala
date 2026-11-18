@@ -480,28 +480,54 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
       if (requestPayload.PARM_2) formParams.append('PARM_2', requestPayload.PARM_2);
       if (requestPayload.EXPIRES_IN) formParams.append('EXPIRES_IN', String(requestPayload.EXPIRES_IN));
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formParams.toString(),
-      });
+      const timeoutMs = params.timeoutMs && params.timeoutMs > 0 ? params.timeoutMs : 15000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formParams.toString(),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!response.ok) {
+        const isServerOrTimeoutHttp = response.status >= 500 || response.status === 408 || response.status === 429;
         return {
           success: false,
           paymentId: '',
+          httpStatus: response.status,
+          uncertainFailure: isServerOrTimeoutHttp,
           error: `PagueloFacil gateway returned HTTP ${response.status} ${response.statusText}.`,
         };
       }
 
-      const responseData: PagueloFacilLinkDaemonResponse = await response.json();
+      let responseData: PagueloFacilLinkDaemonResponse;
+      try {
+        responseData = await response.json();
+      } catch (parseErr: any) {
+        return {
+          success: false,
+          paymentId: '',
+          httpStatus: response.status,
+          uncertainFailure: true,
+          error: `PagueloFacil gateway returned malformed or unparseable JSON response: ${parseErr.message}`,
+        };
+      }
 
       if (responseData.headerStatus?.code !== 200 || !responseData.data?.url) {
         return {
           success: false,
           paymentId: '',
+          httpStatus: responseData.headerStatus?.code || response.status,
+          uncertainFailure: false,
           error: responseData.headerStatus?.description || responseData.message || 'PagueloFacil failed to generate checkout link.',
           rawGatewayResponse: responseData,
         };
@@ -513,6 +539,7 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         return {
           success: false,
           paymentId: '',
+          uncertainFailure: true,
           error: `Gateway returned untrusted checkout URL: ${urlValidation.error}`,
           rawGatewayResponse: responseData,
         };
@@ -528,10 +555,14 @@ export class PagueloFacilGatewayAdapter implements PaymentGatewayAdapter {
         rawGatewayResponse: responseData,
       };
     } catch (networkErr: any) {
+      const isAbort = networkErr?.name === 'AbortError' || String(networkErr?.message || '').toLowerCase().includes('abort');
       return {
         success: false,
         paymentId: '',
-        error: `Network error connecting to PagueloFacil: ${networkErr.message}`,
+        uncertainFailure: true,
+        error: isAbort
+          ? `PagueloFacil request timed out before response completed: ${networkErr.message}`
+          : `Uncertain network error connecting to PagueloFacil: ${networkErr.message}`,
       };
     }
   }

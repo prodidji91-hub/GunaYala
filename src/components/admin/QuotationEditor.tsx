@@ -48,6 +48,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { extractRootReference, generateNextRevisionReference } from '../../services/quotationStorageService';
+import { calculate50PercentDepositCents, formatUsdFromCents } from '../../utils/quotationDepositCalculator';
 
 const INTERNATIONAL_COUNTRY_CODES = [
   { code: '+507', label: 'Panama (+507)' },
@@ -108,6 +109,7 @@ interface QuotationEditorProps {
   onPreview: (quotation: Quotation) => void;
   onCreateRevision?: (quotation: Quotation, revisionNote?: string) => void;
   onSelectQuotation?: (quotation: Quotation) => void;
+  onOpenDepositPayment?: (quotation: Quotation) => void;
   onCancel: () => void;
 }
 
@@ -197,6 +199,7 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
   onPreview,
   onCreateRevision,
   onSelectQuotation,
+  onOpenDepositPayment,
   onCancel,
 }) => {
   // Initialize formData from draft if present and matching initialQuotation, else initialQuotation
@@ -1057,7 +1060,7 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
 
   const handleRemoveLineItem = (index: number) => {
     if (formData.pricingMode === 'custom_itemized' && formData.lineItems.length <= 1) {
-      alert('A custom itemized quotation must contain at least one line item.');
+      setErrorMsg('A custom itemized quotation must contain at least one line item.');
       return;
     }
     const removedItem = formData.lineItems[index];
@@ -1258,7 +1261,7 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
 
     const file = files[0];
     if (file.size > 2 * 1024 * 1024) {
-      alert('Please select an image smaller than 2MB for browser preview.');
+      setErrorMsg('Please select an image smaller than 2MB for browser preview.');
       return;
     }
 
@@ -3351,17 +3354,17 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
               </div>
             </div>
 
-            {/* PagueloFacil Payment Link & Approval Workflow (Safe Preparation Mode) */}
+            {/* PagueloFacil 50% Deposit Payment Link & Approval Workflow */}
             <div className="mt-6 pt-6 border-t border-[#e5dec9] space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-[#06121e]" />
                   <h4 className="text-sm font-semibold text-[#06121e]">
-                    {tr('PagueloFacil Payment Link & Approval Workflow', 'Flujo de Aprobación y Enlace de Pago PagueloFacil')}
+                    {tr('PagueloFacil 50% Deposit Payment Link & Approval Workflow', 'Enlace de Depósito 50% PagueloFacil y Flujo de Aprobación')}
                   </h4>
                 </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-semibold w-fit">
-                  {tr('Safe Preparation Mode (Pending Credentials)', 'Modo Seguro (Pendiente de Credenciales)')}
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold w-fit">
+                  {tr('50% Integer-Cent Deposit Ready', 'Listo para Depósito 50% (Centavos Exactos)')}
                 </span>
               </div>
 
@@ -3373,8 +3376,8 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                   </div>
                   <p className="text-[11px] text-amber-800 leading-relaxed">
                     {tr(
-                      'For overnight stays and private charters, Petra must verify island accommodation availability and approve the final quotation terms before a payment link can be issued. Click "Approve Terms & Pricing" in the header once verified.',
-                      'Para estadías y charters privados, Petra debe verificar la disponibilidad de cabañas en la isla y aprobar los términos de la cotización antes de generar un enlace de pago. Haga clic en "Aprobar Términos y Tarifas" en el encabezado una vez verificado.'
+                      'For overnight stays, Petra must verify island accommodation availability and approve the final quotation terms before a 50% deposit payment link can be issued. Click "Approve Terms & Pricing" in the header once verified.',
+                      'Para estadías nocturnas, Petra debe verificar la disponibilidad de cabañas en la isla y aprobar los términos de la cotización antes de generar un enlace de pago del 50%. Haga clic en "Aprobar Términos y Tarifas" en el encabezado una vez verificado.'
                     )}
                   </p>
                 </div>
@@ -3386,42 +3389,66 @@ export const QuotationEditor: React.FC<QuotationEditorProps> = ({
                   </div>
                   <p className="text-[11px] text-emerald-700 leading-relaxed">
                     {tr(
-                      'Accommodation availability and pricing are verified. This quotation is ready for secure PagueloFacil payment link generation once merchant gateway credentials are confirmed.',
-                      'Disponibilidad de alojamiento y tarifas verificadas. Esta cotización está lista para generar el enlace de pago PagueloFacil una vez confirmadas las credenciales de la pasarela.'
+                      'Save this quotation, then open the 50% Deposit Payment Link manager to generate and share a hosted PagueloFacil checkout link. Remaining 50% balance stays clearly documented.',
+                      'Guarde esta cotización y abra el gestor de Enlaces de Depósito 50% para generar y compartir el enlace oficial de PagueloFacil.'
                     )}
                   </p>
-                  
-                  {/* Deposit Calculation Preview */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 text-[11px] font-mono">
-                    <div className="p-2.5 bg-white rounded border border-emerald-200">
-                      <span className="text-gray-500 block">{tr('Total Quotation:', 'Total Cotizado:')}</span>
-                      <span className="font-bold text-[#06121e]">${formData.total.toFixed(2)} USD</span>
-                    </div>
-                    <div className="p-2.5 bg-white rounded border border-emerald-200">
-                      <span className="text-gray-500 block">{tr('Deposit (50% Card):', 'Depósito (50% Tarjeta):')}</span>
-                      <span className="font-bold text-emerald-700">${(formData.total * 0.5).toFixed(2)} USD</span>
-                    </div>
-                    <div className="p-2.5 bg-white rounded border border-emerald-200">
-                      <span className="text-gray-500 block">{tr('Balance (Cash on Island):', 'Saldo (Efectivo en Isla):')}</span>
-                      <span className="font-bold text-amber-800">${(formData.total * 0.5).toFixed(2)} USD</span>
-                    </div>
-                  </div>
+
+                  {/* Deterministic Integer-Cent Deposit Calculation Preview */}
+                  {(() => {
+                    const totalCents = Math.round((formData.total || 0) * 100);
+                    let depositCents = 0;
+                    let remainingCents = 0;
+                    if (totalCents >= 200) {
+                      const calc = calculate50PercentDepositCents(totalCents);
+                      depositCents = calc.depositCents;
+                      remainingCents = calc.remainingBalanceCents;
+                    }
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 text-[11px] font-mono">
+                        <div className="p-2.5 bg-white rounded border border-emerald-200">
+                          <span className="text-gray-500 block">{tr('Total Quotation:', 'Total Cotizado:')}</span>
+                          <span className="font-bold text-[#06121e]">${formatUsdFromCents(totalCents)} USD</span>
+                        </div>
+                        <div className="p-2.5 bg-white rounded border border-emerald-200">
+                          <span className="text-gray-500 block">{tr('50% Deposit (Card):', 'Depósito 50% (Tarjeta):')}</span>
+                          <span className="font-bold text-emerald-700">${formatUsdFromCents(depositCents)} USD</span>
+                        </div>
+                        <div className="p-2.5 bg-white rounded border border-emerald-200">
+                          <span className="text-gray-500 block">{tr('Remaining 50% Balance:', 'Saldo Restante (50%):')}</span>
+                          <span className="font-bold text-amber-800">${formatUsdFromCents(remainingCents)} USD</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
-              {/* Action Button (Visibly disabled in safe mode) */}
-              <div className="flex items-center justify-between pt-1">
+              {/* Action Button: Active when Approved & Saved */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
                 <span className="text-[11px] text-[#687785]">
-                  {tr('Payment actions remain locked until PagueloFacil support and Petra confirm production credentials.', 'Las acciones de pago permanecen bloqueadas hasta que soporte de PagueloFacil y Petra confirmen las credenciales.')}
+                  {formData.termsStatus === 'Approved by Petra' && formData.id
+                    ? tr('Ready to generate or check 50% deposit payment status in the Payment Gateway desk.', 'Listo para generar o verificar el pago del depósito 50% en la Pasarela de Pagos.')
+                    : tr('Approve Terms & save quotation first to unlock 50% deposit link generation.', 'Apruebe los términos y guarde la cotización primero para habilitar el enlace del 50%.')}
                 </span>
                 <button
                   type="button"
-                  disabled
-                  className="px-4 py-2 rounded bg-gray-200 text-gray-500 text-xs font-mono font-semibold cursor-not-allowed flex items-center gap-1.5 opacity-80"
-                  title={tr('Disabled in Safe Preparation Mode', 'Deshabilitado en Modo de Preparación Seguro')}
+                  disabled={!onOpenDepositPayment || formData.termsStatus !== 'Approved by Petra' || !formData.id || (formData.total || 0) < 2}
+                  onClick={() => onOpenDepositPayment && onOpenDepositPayment(formData)}
+                  className={`px-4 py-2.5 min-h-[44px] rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                    onOpenDepositPayment && formData.termsStatus === 'Approved by Petra' && formData.id && (formData.total || 0) >= 2
+                      ? 'bg-[#0e3b2f] hover:bg-[#155243] text-white shadow-sm cursor-pointer'
+                      : 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-80'
+                  }`}
                 >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{tr('Generate PagueloFacil Link (Locked)', 'Generar Enlace PagueloFacil (Bloqueado)')}</span>
+                  {formData.termsStatus === 'Approved by Petra' && formData.id ? (
+                    <CreditCard className="w-3.5 h-3.5 text-[#c9a96e]" />
+                  ) : (
+                    <Lock className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {tr('Generate / Manage 50% Deposit Link', 'Generar / Gestionar Enlace 50%')}
+                  </span>
                 </button>
               </div>
             </div>

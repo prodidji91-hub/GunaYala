@@ -277,7 +277,7 @@ export const EXPERIENCES_DATA: Experience[] = [
       es: [
         'Transporte completo terrestre y marítimo ida y vuelta',
         'Todas las noches de alojamiento en cabaña de isla',
-        'Included meals depend on arrival, departure, and the selected package; details are confirmed in your quotation.',
+        'Las comidas incluidas dependen de la llegada, salida y paquete seleccionado; los detalles se confirman en su cotización.',
         'Excursiones diarias entre islas y visita cultural comunitaria',
         'Acompañamiento de guía local guna durante el viaje',
       ],

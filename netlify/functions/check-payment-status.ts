@@ -52,6 +52,8 @@ export interface CheckPaymentStatusResponse {
   success: boolean;
   state: MinimalPublicPaymentState;
   bookingReference: string;
+  paymentType?: 'deposit' | 'full' | 'balance' | string;
+  bookingStatus?: string;
   message: string;
   error?: string;
 }
@@ -188,7 +190,7 @@ export const handler = async (
   try {
     const { data: tx, error: txError } = await supabase
       .from('payment_transactions')
-      .select('id, booking_reference, idempotency_key, audit_metadata, status, environment, expected_amount, gateway_operation_id, gateway_link_code')
+      .select('id, booking_reference, idempotency_key, audit_metadata, status, payment_type, environment, expected_amount, gateway_operation_id, gateway_link_code')
       .eq('booking_reference', bookingReference)
       .maybeSingle();
 
@@ -308,6 +310,7 @@ export const handler = async (
 
     // 5. If already approved, return confirmed immediately
     if (tx.status === 'approved') {
+      const isDeposit = tx.payment_type === 'deposit';
       return {
         statusCode: 200,
         headers,
@@ -315,7 +318,11 @@ export const handler = async (
           success: true,
           state: 'confirmed',
           bookingReference,
-          message: 'Payment confirmed and booking finalized.',
+          paymentType: tx.payment_type || 'full',
+          bookingStatus: isDeposit ? 'deposit_received' : 'fully_confirmed',
+          message: isDeposit
+            ? '50% deposit confirmed. Your island accommodation and remaining balance are recorded per your approved quotation.'
+            : 'Payment confirmed and booking finalized.',
         }),
       };
     }
@@ -352,6 +359,7 @@ export const handler = async (
     });
 
     if (reconciliation.success && reconciliation.category === 'approved') {
+      const isDeposit = (reconciliation.paymentType || tx.payment_type) === 'deposit';
       return {
         statusCode: 200,
         headers,
@@ -359,7 +367,11 @@ export const handler = async (
           success: true,
           state: 'confirmed',
           bookingReference,
-          message: 'Payment verified successfully and booking confirmed.',
+          paymentType: reconciliation.paymentType || tx.payment_type || 'full',
+          bookingStatus: reconciliation.bookingStatus || (isDeposit ? 'deposit_received' : 'fully_confirmed'),
+          message: isDeposit
+            ? '50% deposit verified successfully. Remaining balance and island logistics remain per your approved quotation.'
+            : 'Payment verified successfully and booking confirmed.',
         }),
       };
     }

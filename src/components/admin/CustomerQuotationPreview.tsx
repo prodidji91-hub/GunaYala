@@ -24,6 +24,7 @@ import {
   GitBranch,
   Clock,
   DollarSign,
+  CreditCard,
 } from 'lucide-react';
 import {
   quotationStorageService,
@@ -39,6 +40,7 @@ interface CustomerQuotationPreviewProps {
   allQuotations?: Quotation[];
   onSelectQuotation?: (quotation: Quotation) => void;
   onCreateRevision?: (quotation: Quotation, revisionNote?: string) => void;
+  onOpenDepositPayment?: (quotation: Quotation) => void;
   onBackToEdit: () => void;
   onBackToList: () => void;
 }
@@ -84,6 +86,7 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
   allQuotations,
   onSelectQuotation,
   onCreateRevision,
+  onOpenDepositPayment,
   onBackToEdit,
   onBackToList,
 }) => {
@@ -528,6 +531,18 @@ export const CustomerQuotationPreview: React.FC<CustomerQuotationPreviewProps> =
             <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
             <span>Reset Conditions to Pending</span>
           </button>
+
+          {onOpenDepositPayment && Number(quotation.nights || 0) >= 1 && (
+            <button
+              type="button"
+              onClick={() => onOpenDepositPayment(quotation)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-emerald-700 hover:bg-emerald-800 text-white rounded transition-colors shadow-sm cursor-pointer"
+              title="Generate or manage 50% deposit payment link for this approved quotation"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-[#c9a96e]" />
+              <span>50% Deposit Link</span>
+            </button>
+          )}
 
           {onCreateRevision && (
             <button

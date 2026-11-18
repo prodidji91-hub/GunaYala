@@ -20,7 +20,7 @@ import {
 
 interface InteractiveTravelMapProps {
   currentLang: Language;
-  onOpenPlanner?: (category?: ExperienceCategory) => void;
+  onOpenPlanner?: (category?: ExperienceCategory, islandId?: string) => void;
 }
 
 export interface MapDestination {
@@ -1155,7 +1155,22 @@ export const InteractiveTravelMap: React.FC<InteractiveTravelMapProps> = ({
                   {/* CTA Action */}
                   {onOpenPlanner && (
                     <button
-                      onClick={() => onOpenPlanner()}
+                      onClick={() => {
+                        if (activeDestination.id === 'isla-franklin') {
+                          onOpenPlanner('overnight', 'franklin-island');
+                        } else if (activeDestination.id === 'perro-chico') {
+                          onOpenPlanner('overnight', 'perro-chico');
+                        } else if (
+                          activeDestination.id === 'natural-pool' ||
+                          activeDestination.id === 'cayos-limon'
+                        ) {
+                          onOpenPlanner('day-trip');
+                        } else if (activeDestination.id === 'cayos-holandeses') {
+                          onOpenPlanner('sailing');
+                        } else {
+                          onOpenPlanner();
+                        }
+                      }}
                       className="w-full mt-2 py-2 px-3 rounded-xl bg-[#d4af37] hover:bg-[#f59e0b] text-[#06121e] font-mono text-[11px] uppercase tracking-wider font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm"
                     >
                       <span>{isEs ? 'Planear Visita a esta Isla' : 'Plan Visit to this Island'}</span>

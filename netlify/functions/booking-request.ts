@@ -88,18 +88,24 @@ export const handler = async (event: NetlifyEvent) => {
     const email = (data.email || data.customerEmail || '').trim().toLowerCase();
     const phone = (data.phone || data.whatsapp || data.customerPhone || '').trim();
     const bookingType = (data.bookingType || 'overnight') as 'overnight' | 'day-trip' | 'private-charter';
-    const experienceTitle = data.experienceTitle || data.experience_interest || 'Guna Yala Island Experience';
-    const targetDate = data.targetDate || data.arrival_date || '';
-    const departureDate = data.departureDate || data.departure_date || '';
-    const nights = data.nights ? String(data.nights) : '';
-    const adults = typeof data.adults === 'number' ? data.adults : 1;
-    const children = typeof data.children === 'number' ? data.children : 0;
-    const accommodationPreference = data.accommodationPreference || data.cabanaStyle || '';
-    const pickupLocation = data.pickupLocation || '';
-    const specialNotes = data.specialNotes || data.notes || '';
+    const experienceTitle = String(data.experienceTitle || data.experience_interest || 'Guna Yala Island Experience').trim();
+    const targetDate = String(data.targetDate || data.arrival_date || '').trim();
+    const departureDate = String(data.departureDate || data.departure_date || '').trim();
+    const nights = data.nights ? String(data.nights).trim() : '';
+    const parsedAdults = Number(data.adults);
+    const parsedChildren = Number(data.children);
+    const adults = data.adults !== undefined && data.adults !== null && Number.isFinite(parsedAdults)
+      ? Math.floor(parsedAdults)
+      : 1;
+    const children = data.children !== undefined && data.children !== null && Number.isFinite(parsedChildren)
+      ? Math.floor(parsedChildren)
+      : 0;
+    const accommodationPreference = String(data.accommodationPreference || data.cabanaStyle || '').trim();
+    const pickupLocation = String(data.pickupLocation || '').trim();
+    const specialNotes = String(data.specialNotes || data.notes || '').trim();
     const termsAccepted = Boolean(data.termsAccepted);
-    const termsVersion = data.termsVersion || '2026-10-18';
-    const customerLanguage = (data.customerLanguage || 'en') as 'en' | 'es';
+    const termsVersion = String(data.termsVersion || '2026-10-18').trim();
+    const customerLanguage = (data.customerLanguage === 'es' ? 'es' : 'en') as 'en' | 'es';
 
     // 1. SERVER-SIDE INPUT & TERMS VALIDATION
     if (!fullName) {

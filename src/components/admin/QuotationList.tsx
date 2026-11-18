@@ -14,6 +14,7 @@ interface QuotationListProps {
   onManageDescriptions?: () => void;
   onManageCrm?: () => void;
   onManagePayments?: () => void;
+  onOpenDepositPayment?: (quotation: Quotation) => void;
 }
 
 export const QuotationList: React.FC<QuotationListProps> = ({
@@ -27,6 +28,7 @@ export const QuotationList: React.FC<QuotationListProps> = ({
   onManageDescriptions,
   onManageCrm,
   onManagePayments,
+  onOpenDepositPayment,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | QuotationStatus>('All');
@@ -316,6 +318,16 @@ export const QuotationList: React.FC<QuotationListProps> = ({
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
+
+                          {onOpenDepositPayment && Number(quote.nights || 0) >= 1 && (
+                            <button
+                              onClick={() => onOpenDepositPayment(quote)}
+                              className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded transition-colors"
+                              title="Generate or Manage 50% Deposit Payment Link"
+                            >
+                              <CreditCard className="w-4 h-4" />
+                            </button>
+                          )}
 
                           <button
                             onClick={() => {

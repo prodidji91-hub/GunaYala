@@ -73,6 +73,7 @@ export interface CreatePaymentSessionParams {
   expiresInSeconds?: number;
   idempotencyKey: string;
   verificationToken?: string;
+  timeoutMs?: number;
 }
 
 export interface PaymentSessionResult {
@@ -85,6 +86,8 @@ export interface PaymentSessionResult {
   isSimulated?: boolean;
   rawGatewayResponse?: any;
   error?: string;
+  uncertainFailure?: boolean;
+  httpStatus?: number;
 }
 
 export interface VerifyTransactionParams {

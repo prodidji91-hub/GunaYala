@@ -30,12 +30,19 @@ import {
 } from '../../types/payment';
 import { supabase } from '../../lib/supabase';
 import { parseSandboxReturnParams, ParsedSandboxReturn } from '../../utils/sandboxReturnParser';
+import { DepositPaymentLinksSection } from './DepositPaymentLinksSection';
 
 interface PaymentManagementPanelProps {
   onBackToDashboard?: () => void;
+  focusedQuotationId?: string | null;
+  onEditQuotationById?: (quotationId: string) => void;
 }
 
-export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ onBackToDashboard }) => {
+export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({
+  onBackToDashboard,
+  focusedQuotationId,
+  onEditQuotationById,
+}) => {
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
 
   // Sandbox Connectivity Test State (Part 25H)
@@ -555,6 +562,14 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
           </button>
         </div>
       )}
+
+      {/* ========================================================
+          OVERNIGHT 50% DEPOSIT PAYMENT LINKS (APPROVED QUOTATIONS)
+         ======================================================== */}
+      <DepositPaymentLinksSection
+        focusedQuotationId={focusedQuotationId}
+        onEditQuotationById={onEditQuotationById}
+      />
 
       {/* Top Banner: Safe Preparation Mode */}
       <div className="bg-[#FAF8F5] border border-[#E2D8C5] rounded-2xl p-5 sm:p-6 shadow-sm">
@@ -1561,19 +1576,15 @@ export const PaymentManagementPanel: React.FC<PaymentManagementPanelProps> = ({ 
         </div>
       </div>
 
-      {/* Action Simulation / Guard Banner */}
-      <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 text-xs text-blue-900 flex items-center justify-between">
+      {/* Overnight Deposit Guidance Banner */}
+      <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 text-xs text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Info className="w-4 h-4 text-blue-700" />
-          <span>Payment action controls in Quotation Editor will become active once Petra's merchant keys are confirmed.</span>
+          <Info className="w-4 h-4 text-blue-700 shrink-0" />
+          <span>Approved overnight quotations can generate 50% PagueloFacil deposit links above using server-calculated integer cents.</span>
         </div>
-        <button
-          disabled
-          className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-500 font-mono text-[11px] cursor-not-allowed opacity-75"
-          title="Disabled in Safe Preparation Mode"
-        >
-          Generate Payment Link (Locked)
-        </button>
+        <span className="text-[11px] font-mono text-blue-800 font-semibold">
+          Public Day-Tour Checkout Controlled Independently
+        </span>
       </div>
     </div>
   );

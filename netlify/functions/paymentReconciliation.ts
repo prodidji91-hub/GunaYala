@@ -37,6 +37,8 @@ export interface ReconciliationResult {
   bookingReference?: string;
   operationCode?: string;
   amountPaid?: number;
+  paymentType?: 'deposit' | 'full' | 'balance' | string;
+  bookingStatus?: string;
   message: string;
   databaseUpdated?: boolean;
   error?: string;
@@ -846,6 +848,8 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     console.log(`[PaymentReconciliation] [Sandbox PARM_1 Check] equal=${parm1EqualsStored}, incomingLength=${incomingLength}, storedLength=${storedLength}`);
   }
 
+  const expectedBookingStatus = existingTx.payment_type === 'deposit' ? 'deposit_received' : 'fully_confirmed';
+
   // Helper to sync/repair booking_requests record atomically/safely with TEST flag
   async function syncBookingRequest(bookingRef: string): Promise<{ success: boolean; error?: any }> {
     if (!bookingRef) return { success: true };
@@ -861,6 +865,10 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     let updatedNotes = existingNotes;
     if (isSandbox) {
       updatedNotes = existingNotes.includes('[TEST') ? existingNotes : `[TEST / RECONCILED] ${existingNotes}`.trim();
+    } else if (existingTx.payment_type === 'deposit') {
+      updatedNotes = existingNotes.includes('[DEPOSIT RECONCILED]')
+        ? existingNotes
+        : `[DEPOSIT RECONCILED] ${existingNotes}`.trim();
     } else {
       if (wasCancelled) {
         updatedNotes = existingNotes.includes('[PROD LIVE TEST / LATE PAYMENT RECONCILED]')
@@ -876,7 +884,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     const { data: bookingUpdatedRows, error: bookingUpdateErr } = await supabaseClient
       .from('booking_requests')
       .update({
-        status: 'fully_confirmed',
+        status: expectedBookingStatus,
         special_notes: updatedNotes,
         updated_at: new Date().toISOString(),
       })
@@ -903,7 +911,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         .select('status')
         .eq('booking_reference', existingTx.booking_reference)
         .maybeSingle();
-      if (bookingRec && bookingRec.status !== 'fully_confirmed') {
+      if (bookingRec && bookingRec.status !== expectedBookingStatus) {
         bookingNeedsRepair = true;
       }
     }
@@ -916,6 +924,8 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         bookingReference: existingTx.booking_reference,
         operationCode: existingTx.gateway_operation_id || operationCode,
         amountPaid: existingTx.amount_paid || existingTx.expected_amount,
+        paymentType: existingTx.payment_type,
+        bookingStatus: expectedBookingStatus,
         message: 'Transaction is already recorded and approved. Idempotent check passed.',
         databaseUpdated: false,
       };
@@ -1185,6 +1195,8 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
         bookingReference: existingTx.booking_reference,
         operationCode: opToQuery,
         amountPaid: existingTx.amount_paid || existingTx.expected_amount,
+        paymentType: existingTx.payment_type,
+        bookingStatus: expectedBookingStatus,
         message: 'Approved payment revalidated against gateway and booking_requests record atomically synchronized.',
         databaseUpdated: true,
         audit: existingTx.audit_metadata,
@@ -1544,6 +1556,7 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
     let atomicSuccess = false;
     let rpcErrorMsg = '';
 
+    let atomicBookingStatus = expectedBookingStatus;
     if (typeof (supabaseClient as any)?.rpc === 'function') {
       try {
         const { data: rpcRes, error: rpcErr } = await (supabaseClient as any).rpc('reconcile_payment_and_booking_atomic', {
@@ -1567,6 +1580,9 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
 
         if (!rpcErr && rpcRes && rpcRes.success) {
           atomicSuccess = true;
+          if (typeof rpcRes.booking_status === 'string') {
+            atomicBookingStatus = rpcRes.booking_status;
+          }
         } else {
           rpcErrorMsg = rpcErr?.message || rpcRes?.error || 'RPC returned unsuccessful result';
         }
@@ -1594,7 +1610,11 @@ export async function reconcilePaymentTransaction(params: ReconciliationParams):
       bookingReference: existingTx.booking_reference,
       operationCode: opToQuery,
       amountPaid,
-      message: `Transaction successfully verified and reconciled. Both payment_transactions and booking_requests records updated.`,
+      paymentType: existingTx.payment_type,
+      bookingStatus: atomicBookingStatus,
+      message: existingTx.payment_type === 'deposit'
+        ? '50% Deposit payment verified and recorded (booking status: deposit_received; remaining balance pending per quotation).'
+        : 'Transaction successfully verified and reconciled. Both payment_transactions and booking_requests records updated.',
       databaseUpdated: true,
       audit: {
         txId: existingTx.id,

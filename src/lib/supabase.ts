@@ -15,8 +15,9 @@ const cleanEnvVar = (val: string, prefix: string): string => {
   return cleaned;
 };
 
-const rawUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const rawKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+const hasViteEnv = typeof import.meta !== 'undefined' && Boolean((import.meta as any).env);
+const rawUrl = (hasViteEnv ? import.meta.env.VITE_SUPABASE_URL : '') || '';
+const rawKey = (hasViteEnv ? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY : '') || '';
 
 const supabaseUrl = cleanEnvVar(rawUrl, 'VITE_SUPABASE_URL');
 const supabaseAnonKey = cleanEnvVar(rawKey, 'VITE_SUPABASE_PUBLISHABLE_KEY');

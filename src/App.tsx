@@ -77,8 +77,10 @@ export default function App() {
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState<boolean>(false);
   const [plannerModalCategory, setPlannerModalCategory] = useState<ExperienceCategory | undefined>(undefined);
   const [plannerModalDayTourPackageId, setPlannerModalDayTourPackageId] = useState<'day-tour-panama-city' | 'day-tour-port' | undefined>(undefined);
+  const [plannerModalOvernightIslandId, setPlannerModalOvernightIslandId] = useState<string | undefined>(undefined);
   const [plannerPreSelectedCategory, setPlannerPreSelectedCategory] = useState<ExperienceCategory | ''>('');
   const [plannerPreSelectedDayTourPackageId, setPlannerPreSelectedDayTourPackageId] = useState<'day-tour-panama-city' | 'day-tour-port' | undefined>(undefined);
+  const [plannerPreSelectedOvernightIslandId, setPlannerPreSelectedOvernightIslandId] = useState<string | undefined>(undefined);
 
   // Routing State for /admin route, including Supabase auth callback detection from root URL
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
@@ -268,8 +270,13 @@ export default function App() {
 
   const handleOpenPlanner = (
     category?: ExperienceCategory,
-    dayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port'
+    dayTourPackageId?: 'day-tour-panama-city' | 'day-tour-port',
+    overnightIslandId?: string
   ) => {
+    const resolvedOvernightId =
+      overnightIslandId ||
+      (category === 'multi-day' ? 'multi-day-exploration' : undefined);
+
     if (category) {
       setPlannerModalCategory(category);
       setPlannerPreSelectedCategory(category);
@@ -279,7 +286,11 @@ export default function App() {
     setPlannerModalDayTourPackageId(dayTourPackageId);
     if (dayTourPackageId) {
       setPlannerPreSelectedDayTourPackageId(dayTourPackageId);
+    } else if (category !== 'day-trip') {
+      setPlannerPreSelectedDayTourPackageId(undefined);
     }
+    setPlannerModalOvernightIslandId(resolvedOvernightId);
+    setPlannerPreSelectedOvernightIslandId(resolvedOvernightId);
     setIsPlannerModalOpen(true);
   };
 
@@ -361,6 +372,7 @@ export default function App() {
           onLanguageChange={handleLanguageChange}
           initialCategory={plannerModalCategory}
           initialDayTourPackageId={plannerModalDayTourPackageId}
+          initialOvernightIslandId={plannerModalOvernightIslandId}
           onOpenExperienceDetails={(exp) => {
             setIsPlannerModalOpen(false);
             handleSetExperienceModal(exp);
@@ -401,13 +413,13 @@ export default function App() {
         {/* 4. Interactive Island Discovery Section (The Islands of Guna Yala - 7 Islands) */}
         <TheIslands
           currentLang={currentLang}
-          onOpenPlanner={(cat, _island, pkgId) => handleOpenPlanner(cat as any, pkgId)}
+          onOpenPlanner={(cat, island, pkgId) => handleOpenPlanner(cat as any, pkgId, island)}
         />
 
         {/* Interactive Editorial Archipelago Travel Map Section */}
         <InteractiveTravelMap
           currentLang={currentLang}
-          onOpenPlanner={(cat) => handleOpenPlanner(cat)}
+          onOpenPlanner={(cat, islandId) => handleOpenPlanner(cat, undefined, islandId)}
         />
 
         {/* Motion Lab 2 Floating Gallery: Cinematic Visual Moments Showcase */}
@@ -430,6 +442,7 @@ export default function App() {
           currentLang={currentLang}
           preSelectedCategory={plannerPreSelectedCategory}
           preSelectedDayTourPackageId={plannerPreSelectedDayTourPackageId}
+          preSelectedOvernightIslandId={plannerPreSelectedOvernightIslandId}
           onOpenExperienceDetails={(exp) => handleSetExperienceModal(exp)}
         />
 
@@ -455,6 +468,7 @@ export default function App() {
         onLanguageChange={handleLanguageChange}
         initialCategory={plannerModalCategory}
         initialDayTourPackageId={plannerModalDayTourPackageId}
+        initialOvernightIslandId={plannerModalOvernightIslandId}
         onOpenExperienceDetails={(exp) => {
           setIsPlannerModalOpen(false);
           handleSetExperienceModal(exp);

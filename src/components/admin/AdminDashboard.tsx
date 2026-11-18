@@ -23,6 +23,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [depositFocusQuotationId, setDepositFocusQuotationId] = useState<string | null>(null);
 
   // Initialize view and selected quotation from persistent draft / storage state if available
   const [activeView, setActiveView] = useState<'list' | 'editor' | 'preview' | 'descriptions' | 'crm' | 'payments'>(() => {
@@ -280,6 +281,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
     setViewState('preview', quote);
   };
 
+  const handleOpenDepositPayment = (quote?: Quotation) => {
+    setDepositFocusQuotationId(quote?.id || null);
+    setViewState('payments', quote || null);
+  };
+
+  const handleEditQuotationById = (quotationId: string) => {
+    const found = quotations.find((q) => q.id === quotationId);
+    if (found) {
+      handleEdit(found);
+    }
+  };
+
   const handleResetData = async () => {
     setApiError(null);
     try {
@@ -345,7 +358,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
                 onPreview={handlePreview}
                 onManageDescriptions={() => setViewState('descriptions', null)}
                 onManageCrm={() => setViewState('crm', null)}
-                onManagePayments={() => setViewState('payments', null)}
+                onManagePayments={() => handleOpenDepositPayment()}
+                onOpenDepositPayment={(quote) => handleOpenDepositPayment(quote)}
               />
             )}
 
@@ -372,7 +386,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
 
             {activeView === 'payments' && (
               <PaymentManagementPanel
-                onBackToDashboard={() => setViewState('list', null)}
+                onBackToDashboard={() => {
+                  setDepositFocusQuotationId(null);
+                  setViewState('list', null);
+                }}
+                focusedQuotationId={depositFocusQuotationId}
+                onEditQuotationById={handleEditQuotationById}
               />
             )}
 
@@ -387,6 +406,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
                   setSelectedQuotation(quote);
                   setViewState('editor', quote);
                 }}
+                onOpenDepositPayment={(quote) => handleOpenDepositPayment(quote)}
                 onCancel={() => {
                   clearDraftState();
                   setApiError(null);
@@ -405,6 +425,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToWebsite 
                   setSelectedQuotation(quote);
                   setViewState('preview', quote);
                 }}
+                onOpenDepositPayment={(quote) => handleOpenDepositPayment(quote)}
                 onBackToEdit={() => {
                   setViewState('editor', selectedQuotation);
                 }}
